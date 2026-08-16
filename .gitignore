@@ -4,3 +4,4 @@ logs/
 *.csv
 *.csv.gz
 wallet/
+.loadDaily.lock

@@ -97,6 +97,9 @@ async function processFile(endpointName, fileKey, handlers) {
   const csvRows = await jquantsClient.fetchBulkFile(fileKey);
   const dbRows = csvRows.map(handlers.mapRow);
 
+  // 桁あふれをexecuteMany前に検出し、原因の列と値を特定できるようにする
+  csvMapper.validateLengths(dbRows, handlers.columns, handlers.bindDefs);
+
   // --- ステージング投入 → MERGE → コミット ---
   return db.withConnection(async (connection) => {
     await db.markProgressStarted(connection, endpointName, fileKey);
@@ -113,6 +116,7 @@ async function processFile(endpointName, fileKey, handlers) {
         {
           valueExpressions: handlers.valueExpressions,
           bindDefs: handlers.bindDefs,
+          batchSize: handlers.batchSize,
         }
       );
 
@@ -135,6 +139,55 @@ async function processFile(endpointName, fileKey, handlers) {
 }
 
 /**
+ * 銘柄マスタ取り込み用のハンドラ定義(loadMaster / テストスクリプトから共用)
+ */
+const MASTER_HANDLERS = {
+  stagingTable: 'EQUITY_MASTER_STG',
+  columns: csvMapper.MASTER_COLUMNS,
+  valueExpressions: csvMapper.MASTER_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.MASTER_BIND_DEFS,
+  mapRow: csvMapper.mapMasterRow,
+  // 銘柄名列(2000バイト×2)のバッファがバッチサイズ分確保されるため、
+  // 株価より小さめにしてメモリ使用量を抑える
+  batchSize: 2000,
+  merge: async (connection) => {
+    // EQUITY_MASTER_HIST は EQUITY_MASTER への外部キーを持つため、必ずこの順序で実行する
+    await mergeSql.mergeMaster(connection);
+    await mergeSql.mergeMasterHist(connection);
+  },
+};
+
+/**
+ * 株価四本値取り込み用のハンドラ定義(loadPrice / テストスクリプトから共用)
+ */
+const PRICE_HANDLERS = {
+  stagingTable: 'EQUITY_PRICE_DAILY_STG',
+  columns: csvMapper.PRICE_COLUMNS,
+  valueExpressions: csvMapper.PRICE_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.PRICE_BIND_DEFS,
+  mapRow: csvMapper.mapPriceRow,
+  merge: async (connection) => {
+    // 外部キー違反は MERGE 時に ORA-02291 として出るが、
+    // どの銘柄が原因か分からないため事前に検出して分かりやすいエラーにする
+    const unknownCodes = await mergeSql.findUnknownCodesInPriceStg(connection);
+    if (unknownCodes.length > 0) {
+      throw new Error(
+        `EQUITY_MASTERに存在しない銘柄コードが${unknownCodes.length}件あります: ` +
+          `${unknownCodes.slice(0, 10).join(', ')}${unknownCodes.length > 10 ? ' ...' : ''}\n` +
+          '  考えられる原因:\n' +
+          '   (1) マスタ(Phase 1)が最後まで完了していない\n' +
+          '   (2) 該当銘柄が、取り込み済みのマスタ基準日より後に上場廃止された\n' +
+          '       (マスタのliveファイルは翌営業日時点の一覧のため、\n' +
+          '        当日廃止された銘柄は最新スナップショットに含まれない)\n' +
+          '  Phase 1 が全ファイル完了していれば過去のマスタから補完されるため、\n' +
+          '  この状態にはならない。'
+      );
+    }
+    await mergeSql.mergePriceDaily(connection);
+  },
+};
+
+/**
  * Phase 1: 銘柄マスタの取り込み
  */
 async function loadMaster() {
@@ -142,24 +195,11 @@ async function loadMaster() {
   const files = sortFilesChronologically(await jquantsClient.listBulkFiles(ENDPOINT_MASTER));
   console.log(`対象ファイル数: ${files.length}`);
 
-  const handlers = {
-    stagingTable: 'EQUITY_MASTER_STG',
-    columns: csvMapper.MASTER_COLUMNS,
-    valueExpressions: csvMapper.MASTER_VALUE_EXPRESSIONS,
-    bindDefs: csvMapper.MASTER_BIND_DEFS,
-    mapRow: csvMapper.mapMasterRow,
-    merge: async (connection) => {
-      // EQUITY_MASTER_HIST は EQUITY_MASTER への外部キーを持つため、必ずこの順序で実行する
-      await mergeSql.mergeMaster(connection);
-      await mergeSql.mergeMasterHist(connection);
-    },
-  };
-
   let total = 0;
   for (let i = 0; i < files.length; i += 1) {
     const { Key } = files[i];
     process.stdout.write(`[${i + 1}/${files.length}] `);
-    const { rowCount } = await processFile(ENDPOINT_MASTER, Key, handlers);
+    const { rowCount } = await processFile(ENDPOINT_MASTER, Key, MASTER_HANDLERS);
     total += rowCount;
     await jquantsClient.throttle();
   }
@@ -187,32 +227,11 @@ async function loadPrice() {
   const files = sortFilesChronologically(await jquantsClient.listBulkFiles(ENDPOINT_PRICE));
   console.log(`対象ファイル数: ${files.length}`);
 
-  const handlers = {
-    stagingTable: 'EQUITY_PRICE_DAILY_STG',
-    columns: csvMapper.PRICE_COLUMNS,
-    valueExpressions: csvMapper.PRICE_VALUE_EXPRESSIONS,
-    bindDefs: csvMapper.PRICE_BIND_DEFS,
-    mapRow: csvMapper.mapPriceRow,
-    merge: async (connection) => {
-      // 外部キー違反は MERGE 時に ORA-02291 として出るが、
-      // どの銘柄が原因か分からないため事前に検出して分かりやすいエラーにする
-      const unknownCodes = await mergeSql.findUnknownCodesInPriceStg(connection);
-      if (unknownCodes.length > 0) {
-        throw new Error(
-          `EQUITY_MASTERに存在しない銘柄コードが${unknownCodes.length}件あります: ` +
-            `${unknownCodes.slice(0, 10).join(', ')}${unknownCodes.length > 10 ? ' ...' : ''}\n` +
-            'マスタ(Phase 1)が最後まで完了しているか確認してください。'
-        );
-      }
-      await mergeSql.mergePriceDaily(connection);
-    },
-  };
-
   let total = 0;
   for (let i = 0; i < files.length; i += 1) {
     const { Key } = files[i];
     process.stdout.write(`[${i + 1}/${files.length}] `);
-    const { rowCount } = await processFile(ENDPOINT_PRICE, Key, handlers);
+    const { rowCount } = await processFile(ENDPOINT_PRICE, Key, PRICE_HANDLERS);
     total += rowCount;
     await jquantsClient.throttle();
   }
@@ -231,15 +250,29 @@ async function main() {
   console.log(`初回投入バッチが完了しました (所要時間: ${formatDuration(Date.now() - startedAt)})`);
 }
 
-main()
-  .then(async () => {
-    await db.closePool();
-    process.exit(0);
-  })
-  .catch(async (err) => {
-    console.error('\n初回投入バッチが異常終了しました:', err);
-    console.error('再実行すると、取り込み済みのファイルはスキップされ続きから処理されます。');
-    await db.closePool().catch(() => {});
-    process.exit(1);
-  });
+// テストスクリプト等からrequireされた場合は実行しない
+if (require.main === module) {
+  main()
+    .then(async () => {
+      await db.closePool();
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error('\n初回投入バッチが異常終了しました:', err);
+      console.error('再実行すると、取り込み済みのファイルはスキップされ続きから処理されます。');
+      await db.closePool().catch(() => {});
+      process.exit(1);
+    });
+}
 
+module.exports = {
+  ENDPOINT_MASTER,
+  ENDPOINT_PRICE,
+  MASTER_HANDLERS,
+  PRICE_HANDLERS,
+  sortFilesChronologically,
+  processFile,
+  loadMaster,
+  loadPrice,
+  updateDelistedFlag,
+};

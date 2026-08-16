@@ -76,23 +76,62 @@ const MASTER_VALUE_EXPRESSIONS = [
   null, null, null, null, null, null, null, null, null, null, null, null,
 ];
 
-/** NULLを含む列でも型が確定するようbindDefsを明示する */
+/**
+ * NULLを含む列でも型が確定するようbindDefsを明示する。
+ *
+ * maxSize はバイト単位。DDL側は VARCHAR2(n CHAR)(文字数指定)なので、
+ * UTF-8の日本語が1文字最大4バイトになることを考慮し、文字数×4 を確保する。
+ * (ETF等に非常に長い銘柄名が存在するため、余裕を持たせている)
+ */
 const MASTER_BIND_DEFS = [
-  { type: oracledb.STRING, maxSize: 10 },  // code
-  { type: oracledb.STRING, maxSize: 10 },  // as_of_date (TO_DATEに渡す文字列)
-  { type: oracledb.STRING, maxSize: 200 }, // co_name
-  { type: oracledb.STRING, maxSize: 200 }, // co_name_en
-  { type: oracledb.STRING, maxSize: 4 },   // sector17_code
-  { type: oracledb.STRING, maxSize: 100 }, // sector17_name
-  { type: oracledb.STRING, maxSize: 4 },   // sector33_code
-  { type: oracledb.STRING, maxSize: 100 }, // sector33_name
-  { type: oracledb.STRING, maxSize: 50 },  // scale_category
-  { type: oracledb.STRING, maxSize: 4 },   // market_code
-  { type: oracledb.STRING, maxSize: 50 },  // market_name
-  { type: oracledb.STRING, maxSize: 4 },   // margin_code
-  { type: oracledb.STRING, maxSize: 50 },  // margin_name
-  { type: oracledb.STRING, maxSize: 10 },  // prod_category
+  { type: oracledb.STRING, maxSize: 40 },   // code
+  { type: oracledb.STRING, maxSize: 10 },   // as_of_date (TO_DATEに渡す文字列)
+  { type: oracledb.STRING, maxSize: 2000 }, // co_name       (500 CHAR)
+  { type: oracledb.STRING, maxSize: 2000 }, // co_name_en    (500 CHAR)
+  { type: oracledb.STRING, maxSize: 40 },   // sector17_code (10 CHAR)
+  { type: oracledb.STRING, maxSize: 400 },  // sector17_name (100 CHAR)
+  { type: oracledb.STRING, maxSize: 40 },   // sector33_code (10 CHAR)
+  { type: oracledb.STRING, maxSize: 400 },  // sector33_name (100 CHAR)
+  { type: oracledb.STRING, maxSize: 400 },  // scale_category(100 CHAR)
+  { type: oracledb.STRING, maxSize: 40 },   // market_code   (10 CHAR)
+  { type: oracledb.STRING, maxSize: 400 },  // market_name   (100 CHAR)
+  { type: oracledb.STRING, maxSize: 40 },   // margin_code   (10 CHAR)
+  { type: oracledb.STRING, maxSize: 400 },  // margin_name   (100 CHAR)
+  { type: oracledb.STRING, maxSize: 80 },   // prod_category (20 CHAR)
 ];
+
+/**
+ * bindDefsのmaxSize(バイト数)を超える値が含まれていないか事前検査する。
+ *
+ * executeManyが投げる NJS-058 は「何行目の何バイト」しか分からず、
+ * どの列でどんな値が原因なのか特定しづらいため、投入前に列名と実値を添えて報告する。
+ *
+ * @param {any[][]} rows
+ * @param {string[]} columns
+ * @param {object[]} bindDefs
+ * @throws {Error} 超過した値があった場合
+ */
+function validateLengths(rows, columns, bindDefs) {
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+    for (let c = 0; c < bindDefs.length; c += 1) {
+      const def = bindDefs[c];
+      if (!def || def.type !== oracledb.STRING || !def.maxSize) continue;
+      const v = row[c];
+      if (v === null || v === undefined) continue;
+      const bytes = Buffer.byteLength(String(v), 'utf8');
+      if (bytes > def.maxSize) {
+        throw new Error(
+          `列 ${columns[c]} の値が上限(${def.maxSize}バイト)を超えています: ` +
+            `${bytes}バイト / ${String(v).length}文字\n` +
+            `  該当行(${r + 1}行目)の値: ${String(v).slice(0, 120)}` +
+            `${String(v).length > 120 ? '…' : ''}\n` +
+            '  csvMapper.js の bindDefs と、DDLのカラム定義の両方を広げてください。'
+        );
+      }
+    }
+  }
+}
 
 /**
  * 銘柄マスタCSVの1行を、EQUITY_MASTER_STG投入用の配列に変換する。
@@ -181,6 +220,7 @@ function mapPriceRow(row) {
 
 module.exports = {
   toStr,
+  validateLengths,
   toNum,
   toDateStr,
   MASTER_COLUMNS,
@@ -192,4 +232,3 @@ module.exports = {
   PRICE_BIND_DEFS,
   mapPriceRow,
 };
-
