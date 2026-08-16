@@ -5,3 +5,4 @@ logs/
 *.csv.gz
 wallet/
 .loadDaily.lock
+.DS_Store
