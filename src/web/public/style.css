@@ -1,0 +1,237 @@
+/*
+ * 配色は chart.js が出力するHTMLと同じトークンを使い、
+ * 一覧とグラフで見た目が地続きになるようにしている。
+ */
+*, *::before, *::after { box-sizing: border-box; }
+
+.viz-root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --series-1: #2a78d6;
+  --border: rgba(11,11,11,0.10);
+  --good: #006300;
+  --good-mark: #0ca30c;
+  --critical: #d03b3b;
+  --hover-wash: rgba(11,11,11,0.04);
+  --sel-wash: rgba(42,120,214,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --series-1: #3987e5;
+    --border: rgba(255,255,255,0.10);
+    --good: #0ca30c;
+    --good-mark: #0ca30c;
+    --critical: #d03b3b;
+    --hover-wash: rgba(255,255,255,0.06);
+    --sel-wash: rgba(57,135,229,0.16);
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --baseline: #383835;
+  --series-1: #3987e5;
+  --border: rgba(255,255,255,0.10);
+  --good: #0ca30c;
+  --good-mark: #0ca30c;
+  --critical: #d03b3b;
+  --hover-wash: rgba(255,255,255,0.06);
+  --sel-wash: rgba(57,135,229,0.16);
+}
+
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--page);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.viz-root { background: var(--page); min-height: 100vh; padding-bottom: 40px; }
+
+/* ---------- 上部バー ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--page);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex; align-items: center; gap: 14px;
+}
+.topbar h1 { font-size: 15px; font-weight: 600; margin: 0; }
+.meta { font-size: 12px; color: var(--text-secondary); }
+.spacer { flex: 1 1 auto; }
+
+/* ---------- 共通部品 ---------- */
+.btn, .link, .chip {
+  font: inherit; font-size: 12px; cursor: pointer;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text-primary);
+  padding: 5px 10px; text-decoration: none; display: inline-block;
+}
+.btn:hover, .chip:hover { background: var(--hover-wash); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--series-1); color: #fff; border-color: transparent; font-weight: 600; padding: 6px 18px; }
+.btn.primary:hover { filter: brightness(1.08); }
+.link { border: 0; background: none; color: var(--series-1); padding: 0; }
+.chip[aria-pressed="true"] { background: var(--series-1); color: #fff; border-color: transparent; }
+input[type="date"], input.num {
+  font: inherit; font-size: 12px; padding: 4px 8px;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text-primary);
+}
+input.num { width: 74px; text-align: right; font-variant-numeric: tabular-nums; }
+.unit { font-size: 12px; color: var(--muted); }
+
+/* ---------- 条件パネル ---------- */
+.panel {
+  margin: 14px 20px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px 14px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.panel-summary {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 12px; color: var(--text-secondary);
+}
+.summary-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel.collapsed { padding: 8px 16px; }
+.panel.collapsed .field,
+.panel.collapsed .submit-row { display: none; }
+
+.field-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.field-head label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.req { font-size: 10px; color: var(--critical); margin-left: 4px; font-weight: 400; }
+.field-actions { margin-left: auto; }
+
+.tag-groups { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.tag-group { min-width: 220px; }
+.tag-group-head {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 11px; color: var(--muted); margin-bottom: 3px;
+}
+.tag-list { display: flex; flex-direction: column; gap: 1px; }
+.tag-item {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12px; padding: 2px 6px; border-radius: 4px; cursor: pointer;
+}
+.tag-item:hover { background: var(--hover-wash); }
+.tag-item input { margin: 0; }
+.tag-code {
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  min-width: 26px; font-size: 11px;
+}
+.tag-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.tag-item.zero .tag-name { color: var(--muted); }
+
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.dates { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-secondary); }
+.opts { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--text-secondary); }
+.opt { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.submit-row { display: flex; align-items: center; gap: 14px; }
+.status { font-size: 12px; color: var(--text-secondary); }
+.status.error { color: var(--critical); }
+
+/* ---------- タブ ---------- */
+.tabs { display: flex; gap: 4px; margin: 0 20px; border-bottom: 1px solid var(--border); }
+.tab {
+  font: inherit; font-size: 13px; padding: 8px 16px; cursor: pointer;
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+}
+.tab[aria-selected="true"] { color: var(--text-primary); font-weight: 600; border-bottom-color: var(--series-1); }
+.tab:hover { background: var(--hover-wash); }
+
+.pane { margin: 12px 20px 0; }
+.empty {
+  margin: 60px 20px; text-align: center; color: var(--muted); font-size: 13px;
+}
+
+/* ---------- 結果バー ---------- */
+.result-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-bottom: 8px;
+}
+.result-count { font-size: 12px; color: var(--text-secondary); }
+.ctl { display: flex; align-items: center; gap: 6px; }
+
+/* ---------- テーブル ---------- */
+.table-wrap {
+  overflow: auto; max-height: calc(100vh - 300px);
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1);
+}
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
+th, td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--surface-1); color: var(--text-secondary);
+  font-weight: 600; text-align: left; border-bottom: 1px solid var(--baseline);
+}
+th.num-col, td.num-col { text-align: right; }
+td.num-col { font-variant-numeric: tabular-nums; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { background: var(--hover-wash); }
+th.sortable[aria-sort]::after { content: " ↓"; color: var(--series-1); }
+th.sortable[aria-sort="ascending"]::after { content: " ↑"; }
+th.c-sel, td.c-sel { width: 30px; text-align: center; padding-right: 0; }
+tbody tr:hover { background: var(--hover-wash); }
+tbody tr.selected { background: var(--sel-wash); }
+td.code { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+td.name { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+td.dim { color: var(--muted); }
+.pct.up { color: var(--good); }
+.pct.down { color: var(--critical); }
+.pct.flat { color: var(--text-secondary); }
+
+/* 騰落率の横棒。中央が0で、上昇は右、下落は左に伸びる。
+   色だけに頼らないよう、数値は必ず符号付きで別列に出している。 */
+.bar-cell { width: 108px; padding: 0 10px; }
+.bar { position: relative; height: 14px; }
+.bar::before {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
+  width: 1px; background: var(--baseline);
+}
+.bar i {
+  position: absolute; top: 3px; height: 8px; display: block; border-radius: 2px;
+}
+.bar i.up { left: 50%; background: var(--good-mark); border-radius: 0 4px 4px 0; }
+.bar i.down { right: 50%; background: var(--critical); border-radius: 4px 0 0 4px; }
+
+.badge {
+  font-size: 10px; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px;
+}
+.tags { color: var(--muted); font-size: 11px; }
+.note { font-size: 11px; color: var(--muted); margin: 8px 2px 0; }
+
+/* ---------- チャート ---------- */
+#chartFrame {
+  width: 100%; height: calc(100vh - 220px); min-height: 420px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1);
+}
+
+@media (max-width: 720px) {
+  .panel, .pane, .tabs { margin-left: 10px; margin-right: 10px; }
+  .table-wrap { max-height: none; }
+}

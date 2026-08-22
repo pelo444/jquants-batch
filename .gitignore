@@ -6,3 +6,6 @@ logs/
 wallet/
 .loadDaily.lock
 .DS_Store
+
+# chart.js の出力(再生成できるのでコミットしない)
+output/

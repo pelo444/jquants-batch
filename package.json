@@ -2,15 +2,18 @@
   "name": "jquants-batch",
   "version": "1.0.0",
   "private": true,
-  "description": "J-Quants Bulk APIから株価・銘柄マスタを取得しOracleへ取り込むバッチ",
+  "description": "J-Quants Bulk APIから株価・銘柄マスタを取得しOracleへ取り込むバッチ、および分析用グラフ生成ツール・Webアプリ",
   "main": "src/loadDaily.js",
   "scripts": {
     "load:initial": "node src/loadInitial.js",
-    "load:daily": "node src/loadDaily.js"
+    "load:daily": "node src/loadDaily.js",
+    "chart": "node src/chart.js",
+    "web": "node src/web/server.js"
   },
   "dependencies": {
     "csv-parse": "^5.5.6",
     "dotenv": "^16.4.5",
+    "express": "^4.21.2",
     "oracledb": "^6.5.1"
   },
   "engines": {

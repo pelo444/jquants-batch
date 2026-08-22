@@ -1,0 +1,56 @@
+#
+# 株価タグ分析Webアプリ の systemd ユニット雛形
+#
+# 使い方:
+#   sudo cp src/web/jquants-web.service /etc/systemd/system/
+#   sudo vi /etc/systemd/system/jquants-web.service   # User/WorkingDirectory を環境に合わせる
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now jquants-web
+#   journalctl -u jquants-web -f
+#
+[Unit]
+Description=jquants 株価タグ分析 Webアプリ
+Documentation=file:///home/opc/jquants-batch/src/web/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ---- 環境に合わせて書き換えること ----
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/jquants-batch
+ExecStart=/usr/bin/node src/web/server.js
+# --------------------------------------
+
+# .env はWorkingDirectory直下のものが dotenv により読まれる。
+# systemd側で明示したい場合は EnvironmentFile を使う。
+# EnvironmentFile=/home/opc/jquants-batch/.env
+
+Environment=NODE_ENV=production
+Environment=JQB_WEB_PORT=3000
+# 認証はリバースプロキシ側で行う前提。直接外部に晒さないこと。
+Environment=JQB_WEB_HOST=127.0.0.1
+
+Restart=on-failure
+RestartSec=5
+# SIGTERM を受けたらプールを閉じてから終了する(server.js側で処理している)
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jquants-web
+
+# ---- 最低限のサンドボックス ----
+# ウォレットや.envの読み取りが必要なので ProtectHome は使わない。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

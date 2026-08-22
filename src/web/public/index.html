@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>株価タグ分析</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12L6 7l3 3 5-7' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>株価タグ分析</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <button class="btn" id="themeBtn" type="button">ダーク</button>
+  </header>
+
+  <!-- ================= 条件 ================= -->
+  <section class="panel" id="filterPanel">
+    <!-- 結果表示後はここだけを残して折りたたみ、表とグラフの高さを確保する -->
+    <div class="panel-summary" id="panelSummary" hidden>
+      <span class="summary-text" id="summaryText"></span>
+      <button class="link" id="editBtn" type="button">条件を変更</button>
+    </div>
+    <div class="field">
+      <div class="field-head">
+        <label>タグ<span class="req">必須</span></label>
+        <span class="field-actions">
+          <button class="link" id="tagClear" type="button">すべて解除</button>
+        </span>
+      </div>
+      <div id="tagGroups" class="tag-groups"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-head"><label>期間</label></div>
+      <div class="presets" id="presets">
+        <button class="chip" type="button" data-months="1">1ヶ月</button>
+        <button class="chip" type="button" data-months="3">3ヶ月</button>
+        <button class="chip" type="button" data-months="6">6ヶ月</button>
+        <button class="chip" type="button" data-months="12">1年</button>
+        <button class="chip" type="button" data-months="36">3年</button>
+        <button class="chip" type="button" data-ytd="1">年初来</button>
+      </div>
+      <div class="dates">
+        <label>開始 <input type="date" id="dFrom"></label>
+        <label>終了 <input type="date" id="dTo"></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-head"><label>オプション</label></div>
+      <div class="opts">
+        <label class="opt">
+          <input type="checkbox" id="optFund" checked>
+          ETF・REIT等を除外
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="optDelisted" checked>
+          上場廃止銘柄を除外
+        </label>
+        <label class="opt">
+          最低営業日数
+          <input type="number" id="optMinDays" min="0" max="3000" step="10" value="0" class="num">
+        </label>
+      </div>
+    </div>
+
+    <div class="submit-row">
+      <button class="btn primary" id="runBtn" type="button">表示</button>
+      <span class="status" id="status"></span>
+    </div>
+  </section>
+
+  <!-- ================= 結果 ================= -->
+  <nav class="tabs" id="tabs" hidden>
+    <button class="tab" data-tab="table" aria-selected="true" type="button">騰落率一覧</button>
+    <button class="tab" data-tab="chart" aria-selected="false" type="button">チャート</button>
+  </nav>
+
+  <section class="pane" id="paneTable" hidden>
+    <div class="result-bar">
+      <span class="result-count" id="resultCount"></span>
+      <span class="spacer"></span>
+      <span class="ctl">
+        <button class="btn" id="chartTopBtn" type="button">上位をグラフ表示</button>
+        <button class="btn" id="chartBottomBtn" type="button">下位をグラフ表示</button>
+        <input type="number" id="chartLimit" class="num" min="1" value="30" title="グラフ表示する件数">
+        <span class="unit">件</span>
+      </span>
+      <span class="ctl">
+        <button class="btn" id="chartSelBtn" type="button" disabled>選択をグラフ表示</button>
+        <button class="btn" id="csvBtn" type="button">CSV</button>
+      </span>
+    </div>
+    <div class="table-wrap">
+      <table id="resultTable">
+        <thead>
+          <tr>
+            <th class="c-sel"><input type="checkbox" id="selAll" title="すべて選択"></th>
+            <th class="sortable" data-key="code">コード</th>
+            <th class="sortable" data-key="name">企業名</th>
+            <th class="sortable num-col" data-key="changePct" aria-sort="descending">騰落率</th>
+            <th class="num-col">推移</th>
+            <th class="sortable num-col" data-key="p1">起点</th>
+            <th class="sortable num-col" data-key="p2">期間末</th>
+            <th class="sortable num-col" data-key="diff">差</th>
+            <th class="sortable num-col" data-key="tradingDays">営業日</th>
+            <th class="sortable" data-key="market">市場</th>
+            <th class="sortable" data-key="sector33">33業種</th>
+            <th>タグ</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+    <p class="note">
+      株価は株式分割・併合を調整済みです（期間末の株価水準に揃えています）。
+      「分割」バッジが付いた銘柄は期間中に分割・併合があったことを示します。
+    </p>
+  </section>
+
+  <section class="pane" id="paneChart" hidden>
+    <div class="result-bar">
+      <span class="result-count" id="chartCaption"></span>
+      <span class="spacer"></span>
+      <a class="btn" id="chartOpenBtn" target="_blank" rel="noopener">別タブで開く</a>
+    </div>
+    <iframe id="chartFrame" title="株価チャート一覧"></iframe>
+  </section>
+
+  <div class="empty" id="empty">
+    タグと期間を選んで「表示」を押してください。
+  </div>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
