@@ -12,6 +12,19 @@
  *   Phase 2: 上場廃止フラグの更新
  *   Phase 3: 株価四本値(/equities/bars/daily)を全ファイル取り込み
  *            → EQUITY_PRICE_DAILY
+ *   Phase 4: 業種別空売り比率(/markets/short-ratio)      → SECTOR_SHORT_RATIO
+ *   Phase 5: 信用取引残高(/markets/margin-interest)      → EQUITY_MARGIN_INTEREST
+ *   Phase 6: 日々公表信用取引残高(/markets/margin-alert) → EQUITY_MARGIN_ALERT
+ *   Phase 7: 空売り残高報告(/markets/short-sale-report)  → EQUITY_SHORT_POSITION
+ *
+ * Phase 4〜7 は Standardプラン以上でのみ利用できる。
+ * Phase 5〜7 は EQUITY_MASTER への外部キーを持つためマスタの後に実行する。
+ *
+ * 【一部のフェーズだけ実行する】
+ *   既に株価まで取り込み済みの環境に空売り系を追加する場合は --only が使える。
+ *     node src/loadInitial.js --only short          (Phase 4〜7)
+ *     node src/loadInitial.js --only short-ratio    (単独指定)
+ *     node src/loadInitial.js --only equity         (Phase 1〜3)
  *
  * マスタを先に完了させるのは、EQUITY_PRICE_DAILY が EQUITY_MASTER への
  * 外部キーを持つため。過去に上場廃止された銘柄の株価も含まれるので、
@@ -32,6 +45,12 @@ const mergeSql = require('./mergeSql');
 
 const ENDPOINT_MASTER = '/equities/master';
 const ENDPOINT_PRICE = '/equities/bars/daily';
+
+// 空売り・信用取引関連(いずれもStandardプラン以上)
+const ENDPOINT_SHORT_RATIO = '/markets/short-ratio';        // 業種別空売り比率
+const ENDPOINT_MARGIN_INTEREST = '/markets/margin-interest'; // 信用取引残高
+const ENDPOINT_MARGIN_ALERT = '/markets/margin-alert';       // 日々公表信用取引残高
+const ENDPOINT_SHORT_POSITION = '/markets/short-sale-report'; // 空売り残高報告
 
 /**
  * Bulk APIのKeyを処理順(時系列)に並べ替える。
@@ -239,13 +258,235 @@ async function loadPrice() {
   console.log(`Phase 3 完了: 合計 ${total.toLocaleString()} 行\n`);
 }
 
+//==================================================================
+// 空売り・信用取引関連のハンドラ
+//
+// いずれも EQUITY_MASTER への外部キーを持つため、Phase 1(マスタ)の
+// 完了後に実行すること。
+//==================================================================
+
+/**
+ * 外部キー違反を事前に検出し、原因の銘柄が分かるエラーにする。
+ * @param {import('oracledb').Connection} connection
+ * @param {string} stagingTable
+ * @param {string} label
+ */
+async function assertCodesKnown(connection, stagingTable, label) {
+  const unknown = await mergeSql.findUnknownCodesInStg(connection, stagingTable);
+  if (unknown.length > 0) {
+    throw new Error(
+      `${label}: EQUITY_MASTERに存在しない銘柄コードが${unknown.length}件あります: ` +
+        `${unknown.slice(0, 10).join(', ')}${unknown.length > 10 ? ' ...' : ''}\n` +
+        '  考えられる原因:\n' +
+        '   (1) マスタ(Phase 1)が最後まで完了していない\n' +
+        '   (2) このデータの提供期間がマスタの取込期間より長く、\n' +
+        '       マスタに存在しない過去の銘柄が含まれている\n' +
+        '  (2)の場合は該当エンドポイントの取込開始日を後ろにずらすか、\n' +
+        '  マスタの取込期間を延ばしてください。'
+    );
+  }
+}
+
+/** 業種別空売り比率(33業種単位。銘柄への外部キーは無い) */
+const SHORT_RATIO_HANDLERS = {
+  stagingTable: 'SECTOR_SHORT_RATIO_STG',
+  columns: csvMapper.SHORT_RATIO_COLUMNS,
+  valueExpressions: csvMapper.SHORT_RATIO_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.SHORT_RATIO_BIND_DEFS,
+  mapRow: csvMapper.mapShortRatioRow,
+  merge: async (connection) => {
+    await mergeSql.mergeShortRatio(connection);
+  },
+};
+
+/** 信用取引残高(2026/9/24以前は週末時点、9/25以降は日次) */
+const MARGIN_INTEREST_HANDLERS = {
+  stagingTable: 'EQUITY_MARGIN_INTEREST_STG',
+  columns: csvMapper.MARGIN_INTEREST_COLUMNS,
+  valueExpressions: csvMapper.MARGIN_INTEREST_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.MARGIN_INTEREST_BIND_DEFS,
+  mapRow: csvMapper.mapMarginInterestRow,
+  merge: async (connection) => {
+    await assertCodesKnown(connection, 'EQUITY_MARGIN_INTEREST_STG', '信用取引残高');
+    await mergeSql.mergeMarginInterest(connection);
+  },
+};
+
+/** 日々公表信用取引残高(日々公表銘柄のみ) */
+const MARGIN_ALERT_HANDLERS = {
+  stagingTable: 'EQUITY_MARGIN_ALERT_STG',
+  columns: csvMapper.MARGIN_ALERT_COLUMNS,
+  valueExpressions: csvMapper.MARGIN_ALERT_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.MARGIN_ALERT_BIND_DEFS,
+  mapRow: csvMapper.mapMarginAlertRow,
+  merge: async (connection) => {
+    await assertCodesKnown(connection, 'EQUITY_MARGIN_ALERT_STG', '日々公表信用取引残高');
+    await mergeSql.mergeMarginAlert(connection);
+  },
+};
+
+/**
+ * 空売り残高報告(報告者単位の明細)
+ * MERGEではなく公表日単位の洗い替え。理由は mergeSql.replaceShortPosition() を参照。
+ */
+const SHORT_POSITION_HANDLERS = {
+  stagingTable: 'EQUITY_SHORT_POSITION_STG',
+  columns: csvMapper.SHORT_POSITION_COLUMNS,
+  valueExpressions: csvMapper.SHORT_POSITION_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.SHORT_POSITION_BIND_DEFS,
+  mapRow: csvMapper.mapShortPositionRow,
+  // 名称・住所・備考が4000バイト×6列あるため、バッチサイズを絞ってメモリを抑える
+  batchSize: 2000,
+  merge: async (connection) => {
+    await assertCodesKnown(connection, 'EQUITY_SHORT_POSITION_STG', '空売り残高報告');
+    await mergeSql.replaceShortPosition(connection);
+  },
+};
+
+/**
+ * 1エンドポイント分のBulkファイルをすべて取り込む汎用処理。
+ * Phase 4以降はどれも同じ流れなので共通化している。
+ *
+ * @param {string} endpointName
+ * @param {object} handlers
+ * @param {string} label ログ表示用(例: 'Phase 4: 業種別空売り比率')
+ */
+async function loadEndpoint(endpointName, handlers, label) {
+  console.log(`=== ${label} の取り込み ===`);
+  const files = sortFilesChronologically(await jquantsClient.listBulkFiles(endpointName));
+  console.log(`対象ファイル数: ${files.length}`);
+
+  if (files.length === 0) {
+    console.log(
+      '  ファイルが0件でした。契約プランでこのデータが利用できるか確認してください。\n'
+    );
+    return;
+  }
+
+  let total = 0;
+  for (let i = 0; i < files.length; i += 1) {
+    const { Key } = files[i];
+    process.stdout.write(`[${i + 1}/${files.length}] `);
+    const { rowCount } = await processFile(endpointName, Key, handlers);
+    total += rowCount;
+    await jquantsClient.throttle();
+  }
+
+  console.log(`${label} 完了: 合計 ${total.toLocaleString()} 行\n`);
+}
+
+/** Phase 4: 業種別空売り比率 */
+async function loadShortRatio() {
+  await loadEndpoint(ENDPOINT_SHORT_RATIO, SHORT_RATIO_HANDLERS, 'Phase 4: 業種別空売り比率');
+}
+
+/** Phase 5: 信用取引残高 */
+async function loadMarginInterest() {
+  await loadEndpoint(
+    ENDPOINT_MARGIN_INTEREST,
+    MARGIN_INTEREST_HANDLERS,
+    'Phase 5: 信用取引残高'
+  );
+}
+
+/** Phase 6: 日々公表信用取引残高 */
+async function loadMarginAlert() {
+  await loadEndpoint(
+    ENDPOINT_MARGIN_ALERT,
+    MARGIN_ALERT_HANDLERS,
+    'Phase 6: 日々公表信用取引残高'
+  );
+}
+
+/** Phase 7: 空売り残高報告 */
+async function loadShortPosition() {
+  await loadEndpoint(
+    ENDPOINT_SHORT_POSITION,
+    SHORT_POSITION_HANDLERS,
+    'Phase 7: 空売り残高報告'
+  );
+}
+
+//------------------------------------------------------------------
+// フェーズの選択
+//
+// 既に株価まで取り込み済みの環境で空売り系だけを追加したい場合に、
+// 3000件超のファイル一覧を走査し直さずに済むようにする。
+//   node src/loadInitial.js --only short
+//   node src/loadInitial.js --only short-ratio,margin-interest
+//------------------------------------------------------------------
+const PHASE_DEFS = [
+  { key: 'master', run: () => loadMaster() },
+  { key: 'delisted', run: () => updateDelistedFlag() },
+  { key: 'price', run: () => loadPrice() },
+  { key: 'short-ratio', run: () => loadShortRatio() },
+  { key: 'margin-interest', run: () => loadMarginInterest() },
+  { key: 'margin-alert', run: () => loadMarginAlert() },
+  { key: 'short-position', run: () => loadShortPosition() },
+];
+
+/** グループ名でまとめて指定できるようにする */
+const PHASE_GROUPS = {
+  all: PHASE_DEFS.map((p) => p.key),
+  equity: ['master', 'delisted', 'price'],
+  short: ['short-ratio', 'margin-interest', 'margin-alert', 'short-position'],
+};
+
+/**
+ * --only の指定を、実行するフェーズキーの配列に解決する。
+ * 指定が無ければ全フェーズ。
+ * @param {string[]} argv
+ * @returns {string[]}
+ */
+function resolvePhases(argv) {
+  const idx = argv.indexOf('--only');
+  if (idx < 0) return PHASE_GROUPS.all;
+
+  const value = argv[idx + 1];
+  if (!value || value.startsWith('--')) {
+    throw new Error('--only には実行するフェーズを指定してください(例: --only short)');
+  }
+
+  const requested = value.split(',').map((s) => s.trim()).filter(Boolean);
+  const keys = [];
+  for (const r of requested) {
+    if (PHASE_GROUPS[r]) {
+      keys.push(...PHASE_GROUPS[r]);
+    } else if (PHASE_DEFS.some((p) => p.key === r)) {
+      keys.push(r);
+    } else {
+      throw new Error(
+        `不明なフェーズです: ${r}\n` +
+          `  指定できる値: ${PHASE_DEFS.map((p) => p.key).join(', ')}\n` +
+          `  グループ: ${Object.keys(PHASE_GROUPS).join(', ')}`
+      );
+    }
+  }
+  // PHASE_DEFS の並び順を保ったまま重複を除く(依存関係を崩さないため)
+  return PHASE_DEFS.map((p) => p.key).filter((k) => keys.includes(k));
+}
+
+
 async function main() {
   const startedAt = Date.now();
-  console.log(`初回投入バッチを開始します (${new Date().toISOString()})\n`);
+  const phases = resolvePhases(process.argv.slice(2));
 
-  await loadMaster();
-  await updateDelistedFlag();
-  await loadPrice();
+  console.log(`初回投入バッチを開始します (${new Date().toISOString()})`);
+  console.log(`実行するフェーズ: ${phases.join(', ')}\n`);
+
+  // 空売り系は EQUITY_MASTER への外部キーを持つため、マスタが未取込だと失敗する
+  const shortOnly = phases.every((k) => PHASE_GROUPS.short.includes(k));
+  if (shortOnly && phases.length > 0) {
+    console.log(
+      '※ 空売り・信用取引関連のみを実行します。これらは EQUITY_MASTER への\n' +
+        '   外部キーを持つため、マスタ(master)が取り込み済みである必要があります。\n'
+    );
+  }
+
+  for (const key of phases) {
+    const def = PHASE_DEFS.find((p) => p.key === key);
+    await def.run();
+  }
 
   console.log(`初回投入バッチが完了しました (所要時間: ${formatDuration(Date.now() - startedAt)})`);
 }
@@ -275,4 +516,22 @@ module.exports = {
   loadMaster,
   loadPrice,
   updateDelistedFlag,
+
+  // 空売り・信用取引関連
+  ENDPOINT_SHORT_RATIO,
+  ENDPOINT_MARGIN_INTEREST,
+  ENDPOINT_MARGIN_ALERT,
+  ENDPOINT_SHORT_POSITION,
+  SHORT_RATIO_HANDLERS,
+  MARGIN_INTEREST_HANDLERS,
+  MARGIN_ALERT_HANDLERS,
+  SHORT_POSITION_HANDLERS,
+  loadEndpoint,
+  loadShortRatio,
+  loadMarginInterest,
+  loadMarginAlert,
+  loadShortPosition,
+  PHASE_DEFS,
+  PHASE_GROUPS,
+  resolvePhases,
 };

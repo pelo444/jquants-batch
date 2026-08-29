@@ -10,6 +10,20 @@
  *   Phase 1: 銘柄マスタ  → EQUITY_MASTER / EQUITY_MASTER_HIST
  *   Phase 2: 上場廃止フラグの更新
  *   Phase 3: 株価四本値  → EQUITY_PRICE_DAILY
+ *   Phase 4: 業種別空売り比率      → SECTOR_SHORT_RATIO
+ *   Phase 5: 信用取引残高          → EQUITY_MARGIN_INTEREST
+ *   Phase 6: 日々公表信用取引残高  → EQUITY_MARGIN_ALERT
+ *   Phase 7: 空売り残高報告        → EQUITY_SHORT_POSITION
+ *
+ * 【Phase 4〜7 の公開タイミングについて】
+ *   これらは株価と公開タイミングが異なる(空売り残高報告は報告があった日のみ、
+ *   信用取引残高は2026/9/24以前は週1回)。新規ファイルが無いのは正常な状態であり、
+ *   その場合は何も処理せず次へ進む。
+ *
+ * 【Phase 4〜7 の失敗は他フェーズを止めない】
+ *   1つのエンドポイントが失敗しても残りは処理し、最後にまとめて異常終了させる。
+ *   契約プランの都合で一部だけ取得できない場合に、他のデータまで
+ *   取り込めなくなるのを避けるため。
  *
  * マスタを先に処理するのは EQUITY_PRICE_DAILY が EQUITY_MASTER への
  * 外部キーを持つため(loadInitial.js と同じ理由)。
@@ -231,6 +245,28 @@ async function main() {
     'Phase 3 株価四本値'
   );
 
+  // --- Phase 4〜7: 空売り・信用取引関連 ---
+  // 1つ失敗しても残りは処理し、最後にまとめて報告する
+  const shortPhases = [
+    ['Phase 4 業種別空売り比率', loadInitial.ENDPOINT_SHORT_RATIO, loadInitial.SHORT_RATIO_HANDLERS],
+    ['Phase 5 信用取引残高', loadInitial.ENDPOINT_MARGIN_INTEREST, loadInitial.MARGIN_INTEREST_HANDLERS],
+    ['Phase 6 日々公表信用取引残高', loadInitial.ENDPOINT_MARGIN_ALERT, loadInitial.MARGIN_ALERT_HANDLERS],
+    ['Phase 7 空売り残高報告', loadInitial.ENDPOINT_SHORT_POSITION, loadInitial.SHORT_POSITION_HANDLERS],
+  ];
+
+  const shortResults = [];
+  const failures = [];
+  for (const [label, endpoint, handlers] of shortPhases) {
+    try {
+      const r = await processPendingFiles(endpoint, handlers, label);
+      shortResults.push({ label, ...r });
+    } catch (err) {
+      logError(`${label} でエラーが発生しました: ${err.message}`);
+      console.error(err.stack || err);
+      failures.push({ label, message: err.message, error: err });
+    }
+  }
+
   // --- 欠損チェック ---
   const allPriceLive = (await jquantsClient.listBulkFiles(loadInitial.ENDPOINT_PRICE))
     .filter((f) => f.Key.includes('/live/'));
@@ -238,12 +274,25 @@ async function main() {
 
   // --- サマリ ---
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+  const shortSummary = shortResults
+    .filter((r) => r.fileCount > 0)
+    .map((r) => `${r.label} ${r.fileCount}ファイル/${r.rowCount.toLocaleString()}行`)
+    .join(', ');
+
   log(
     `日次投入バッチが完了しました ` +
       `(マスタ ${masterResult.fileCount}ファイル/${masterResult.rowCount.toLocaleString()}行, ` +
-      `株価 ${priceResult.fileCount}ファイル/${priceResult.rowCount.toLocaleString()}行, ` +
+      `株価 ${priceResult.fileCount}ファイル/${priceResult.rowCount.toLocaleString()}行` +
+      `${shortSummary ? ', ' + shortSummary : ''}, ` +
       `${elapsedSec}秒)`
   );
+
+  if (failures.length > 0) {
+    throw new Error(
+      `${failures.length}件のフェーズが失敗しました:\n` +
+        failures.map((f) => `  - ${f.label}: ${f.message}`).join('\n')
+    );
+  }
 }
 
 if (require.main === module) {
