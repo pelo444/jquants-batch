@@ -312,6 +312,100 @@ function toStrDashNull(v) {
 }
 
 /**
+ * 連続する空白を1つの半角スペースにまとめ、前後の空白を落とす。
+ *
+ * 空売り残高報告の Notes には、金融庁提出様式の桁揃えのための空白が
+ * そのまま入っている。2021年4月の訂正報告では
+ *   本文123文字 + 空白950文字 = 1073文字
+ * となっており、中身は短いのに桁だけが膨らんでいた。
+ * 空白を詰めるだけで実用上ほぼすべてが規定長に収まる。
+ *
+ * 商号・住所についても、桁揃えの空白が入ると同じ報告者が別名として
+ * 集計されてしまうため、同様に正規化する。
+ *
+ * @param {string} s
+ * @returns {string}
+ */
+function squashSpaces(s) {
+  return s.replace(/[\s　]+/g, ' ').trim();
+}
+
+//------------------------------------------------------------------
+// 長大テキストの切り詰め
+//
+// 【なぜ例外ではなく切り詰めるのか】
+//   validateLengths() は「想定外の値が来た」ことを検出する安全網であり、
+//   基本は例外で止めるのが正しい。しかし Notes は分析に使わない自由記述で、
+//   ここで139ファイルの取込全体を止める価値は無い。
+//   そこで自由記述列だけは、投入前に正規化+切り詰めして通す。
+//   切り詰めが起きたことは黙って握り潰さず、警告として残す。
+//------------------------------------------------------------------
+
+/** 警告を出す上限。同種の警告でログが埋まるのを防ぐ。 */
+const TRUNCATION_LOG_LIMIT = 5;
+let truncationCount = 0;
+
+/** 切り詰めが何件あったかを返す(フェーズ完了時のログ用) */
+function getTruncationCount() {
+  return truncationCount;
+}
+
+/** ファイル/フェーズ単位で数え直したいときに使う */
+function resetTruncationCount() {
+  truncationCount = 0;
+}
+
+/**
+ * 文字数・バイト数の両方の上限に収まるように切り詰める。
+ *
+ * VARCHAR2(n CHAR) は「n文字以内」かつ「4000バイト以内」の両方を課すため、
+ * 文字数で切っただけでは足りない。バイト超過分はさらに末尾から削る。
+ *
+ * @param {string|undefined} v         CSVの生値
+ * @param {number} maxChars            列の文字数上限
+ * @param {number} maxBytes            列のバイト数上限
+ * @param {string} columnLabel         警告表示用の列名
+ * @returns {string|null}
+ */
+function clampText(v, maxChars, maxBytes, columnLabel) {
+  const s = toStrDashNull(v);
+  if (s === null) return null;
+
+  const normalized = squashSpaces(s);
+  if (
+    normalized.length <= maxChars &&
+    Buffer.byteLength(normalized, 'utf8') <= maxBytes
+  ) {
+    return normalized;
+  }
+
+  // 末尾に「…」を付けるため、その分(1文字/3バイト)を残して切る
+  let out = normalized.slice(0, Math.max(0, maxChars - 1));
+  while (Buffer.byteLength(out, 'utf8') > maxBytes - 3 && out.length > 0) {
+    const over = Buffer.byteLength(out, 'utf8') - (maxBytes - 3);
+    out = out.slice(0, out.length - Math.max(1, Math.ceil(over / 3)));
+  }
+  // サロゲートペアの片割れで終わらないようにする
+  const last = out.charCodeAt(out.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) out = out.slice(0, -1);
+  out += '…';
+
+  truncationCount += 1;
+  if (truncationCount <= TRUNCATION_LOG_LIMIT) {
+    console.warn(
+      `  [警告] ${columnLabel} が長すぎるため切り詰めました ` +
+        `(元: ${normalized.length}文字 / ${Buffer.byteLength(normalized, 'utf8')}バイト → ` +
+        `${maxChars}文字以内)\n` +
+        `         ${normalized.slice(0, 80)}…`
+    );
+    if (truncationCount === TRUNCATION_LOG_LIMIT) {
+      console.warn('  [警告] 以降の切り詰め警告は表示しません(件数はフェーズ完了時に出ます)');
+    }
+  }
+  return out;
+}
+
+/**
  * 日々公表信用取引残高の PubReason を展開する。
  *
  * CSVでは6項目がフラットな列に展開されるのではなく、1列にPython辞書形式の
@@ -617,23 +711,28 @@ const SHORT_POSITION_BIND_DEFS = [
   { type: oracledb.STRING, maxSize: 4000, maxChars: 1000 }, // notes
 ];
 
+/** 自由記述列の上限(DDLの VARCHAR2(1000 CHAR) に合わせる) */
+const SP_TEXT_MAX_CHARS = 1000;
+const SP_TEXT_MAX_BYTES = 4000;
+
 function mapShortPositionRow(row) {
   return [
     toDateStr(pick(row, 'DiscDate')),
     toDateStr(pick(row, 'CalcDate')),
     toStr(pick(row, 'Code')),
-    // 値が無い項目は空文字ではなく '-' で来るため toStrDashNull を使う
-    toStrDashNull(pick(row, 'SSName')),
-    toStrDashNull(pick(row, 'SSAddr')),
-    toStrDashNull(pick(row, 'DICName')),
-    toStrDashNull(pick(row, 'DICAddr')),
-    toStrDashNull(pick(row, 'FundName')),
+    // 値が無い項目は空文字ではなく '-' で来るため toStrDashNull(clampText内)を使う。
+    // 加えて、様式の桁揃え空白を詰めてから上限で切り詰める。
+    clampText(pick(row, 'SSName'), SP_TEXT_MAX_CHARS, SP_TEXT_MAX_BYTES, 'ss_name(商号)'),
+    clampText(pick(row, 'SSAddr'), SP_TEXT_MAX_CHARS, SP_TEXT_MAX_BYTES, 'ss_addr(住所)'),
+    clampText(pick(row, 'DICName'), SP_TEXT_MAX_CHARS, SP_TEXT_MAX_BYTES, 'dic_name(委託者商号)'),
+    clampText(pick(row, 'DICAddr'), SP_TEXT_MAX_CHARS, SP_TEXT_MAX_BYTES, 'dic_addr(委託者住所)'),
+    clampText(pick(row, 'FundName'), SP_TEXT_MAX_CHARS, SP_TEXT_MAX_BYTES, 'fund_name(信託財産名)'),
     toNumRelaxed(pick(row, 'ShrtPosToSO')),
     toNumRelaxed(pick(row, 'ShrtPosShares')),
     toNumRelaxed(pick(row, 'ShrtPosUnits')),
     toDateStr(pick(row, 'PrevRptDate')),
     toNumRelaxed(pick(row, 'PrevRptRatio')),
-    toStrDashNull(pick(row, 'Notes')),
+    clampText(pick(row, 'Notes'), SP_TEXT_MAX_CHARS, SP_TEXT_MAX_BYTES, 'notes(備考)'),
   ];
 }
 
@@ -657,6 +756,10 @@ module.exports = {
   toNumRelaxed,
   toFlag,
   toStrDashNull,
+  squashSpaces,
+  clampText,
+  getTruncationCount,
+  resetTruncationCount,
   parsePubReason,
   SHORT_RATIO_COLUMNS,
   SHORT_RATIO_VALUE_EXPRESSIONS,

@@ -415,6 +415,8 @@ async function loadEndpoint(endpointName, handlers, label) {
     return;
   }
 
+  csvMapper.resetTruncationCount();
+
   let total = 0;
   for (let i = 0; i < files.length; i += 1) {
     const { Key } = files[i];
@@ -426,6 +428,16 @@ async function loadEndpoint(endpointName, handlers, label) {
 
   console.log(`${label} 完了: 合計 ${total.toLocaleString()} 行`);
   reportSkippedCodes(handlers.stagingTable);
+
+  // 自由記述列を切り詰めた件数。0件が正常。件数が多い場合はDDLの桁を
+  // 見直すか、そもそも値の性質が想定と違っていないか確認すること。
+  const truncated = csvMapper.getTruncationCount();
+  if (truncated > 0) {
+    console.log(
+      `  ※ 長すぎるテキストを ${truncated.toLocaleString()} 件切り詰めました(末尾に「…」が付きます)。\n` +
+        '     備考・商号などの自由記述のみが対象で、数値・日付・銘柄コードは切り詰めません。'
+    );
+  }
   console.log('');
 }
 
