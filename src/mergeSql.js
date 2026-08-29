@@ -238,6 +238,36 @@ async function findUnknownCodesInStg(connection, stagingTable) {
 }
 
 /**
+ * ステージングから、EQUITY_MASTERに存在しない銘柄コードの行を削除する。
+ *
+ * 【なぜ必要か】
+ *   空売り残高報告や信用取引残高には、東証以外の取引所に単独上場している銘柄が
+ *   含まれることがある(例: 3808 オーケーウェブ = 名証単独上場)。
+ *   J-Quantsの銘柄マスタは東証データのため、これらはEQUITY_MASTERに存在せず、
+ *   そのままMERGEすると外部キー違反(ORA-02291)でファイル全体が失敗する。
+ *
+ *   これらは「取り込めない銘柄」であって「データの異常」ではないので、
+ *   該当行だけを取り除いて残りを取り込む。落とした銘柄は呼び出し側で警告する。
+ *
+ * @param {import('oracledb').Connection} connection
+ * @param {string} stagingTable ステージングテーブル名
+ * @returns {Promise<number>} 削除した行数
+ */
+async function deleteUnknownCodesFromStg(connection, stagingTable) {
+  if (!/^[A-Z_]+$/.test(stagingTable)) {
+    throw new Error(`不正なステージングテーブル名です: ${stagingTable}`);
+  }
+  const result = await connection.execute(
+    `DELETE FROM ${stagingTable} s
+     WHERE s.code IS NULL
+        OR NOT EXISTS (SELECT 1 FROM equity_master m WHERE m.code = s.code)`,
+    {},
+    { autoCommit: false }
+  );
+  return result.rowsAffected || 0;
+}
+
+/**
  * SECTOR_SHORT_RATIO_STG から SECTOR_SHORT_RATIO へMERGEする。
  * @param {import('oracledb').Connection} connection
  * @returns {Promise<number>} 反映件数
@@ -480,6 +510,7 @@ module.exports = {
 
   // 空売り・信用取引関連
   findUnknownCodesInStg,
+  deleteUnknownCodesFromStg,
   mergeShortRatio,
   mergeMarginInterest,
   mergeMarginAlert,

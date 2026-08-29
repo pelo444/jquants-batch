@@ -266,25 +266,77 @@ async function loadPrice() {
 //==================================================================
 
 /**
- * 外部キー違反を事前に検出し、原因の銘柄が分かるエラーにする。
+ * 取り込み中にスキップした銘柄コードを、エンドポイント単位で集計する。
+ * ファイルごとに警告を出すと139ファイル分のログに埋もれるため、
+ * loadEndpoint() の最後にまとめて報告する。
+ * @type {Map<string, Map<string, number>>} stagingTable -> (code -> 行数)
+ */
+const skippedCodes = new Map();
+
+/**
+ * EQUITY_MASTERに存在しない銘柄コードの行を、MERGE前に取り除く。
+ *
+ * 【中断せずスキップにしている理由】
+ *   空売り残高報告や信用取引残高には、東証以外の取引所に単独上場している銘柄が
+ *   含まれることがある(例: 3808 オーケーウェブ = 名証単独上場)。
+ *   J-Quantsの銘柄マスタは東証データのため、これらは構造的にEQUITY_MASTERへ
+ *   登録されない。「いつか解消するデータ不整合」ではなく恒久的な差なので、
+ *   1銘柄のために9千行のファイル全体を落とすのは割に合わない。
+ *
+ *   ただし黙って捨てると気づけないので、どの銘柄を何行落としたかを集計して
+ *   フェーズの最後に必ず報告する。
+ *
  * @param {import('oracledb').Connection} connection
  * @param {string} stagingTable
- * @param {string} label
+ * @param {string} label ログ表示用
  */
-async function assertCodesKnown(connection, stagingTable, label) {
+async function skipUnknownCodes(connection, stagingTable, label) {
   const unknown = await mergeSql.findUnknownCodesInStg(connection, stagingTable);
-  if (unknown.length > 0) {
-    throw new Error(
-      `${label}: EQUITY_MASTERに存在しない銘柄コードが${unknown.length}件あります: ` +
-        `${unknown.slice(0, 10).join(', ')}${unknown.length > 10 ? ' ...' : ''}\n` +
-        '  考えられる原因:\n' +
-        '   (1) マスタ(Phase 1)が最後まで完了していない\n' +
-        '   (2) このデータの提供期間がマスタの取込期間より長く、\n' +
-        '       マスタに存在しない過去の銘柄が含まれている\n' +
-        '  (2)の場合は該当エンドポイントの取込開始日を後ろにずらすか、\n' +
-        '  マスタの取込期間を延ばしてください。'
-    );
+  if (unknown.length === 0) return;
+
+  const deleted = await mergeSql.deleteUnknownCodesFromStg(connection, stagingTable);
+
+  if (!skippedCodes.has(stagingTable)) {
+    skippedCodes.set(stagingTable, new Map());
   }
+  const tally = skippedCodes.get(stagingTable);
+  for (const code of unknown) {
+    tally.set(code, (tally.get(code) || 0) + 1);
+  }
+
+  console.warn(
+    `\n    [スキップ] ${label}: マスタに無い銘柄 ${unknown.length}件 / ${deleted}行を除外 ` +
+      `(${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ' ...' : ''})`
+  );
+}
+
+/**
+ * スキップした銘柄をまとめて報告する。
+ * @param {string} stagingTable
+ */
+function reportSkippedCodes(stagingTable) {
+  const tally = skippedCodes.get(stagingTable);
+  if (!tally || tally.size === 0) return;
+
+  const entries = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  const totalFiles = entries.reduce((sum, [, n]) => sum + n, 0);
+  console.warn(
+    `  ⚠ EQUITY_MASTERに存在しないため取り込まなかった銘柄が ${entries.length}件 ` +
+      `ありました(延べ${totalFiles}ファイル)`
+  );
+  for (const [code, n] of entries.slice(0, 20)) {
+    console.warn(`      ${code}  (${n}ファイルで出現)`);
+  }
+  if (entries.length > 20) {
+    console.warn(`      ... 他 ${entries.length - 20}件`);
+  }
+  console.warn(
+    '    これらは東証以外の取引所に単独上場している銘柄と考えられます\n' +
+      '    (J-Quantsの銘柄マスタは東証データのため構造的に含まれません)。\n' +
+      '    マスタ(Phase 1)が未完了の場合も同じ症状になるので、\n' +
+      '    件数が多い場合は EQUITY_MASTER の取込状況を確認してください。'
+  );
+  skippedCodes.delete(stagingTable);
 }
 
 /** 業種別空売り比率(33業種単位。銘柄への外部キーは無い) */
@@ -307,7 +359,7 @@ const MARGIN_INTEREST_HANDLERS = {
   bindDefs: csvMapper.MARGIN_INTEREST_BIND_DEFS,
   mapRow: csvMapper.mapMarginInterestRow,
   merge: async (connection) => {
-    await assertCodesKnown(connection, 'EQUITY_MARGIN_INTEREST_STG', '信用取引残高');
+    await skipUnknownCodes(connection, 'EQUITY_MARGIN_INTEREST_STG', '信用取引残高');
     await mergeSql.mergeMarginInterest(connection);
   },
 };
@@ -320,7 +372,7 @@ const MARGIN_ALERT_HANDLERS = {
   bindDefs: csvMapper.MARGIN_ALERT_BIND_DEFS,
   mapRow: csvMapper.mapMarginAlertRow,
   merge: async (connection) => {
-    await assertCodesKnown(connection, 'EQUITY_MARGIN_ALERT_STG', '日々公表信用取引残高');
+    await skipUnknownCodes(connection, 'EQUITY_MARGIN_ALERT_STG', '日々公表信用取引残高');
     await mergeSql.mergeMarginAlert(connection);
   },
 };
@@ -338,7 +390,7 @@ const SHORT_POSITION_HANDLERS = {
   // 名称・住所・備考が4000バイト×6列あるため、バッチサイズを絞ってメモリを抑える
   batchSize: 2000,
   merge: async (connection) => {
-    await assertCodesKnown(connection, 'EQUITY_SHORT_POSITION_STG', '空売り残高報告');
+    await skipUnknownCodes(connection, 'EQUITY_SHORT_POSITION_STG', '空売り残高報告');
     await mergeSql.replaceShortPosition(connection);
   },
 };
@@ -372,7 +424,9 @@ async function loadEndpoint(endpointName, handlers, label) {
     await jquantsClient.throttle();
   }
 
-  console.log(`${label} 完了: 合計 ${total.toLocaleString()} 行\n`);
+  console.log(`${label} 完了: 合計 ${total.toLocaleString()} 行`);
+  reportSkippedCodes(handlers.stagingTable);
+  console.log('');
 }
 
 /** Phase 4: 業種別空売り比率 */
@@ -527,6 +581,8 @@ module.exports = {
   MARGIN_ALERT_HANDLERS,
   SHORT_POSITION_HANDLERS,
   loadEndpoint,
+  skipUnknownCodes,
+  reportSkippedCodes,
   loadShortRatio,
   loadMarginInterest,
   loadMarginAlert,
