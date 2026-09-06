@@ -869,6 +869,7 @@ async function processEdinetDate(date, knownCodes) {
   const rawDocs = await jquantsClient.fetchAllApiPages(ENDPOINT_EDINET_LARGE_VOLUME, { date });
 
   const docRows = [];
+  const docIds = [];
   const holderRows = [];
   const acqDispRows = [];
   const borrowingRows = [];
@@ -888,6 +889,7 @@ async function processEdinetDate(date, knownCodes) {
 
     const mapped = edinetMapper.mapLargeVolumeShareholderDoc(doc);
     docRows.push(mapped.docRow);
+    docIds.push(mapped.docRow[0]); // DOC_COLUMNSの先頭がdoc_id
     holderRows.push(...mapped.holderRows);
     acqDispRows.push(...mapped.acqDispRows);
     borrowingRows.push(...mapped.borrowingRows);
@@ -899,11 +901,30 @@ async function processEdinetDate(date, knownCodes) {
     await connection.commit(); // 開始記録は先に確定させる
 
     try {
+      // 【doc_idベースの事前DELETEが必要な理由】
+      //   sub_dateは「クエリに使った日付」ではなく、書類JSON自身のSubDateフィールドから
+      //   格納している(mapDocRow参照)。EDINETの大量保有報告書API(--date)は「その日に
+      //   問い合わせた結果」を返すが、ごく稀に同一DocIdの書類が「後日の日付でのクエリ」
+      //   でも再度返ってくるケースがある(2026-09-06、初回投入の実データで発覚。11日分)。
+      //   このとき格納済みのsub_dateは元の日付のままなので、後続の
+      //   `sub_date = 今回の対象日` のDELETEでは古い行が消えず、
+      //   doc_id主キーの一意制約違反(ORA-00001)で失敗していた。
+      //   → 今回取得したdoc_id群を「日付に関係なく」先に消しておくことで、
+      //     どの日付で以前登録されていても確実に洗い替えできるようにする。
+      if (docIds.length > 0) {
+        await connection.executeMany(
+          `DELETE FROM large_volume_shareholder WHERE doc_id = :docId`,
+          docIds.map((docId) => ({ docId }))
+        );
+      }
+
       // 親をDELETEすればON DELETE CASCADEで子・孫テーブルも連動して消える
       // 【bind変数名を:dateではなく:targetDateにしている理由】
       //   ORA-01745(invalid host/bind variable name)の原因になるため。DATEはOracleの
       //   予約語(データ型名)であり、bind変数名として:dateを使うとパーサが弾く
       //   (実際にこのバグで初回投入が全日FAILEDになった。2026-09-06に実データで発覚)。
+      //   このDELETEは「同じ対象日を再実行したとき」の洗い替え用(上のdoc_id DELETEと
+      //   役割が異なるので両方残す)。
       await connection.execute(
         `DELETE FROM large_volume_shareholder WHERE sub_date = TO_DATE(:targetDate, 'YYYY-MM-DD')`,
         { targetDate: date }

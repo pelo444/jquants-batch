@@ -193,7 +193,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 対象ハンドラに`streaming: true`を指定）に修正した上で再投入し、正常完了した。
 既存の他エンドポイントの読み込み方式は変更していない。
 
-**大量保有報告書（EDINET）**（`14_large_volume_shareholders.sql`。実装済み・**実データ未確認**。Tier 4）
+**大量保有報告書（EDINET）**（`14_large_volume_shareholders.sql`。実装済み・**実データ確認済み・初回投入中**。Tier 4）
 
 | テーブル | 内容 | 主キー |
 |---|---|---|
@@ -212,12 +212,25 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 親テーブルをDELETEするだけで子・孫テーブルも連動して洗い替えられる
 （ステージングテーブルは使わない設計。理由も同ファイル参照）。
 
-**このTierも実データ未確認(理由はTier3と同じ。5.4節参照)。本番投入前に必ず**
-```bash
-node scripts/inspect-edinet-api.js large-volume-shareholders --date 2025-07-07
-```
-**を実行し、フィールド名・null表現が想定通りか確認すること。** 想定と違えば
-`src/edinetMapper.js`の対応箇所を実データに合わせて修正する。
+**実データ確認済み(2026-09-06)。初回投入で判明した既知の問題2件と対処:**
+
+1. **`ORA-01745: invalid host/bind variable name`** — `processEdinetDate()`内のDELETE文で
+   bind変数名に`:date`を使っていたのが原因。`DATE`はOracleの予約語(データ型名)であり、
+   bind変数名として使うとパーサが弾く。`:targetDate`に変更して解消(初回投入が全日FAILED
+   になっていたバグ)。
+2. **`ORA-00001: unique constraint ... violated ... (DOC_ID)`** — 大量保有報告書は
+   `sub_date`(書類JSON自身のSubDateフィールド)を格納するが、DELETEは「クエリに使った日付」
+   単位で行っていた。ごく稀に同一DocIdの書類が後日の日付クエリでも再度返ってくることがあり、
+   格納済み行のsub_dateが今回の対象日と食い違うため`sub_date`単位のDELETEでは古い行が消えず、
+   doc_id主キー違反になっていた(11日分で発覚)。`processEdinetDate()`で、insert対象のdoc_id群を
+   日付に関係なく先にDELETEする処理を追加して解消。
+3. **`ORA-01400: cannot insert NULL into ("EDINET_CODE")`** — ごく稀にEdinetCodeが空の書類が
+   存在する(1件確認)。`edinet_code`列を`NOT NULL`からNULL許容に変更(`ddl/14_large_volume_shareholders.sql`)。
+   **既存環境は`ALTER TABLE large_volume_shareholder MODIFY (edinet_code VARCHAR2(20 CHAR) NULL);`
+   を1回実行してから再投入すること。**
+
+再投入は`node src/loadInitial.js --only tier4`を再実行すればよい
+(`load_progress`がFAILEDの日付だけ自動的に再処理される)。
 
 ### 4.2 設計上の決めごと
 
@@ -353,7 +366,7 @@ node src/loadInitial.js --only tier4               # Phase 15(数分〜十数分
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
 | 13〜14（財務情報・日経225オプション四本値） | **初回投入 完了**（2026-09-06） |
-| 15（大量保有報告書(EDINET)） | **実装済み・実データ未確認・初回投入 未実施**（2026-09-06） |
+| 15（大量保有報告書(EDINET)） | **実装済み・実データ確認済み・初回投入中**（2026-09-06。既知バグ3件対処済み。4.1節参照） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
@@ -689,10 +702,10 @@ node scripts/claude-query.js --json "SELECT ..."
 
 ## 12. 未対応・今後の課題
 
-- [ ] **大量保有報告書(EDINET)の本番投入**。`node scripts/inspect-edinet-api.js
-      large-volume-shareholders --date 2025-07-07`で実データ確認→(想定と違えば
-      `src/edinetMapper.js`修正)→`ddl/14_large_volume_shareholders.sql`適用→
-      `node src/loadInitial.js --only tier4`(5.4節参照)
+- [ ] **大量保有報告書(EDINET)の初回投入完了確認**。実データ確認・既知バグ3件
+      (bind変数名/doc_id重複/edinet_code NULL、4.1節参照)は対処済み。既存環境では
+      `ALTER TABLE large_volume_shareholder MODIFY (edinet_code VARCHAR2(20 CHAR) NULL);`
+      適用後に`node src/loadInitial.js --only tier4`を再実行し、全日SUCCESSになるか確認する
 - [ ] **政策保有株式・大株主状況(EDINET)の実装**。大量保有報告書と同じ個別API
       基盤(`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用。
       着手前に`describe_endpoint`でエンドポイント名を確認する(7.1節参照)
