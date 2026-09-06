@@ -193,7 +193,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 対象ハンドラに`streaming: true`を指定）に修正した上で再投入し、正常完了した。
 既存の他エンドポイントの読み込み方式は変更していない。
 
-**大量保有報告書（EDINET）**（`14_large_volume_shareholders.sql`。実装済み・**実データ確認済み・初回投入中**。Tier 4）
+**大量保有報告書（EDINET）**（`14_large_volume_shareholders.sql`。実装済み・**実データ確認済み・初回投入 完了**。Tier 4）
 
 | テーブル | 内容 | 主キー |
 |---|---|---|
@@ -212,7 +212,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 親テーブルをDELETEするだけで子・孫テーブルも連動して洗い替えられる
 （ステージングテーブルは使わない設計。理由も同ファイル参照）。
 
-**実データ確認済み(2026-09-06)。初回投入で判明した既知の問題2件と対処:**
+**実データ確認済み(2026-09-06)。初回投入で判明した既知の問題2件と対処(修正後、初回投入は処理11日/スキップ1341日/失敗0日/合計624件の書類で完了):**
 
 1. **`ORA-01745: invalid host/bind variable name`** — `processEdinetDate()`内のDELETE文で
    bind変数名に`:date`を使っていたのが原因。`DATE`はOracleの予約語(データ型名)であり、
@@ -366,7 +366,7 @@ node src/loadInitial.js --only tier4               # Phase 15(数分〜十数分
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
 | 13〜14（財務情報・日経225オプション四本値） | **初回投入 完了**（2026-09-06） |
-| 15（大量保有報告書(EDINET)） | **実装済み・実データ確認済み・初回投入中**（2026-09-06。既知バグ3件対処済み。4.1節参照） |
+| 15（大量保有報告書(EDINET)） | **初回投入 完了**（2026-09-06。既知バグ3件対処後、624件の書類を投入。4.1節参照） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
@@ -702,10 +702,7 @@ node scripts/claude-query.js --json "SELECT ..."
 
 ## 12. 未対応・今後の課題
 
-- [ ] **大量保有報告書(EDINET)の初回投入完了確認**。実データ確認・既知バグ3件
-      (bind変数名/doc_id重複/edinet_code NULL、4.1節参照)は対処済み。既存環境では
-      `ALTER TABLE large_volume_shareholder MODIFY (edinet_code VARCHAR2(20 CHAR) NULL);`
-      適用後に`node src/loadInitial.js --only tier4`を再実行し、全日SUCCESSになるか確認する
+- [x] **大量保有報告書(EDINET)の初回投入**。既知バグ3件(bind変数名/doc_id重複/edinet_code NULL、4.1節参照)対処後、2026-09-06に処理11日/失敗0日/合計624件の書類で完了。(参考: EQUITY_MASTERに無い銘柄4件・延べ5書類はスキップ。東証以外単独上場と推定)
 - [ ] **政策保有株式・大株主状況(EDINET)の実装**。大量保有報告書と同じ個別API
       基盤(`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用。
       着手前に`describe_endpoint`でエンドポイント名を確認する(7.1節参照)
