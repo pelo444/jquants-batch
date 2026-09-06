@@ -156,7 +156,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 `index_master` はJ-Quantsにマスタ配信APIが無いため`tag_master`と同様に手動管理。
 新しい指数コードが追加されたら都度INSERTを足す。
 
-**投資部門別情報・決算発表予定日**（`12_investor_types_and_earnings_date.sql`。2026-09-06 未実行）
+**投資部門別情報・決算発表予定日**（`12_investor_types_and_earnings_date.sql`。2026-09-06 実データ確認・初回投入 完了）
 
 | テーブル | 元エンドポイント | 主キー | 備考 |
 |---|---|---|---|
@@ -285,18 +285,14 @@ node src/loadInitial.js --only short-ratio,margin-interest
 | 1〜3（マスタ・株価） | 完了。過去10年分 |
 | 4〜7（空売り・信用取引） | **初回投入 完了** |
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
-| 11〜12（投資部門別情報・決算発表予定日） | **未実行**（2026-09-06 コード実装のみ完了） |
+| 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
 ともにエラー無く完了している。
 
-Phase 11〜12 はTier 1と同じ理由（Claude(Cowork)のdevice_bashからapi.jquants.comへの
-通信がegressで遮断されている）で実データ未確認のままコードのみ実装した。ユーザーの
-手元で次の3ステップを実行すること: (1) `node scripts/inspect-bulk-csv.js investor-types
-earnings-date --rows 3` でヘッダー確認、(2) `ddl/12_investor_types_and_earnings_date.sql`
-を適用、(3) `node src/loadInitial.js --only tier2` で初回投入。(1)で✗が出た場合は
-`csvMapper.js`の該当箇所を実データに合わせて修正してから(2)(3)に進むこと。
+Phase 11〜12 はユーザーの手元で`inspect-bulk-csv.js`によるヘッダー確認・DDL適用・
+初回投入(`--only tier2`)を実行し、エラー無く完了している。
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 
