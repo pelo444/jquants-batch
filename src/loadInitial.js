@@ -900,9 +900,13 @@ async function processEdinetDate(date, knownCodes) {
 
     try {
       // 親をDELETEすればON DELETE CASCADEで子・孫テーブルも連動して消える
+      // 【bind変数名を:dateではなく:targetDateにしている理由】
+      //   ORA-01745(invalid host/bind variable name)の原因になるため。DATEはOracleの
+      //   予約語(データ型名)であり、bind変数名として:dateを使うとパーサが弾く
+      //   (実際にこのバグで初回投入が全日FAILEDになった。2026-09-06に実データで発覚)。
       await connection.execute(
-        `DELETE FROM large_volume_shareholder WHERE sub_date = TO_DATE(:date, 'YYYY-MM-DD')`,
-        { date }
+        `DELETE FROM large_volume_shareholder WHERE sub_date = TO_DATE(:targetDate, 'YYYY-MM-DD')`,
+        { targetDate: date }
       );
 
       await db.bulkInsert(connection, 'large_volume_shareholder', edinetMapper.DOC_COLUMNS, docRows, {
