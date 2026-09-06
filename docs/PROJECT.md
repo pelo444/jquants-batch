@@ -169,7 +169,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 いずれも過誤訂正・予定日変更を「同一キーで公表日違いの複数行」として保持する方式で、
 `equity_margin_alert`と同じパターン。詳細は DDL 冒頭コメントを参照。
 
-**財務情報・日経225オプション四本値**（`13_financial_summary_and_options.sql`。実装済み・**実データ未確認**）
+**財務情報・日経225オプション四本値**（`13_financial_summary_and_options.sql`。2026-09-06 実データ確認・初回投入 完了）
 
 | テーブル | 元エンドポイント | 主キー | 備考 |
 |---|---|---|---|
@@ -182,13 +182,16 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 機能するため、同一キーへの単純MERGE(上書き)方式にしている(公表日違いの複数行を
 保持する方式ではない)。数値項目は全て文字列型・空文字=未開示(0ではない)で来る前提。
 
-**このTierはCowork(Claude)のdevice_bashからapi.jquants.comへ到達できないため
-`inspect-bulk-csv.js`での実データ確認ができていない。本番投入前に必ず**
-```bash
-node scripts/inspect-bulk-csv.js financial-summary options-225 --rows 3
-```
-**を実行し、ヘッダー名・空欄表現が想定通りか確認すること。** 想定と違えば
-`csvMapper.js`の`FINANCIAL_SUMMARY_*`/`OPTION_225_*`を実データに合わせて修正する。
+`inspect-bulk-csv.js`での実データ確認・DDL適用・初回投入(`--only tier3`)まで
+ユーザーの手元で完了している。ヘッダー・マッピングとも想定通りで`csvMapper.js`の
+修正は不要だった。
+
+初回投入の途中、日経225オプション四本値の月次historicalファイル(1ファイル14万〜23万行)
+でOCI VMがJavaScript heap out of memoryを起こしたため、Bulk APIのCSVを64KBチャンクで
+`Readable`から読み出し`csv-parse`のTransformへpipeするストリーミング方式
+（`jquantsClient.streamBulkFile()` / `loadInitial.processFileStreaming()`、
+対象ハンドラに`streaming: true`を指定）に修正した上で再投入し、正常完了した。
+既存の他エンドポイントの読み込み方式は変更していない。
 
 **大量保有報告書（EDINET）**（`14_large_volume_shareholders.sql`。実装済み・**実データ未確認**。Tier 4）
 
@@ -349,7 +352,7 @@ node src/loadInitial.js --only tier4               # Phase 15(数分〜十数分
 | 4〜7（空売り・信用取引） | **初回投入 完了** |
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
-| 13〜14（財務情報・日経225オプション四本値） | **実装済み・実データ未確認・初回投入 未実施**（2026-09-06） |
+| 13〜14（財務情報・日経225オプション四本値） | **初回投入 完了**（2026-09-06） |
 | 15（大量保有報告書(EDINET)） | **実装済み・実データ未確認・初回投入 未実施**（2026-09-06） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
@@ -359,15 +362,12 @@ Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想�
 Phase 11〜12 はユーザーの手元で`inspect-bulk-csv.js`によるヘッダー確認・DDL適用・
 初回投入(`--only tier2`)を実行し、エラー無く完了している。
 
-Phase 13〜14 はDDL(`13_financial_summary_and_options.sql`)・`csvMapper.js`・
-`mergeSql.js`・`loadInitial.js`・`loadDaily.js`・`inspect-bulk-csv.js`の対応まで
-完了しているが、Cowork(Claude)のdevice_bashからapi.jquants.comへの通信が
-egressで遮断されているため実データでの確認ができていない。ユーザーの手元で
-次の順で実行すること:
-1. `node scripts/inspect-bulk-csv.js financial-summary options-225 --rows 3` でヘッダー確認
-2. 想定と違えば `csvMapper.js` の該当マッピングを実データに合わせて修正
-3. `ddl/13_financial_summary_and_options.sql` を適用
-4. `node src/loadInitial.js --only tier3` で初回投入
+Phase 13〜14 はユーザーの手元で`inspect-bulk-csv.js`によるヘッダー確認・DDL適用・
+初回投入(`--only tier3`)を実行し完了している。途中、日経225オプション四本値の
+巨大な月次ファイルでOCI VMがメモリ不足(JavaScript heap out of memory)を起こしたため、
+Bulk APIのCSVをチャンク単位でストリーミング処理する方式(`streamBulkFile` /
+`processFileStreaming`)に修正して再投入し、Phase 14は合計1,227,118行で完了した。
+既存の他エンドポイントの読み込み方式(一括読み込み)は変更していない。
 
 Phase 15（大量保有報告書(EDINET)）も同じ理由(api.jquants.comへの通信がegressで
 遮断されている)により実データ未確認。加えてBulk非対応で日付単位のループになるため、
