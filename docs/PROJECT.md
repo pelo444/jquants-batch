@@ -190,6 +190,32 @@ node scripts/inspect-bulk-csv.js financial-summary options-225 --rows 3
 **を実行し、ヘッダー名・空欄表現が想定通りか確認すること。** 想定と違えば
 `csvMapper.js`の`FINANCIAL_SUMMARY_*`/`OPTION_225_*`を実データに合わせて修正する。
 
+**大量保有報告書（EDINET）**（`14_large_volume_shareholders.sql`。実装済み・**実データ未確認**。Tier 4）
+
+| テーブル | 内容 | 主キー |
+|---|---|---|
+| `large_volume_shareholder` | 書類メタ(書類単位で1行) | `doc_id` |
+| `large_volume_shareholder_holder` | 提出者・共同保有者明細(Hldrs配列) | `doc_id, hldr_seq` |
+| `large_volume_shareholder_acq_disp` | 直近60日間の取得・処分(AcqDisp配列) | `doc_id, hldr_seq, acq_seq` |
+| `large_volume_shareholder_borrowing` | 借入金の内訳(BrwList配列) | `doc_id, hldr_seq, brw_seq` |
+| `large_volume_shareholder_creditor` | 借入先の名称等(CredList配列) | `doc_id, hldr_seq, cred_seq` |
+
+ビュー: `v_large_volume_shareholder_detail`（書類×保有者を1行に展開した入口ビュー）。
+
+**Bulk API非対応のため、Tier1〜3とは根本的に違う取込方式**（個別API呼出し+
+`pagination_key`ページング、進捗管理は「日付単位」）。詳細・設計判断の理由は
+`ddl/14_large_volume_shareholders.sql`冒頭コメントと`src/edinetMapper.js`を参照。
+子テーブルは全て親へのFKに`ON DELETE CASCADE`を付けており、提出日単位で
+親テーブルをDELETEするだけで子・孫テーブルも連動して洗い替えられる
+（ステージングテーブルは使わない設計。理由も同ファイル参照）。
+
+**このTierも実データ未確認(理由はTier3と同じ。5.4節参照)。本番投入前に必ず**
+```bash
+node scripts/inspect-edinet-api.js large-volume-shareholders --date 2025-07-07
+```
+**を実行し、フィールド名・null表現が想定通りか確認すること。** 想定と違えば
+`src/edinetMapper.js`の対応箇所を実データに合わせて修正する。
+
 ### 4.2 設計上の決めごと
 
 **（1） 取り込みは全て「ステージング → MERGE」**
@@ -257,6 +283,11 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | `ENDPOINT_FINANCIAL_SUMMARY` | `/fins/summary` |
 | `ENDPOINT_OPTION_225` | `/derivatives/bars/daily/options/225` |
 
+**上記はいずれもBulk API(CSV一括ダウンロード)方式。大量保有報告書(EDINET)
+だけはBulk非対応のため、`ENDPOINT_EDINET_LARGE_VOLUME`(`/edinet/large-volume-shareholders`)
+を個別API呼出し(`jquantsClient.fetchAllApiPages()`)+日付ループで処理する
+別方式になっている(5.2節Phase15、7.1節参照)。**
+
 ### 5.2 Phase 構成
 
 `loadInitial.js`（初回・過去分）と `loadDaily.js`（日次）で同じ Phase 番号を使う。
@@ -277,6 +308,7 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | 12 | 決算発表予定日 | `earnings_schedule` |
 | 13 | 財務情報 | `financial_summary` |
 | 14 | 日経225オプション四本値 | `index_option_price_daily` |
+| 15 | 大量保有報告書(EDINET) | `large_volume_shareholder`等5テーブル |
 
 Phase 4〜7 は `equity_master` への外部キーを持つので、**Phase 1 の完了後**に実行する。
 Phase 8〜10 は銘柄単位のデータではないため `equity_master` への外部キーを持たず、
@@ -284,7 +316,9 @@ Phase 1 と独立して(先に)実行しても問題ない。
 Phase 11 も銘柄単位ではないため外部キーを持たない。Phase 12 は補助データとして
 `equity_master` への外部キーを持つため Phase 1 の完了後に実行する。
 Phase 13 も補助データとして `equity_master` への外部キーを持つため Phase 1 の完了後に
-実行する。Phase 14 はオプション銘柄コードで外部キーを持たない。
+実行する。Phase 14 はオプション銘柄コードで外部キーを持たない。Phase 15 も補助データとして
+`equity_master` への外部キーを持つが、Phase 1〜14とは違い「ファイル」ではなく「日付」を
+処理単位とする(5.1節・7.1節参照)。
 
 **一部だけ実行する**:
 
@@ -295,9 +329,10 @@ node src/loadInitial.js --only tier2               # Phase 11〜12
 node src/loadInitial.js --only tier3               # Phase 13〜14
 node src/loadInitial.js --only short-position     # Phase 7 だけ
 node src/loadInitial.js --only short-ratio,margin-interest
+node src/loadInitial.js --only tier4               # Phase 15(数分〜十数分かかる。5.1節参照)
 ```
 
-グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）/ `tier3`（13〜14）
+グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）/ `tier3`（13〜14）/ `tier4`（15）
 
 ### 5.3 再開と冪等性
 
@@ -315,6 +350,7 @@ node src/loadInitial.js --only short-ratio,margin-interest
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
 | 13〜14（財務情報・日経225オプション四本値） | **実装済み・実データ未確認・初回投入 未実施**（2026-09-06） |
+| 15（大量保有報告書(EDINET)） | **実装済み・実データ未確認・初回投入 未実施**（2026-09-06） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
@@ -332,6 +368,15 @@ egressで遮断されているため実データでの確認ができていな�
 2. 想定と違えば `csvMapper.js` の該当マッピングを実データに合わせて修正
 3. `ddl/13_financial_summary_and_options.sql` を適用
 4. `node src/loadInitial.js --only tier3` で初回投入
+
+Phase 15（大量保有報告書(EDINET)）も同じ理由(api.jquants.comへの通信がegressで
+遮断されている)により実データ未確認。加えてBulk非対応で日付単位のループになるため、
+ユーザーの手元で次の順で実行すること:
+1. `node scripts/inspect-edinet-api.js large-volume-shareholders --date 2025-07-07` で実データ確認
+2. 想定と違えば `src/edinetMapper.js` の対応箇所を実データに合わせて修正
+3. `ddl/14_large_volume_shareholders.sql` を適用
+4. `node src/loadInitial.js --only tier4` で初回投入(2021-07-01〜本日の平日ループ。
+   途中で失敗しても再実行すれば失敗日だけ再処理される。詳細は7.1節参照)
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 
@@ -427,6 +472,39 @@ J-Quants の銘柄マスタは東証銘柄しか持たない。
 node scripts/inspect-bulk-csv.js                 # 全エンドポイント
 node scripts/inspect-bulk-csv.js short-position  # 個別
 ```
+
+### 7.1 個別API呼出し方式(Tier4)の場合
+
+大量保有報告書(EDINET)のようにBulk非対応のエンドポイントは、上記7章の手順とは
+別の流れになる。政策保有株式・大株主状況(EDINET)に着手する際もこちらに倣う:
+
+1. **`describe_endpoint`で正式なエンドポイント名とレスポンス項目を確認する**
+   (大量保有報告書は`edinet-large-volume-shareholders`だった。エンドポイント名は
+   日本語の「取得データ名」と一致しないことがあるので、`search_endpoints`で
+   仕様書のデータ一覧表から先に探すとよい)。
+2. **`ddl/NN_*.sql`** — レスポンスのネスト構造を親子テーブルに分解する。
+   自然キーが無い配列要素には連番の代理キー(`*_seq`)を振り、子テーブルは
+   親へのFKに`ON DELETE CASCADE`を付けておく(親をDELETEするだけで
+   子・孫テーブルも連動して洗い替えできるようにするため)。
+3. **`src/edinetMapper.js`** — csvMapper.jsとは別ファイルに、JSON1件を
+   複数テーブル分の行配列に展開するマッパー関数を追加する
+   (`mapLargeVolumeShareholderDoc()`が実装例)。
+4. **`src/jquantsClient.js`の`fetchApiPage()`/`fetchAllApiPages()`** —
+   個別API呼出し+`pagination_key`ページングの共通基盤。新しいエンドポイントを
+   追加する際もこの2関数をそのまま使う(大量保有報告書の実装で新設した基盤)。
+5. **`src/loadInitial.js`** — 日付単位でループする`processXxxDate()`関数と
+   `loadXxx()`(Phase関数)を追加し、`PHASE_DEFS`/`PHASE_GROUPS`に登録する。
+   進捗は`LOAD_PROGRESS`を「ファイル単位」ではなく「日付単位」
+   (`file_key`に`'YYYY-MM-DD'`を入れる)に読み替えて流用する(テーブルの
+   スキーマ変更は不要)。
+6. **`src/loadDaily.js`** — 直近N日分の平日を毎回チェックして未処理の日だけ
+   処理する関数を追加する(大量保有報告書は14日分。ファイル一覧+差分検出という
+   Bulk方式の「欠損検出」が使えないため、単純な固定ルックバックにしている)。
+7. **`scripts/inspect-edinet-api.js`** — `inspect-bulk-csv.js`のJSON API版。
+   `TARGETS`(またはそれに相当する定数)に新しいエンドポイントを追加して
+   実データのフィールド名・null表現を確認する。**必ず6の前に流す**
+   (CSVと同じ理由。7章冒頭参照)。
+8. **`queries/sql/*.sql`** — 分析用のクエリを書く。
 
 ---
 
@@ -611,6 +689,13 @@ node scripts/claude-query.js --json "SELECT ..."
 
 ## 12. 未対応・今後の課題
 
+- [ ] **大量保有報告書(EDINET)の本番投入**。`node scripts/inspect-edinet-api.js
+      large-volume-shareholders --date 2025-07-07`で実データ確認→(想定と違えば
+      `src/edinetMapper.js`修正)→`ddl/14_large_volume_shareholders.sql`適用→
+      `node src/loadInitial.js --only tier4`(5.4節参照)
+- [ ] **政策保有株式・大株主状況(EDINET)の実装**。大量保有報告書と同じ個別API
+      基盤(`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用。
+      着手前に`describe_endpoint`でエンドポイント名を確認する(7.1節参照)
 - [ ] **空売りデータを使った分析方針の具体化**。データは揃ったので、次はここから。
       入口は `v_equity_short_position_sum`（銘柄 × 計算日）と
       `queries/sql/short_selling_overview.sql`（days to cover を含む8本）

@@ -33,6 +33,11 @@ const config = {
         // Bulk APIの呼び出し間隔(ミリ秒)。リクエスト数自体は少ない(数百回)ので
         // 大きな値にする必要はないが、行儀よく間隔を空ける。
         requestIntervalMs: 300,
+        // 個別API呼出し(EDINET系等、Bulk非対応エンドポイント用)の呼び出し間隔(ミリ秒)。
+        // Bulk APIと違い実データ取得そのものを1リクエスト単位で行う(大量保有報告書の
+        // 初回投入は2021-07-01以降の平日数×1〜数リクエストという規模になる)ため、
+        // Bulkより余裕を持たせた既定値にしている。
+        apiRequestIntervalMs: Number(process.env.JQB_JQUANTS_API_REQUEST_INTERVAL_MS || 500),
       };
     }
     return jquantsCache;

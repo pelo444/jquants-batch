@@ -21,6 +21,7 @@
  *   Phase12: 決算発表予定日        → EARNINGS_SCHEDULE
  *   Phase13: 財務情報              → FINANCIAL_SUMMARY
  *   Phase14: 日経225オプション四本値 → INDEX_OPTION_PRICE_DAILY
+ *   Phase15: 大量保有報告書(EDINET) → LARGE_VOLUME_SHAREHOLDER(Bulk非対応、日付単位で直近14日をチェック)
  *
  * 【Phase 4〜7 の公開タイミングについて】
  *   これらは株価と公開タイミングが異なる(空売り残高報告は報告があった日のみ、
@@ -222,6 +223,45 @@ async function processPendingFiles(endpointName, handlers, label) {
   return { fileCount: pending.length, rowCount };
 }
 
+/**
+ * Phase 15: 大量保有報告書(EDINET)
+ *
+ * Bulk非対応のため、Tier1〜3(ファイル単位)とは違う「日付単位」の進捗管理を使う
+ * (loadInitial.js の processEdinetDate/businessDaysBetween 参照)。
+ * 直近14日分の平日を毎回チェックし、LOAD_PROGRESSがSUCCESSでない日だけ処理する。
+ * cronが2週間近く止まっていない限り、この範囲チェックで取りこぼしを自然に拾える
+ * (それ以上の長期欠損は loadInitial.js --only edinet-large-volume を再実行して補完する)。
+ * @returns {Promise<{processedDays: number, totalDocs: number, failures: {date: string, message: string}[]}>}
+ */
+async function processEdinetLargeVolume() {
+  const EDINET_LOOKBACK_DAYS = 14;
+  const today = loadInitial.formatDateStr(new Date());
+  const lookbackStart = loadInitial.formatDateStr(
+    new Date(Date.now() - EDINET_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+  );
+  const candidateDates = loadInitial.businessDaysBetween(lookbackStart, today);
+
+  const knownCodes = await db.withConnection((connection) => loadInitial.loadKnownEquityCodes(connection));
+
+  let processedDays = 0;
+  let totalDocs = 0;
+  const failures = [];
+  for (const date of candidateDates) {
+    try {
+      const { skipped, docCount } = await loadInitial.processEdinetDate(date, knownCodes);
+      if (!skipped) {
+        processedDays += 1;
+        totalDocs += docCount;
+      }
+    } catch (err) {
+      failures.push({ date, message: err.message });
+    }
+    await jquantsClient.apiThrottle();
+  }
+  return { processedDays, totalDocs, failures };
+}
+
+
 async function main() {
   const startedAt = Date.now();
   log('日次投入バッチを開始します');
@@ -279,6 +319,28 @@ async function main() {
       console.error(err.stack || err);
       failures.push({ label, message: err.message, error: err });
     }
+  }
+
+  // --- Phase 15: 大量保有報告書(EDINET) ---
+  // Bulk非対応のため上のshortPhasesループとは別処理(日付単位)。失敗しても他は止めない。
+  try {
+    const edinetLabel = 'Phase 15 大量保有報告書(EDINET)';
+    const r = await processEdinetLargeVolume();
+    if (r.processedDays > 0) {
+      shortResults.push({ label: edinetLabel, fileCount: r.processedDays, rowCount: r.totalDocs });
+    } else {
+      log(`${edinetLabel}: 新規日付はありません`);
+    }
+    if (r.failures.length > 0) {
+      for (const f of r.failures) {
+        logError(`${edinetLabel} ${f.date} でエラー: ${f.message}`);
+      }
+      failures.push({ label: edinetLabel, message: `${r.failures.length}日で失敗しました` });
+    }
+  } catch (err) {
+    logError(`Phase 15 大量保有報告書(EDINET) でエラーが発生しました: ${err.message}`);
+    console.error(err.stack || err);
+    failures.push({ label: 'Phase 15 大量保有報告書(EDINET)', message: err.message, error: err });
   }
 
   // --- 欠損チェック ---

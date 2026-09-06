@@ -48,6 +48,7 @@ const jquantsClient = require('./jquantsClient');
 const db = require('./db');
 const csvMapper = require('./csvMapper');
 const mergeSql = require('./mergeSql');
+const edinetMapper = require('./edinetMapper');
 
 const ENDPOINT_MASTER = '/equities/master';
 const ENDPOINT_PRICE = '/equities/bars/daily';
@@ -70,6 +71,9 @@ const ENDPOINT_EARNINGS_DATE = '/fins/earnings-date';         // 決算発表予
 // 財務情報・日経225オプション四本値(Tier 3、いずれもStandardプラン以上)
 const ENDPOINT_FINANCIAL_SUMMARY = '/fins/summary';                         // 財務情報(補助データ、FKあり)
 const ENDPOINT_OPTION_225 = '/derivatives/bars/daily/options/225';          // 日経225オプション四本値(FKなし)
+
+// 大量保有報告書(EDINET) (Tier 4。Bulk非対応、個別API呼出し+pagination_keyページング)
+const ENDPOINT_EDINET_LARGE_VOLUME = '/edinet/large-volume-shareholders';
 
 /**
  * Bulk APIのKeyを処理順(時系列)に並べ替える。
@@ -120,6 +124,10 @@ function formatDuration(ms) {
  * @returns {Promise<{skipped: boolean, rowCount: number}>}
  */
 async function processFile(endpointName, fileKey, handlers) {
+  if (handlers.streaming) {
+    return processFileStreaming(endpointName, fileKey, handlers);
+  }
+
   // --- 進捗確認(処理済みならスキップ) ---
   const alreadyDone = await db.withConnection(async (connection) => {
     const status = await db.getProgressStatus(connection, endpointName, fileKey);
@@ -168,6 +176,80 @@ async function processFile(endpointName, fileKey, handlers) {
     } catch (err) {
       await connection.rollback().catch(() => {});
       // 失敗記録は別トランザクションとして確定させる
+      await db.markProgressFailed(connection, endpointName, fileKey, err.message);
+      await connection.commit().catch(() => {});
+      console.error(`  [FAIL] ${fileKey}: ${err.message}`);
+      throw err;
+    }
+  });
+}
+
+/**
+ * processFile()のストリーミング版。handlers.streaming=trueの場合のみ使われる。
+ *
+ * 通常版はファイル全体を一度にパース→変換して1回のbulkInsertに渡すが、
+ * こちらはjquantsClient.streamBulkFile()でCSVを行単位でストリーム処理し、
+ * バッチがたまるごとに都度mapRow→validateLengths→bulkInsertする。
+ * ステージングへの投入が複数回に分かれるだけで、進捗管理・MERGEのタイミング・
+ * エラー処理(ロールバック→FAILED記録)は通常版と同じ流れにしてある。
+ *
+ * 日経225オプションのような「1ファイルが巨大(14万行超)」なエンドポイント向け。
+ * メモリの小さいVMでNode既定ヒープを超えてOOMになった事例(2026-09-06)への対処。
+ *
+ * @param {string} endpointName
+ * @param {string} fileKey
+ * @param {object} handlers processFile()と同じ形。streamBatchSizeで
+ *        streamBulkFile()のバッチ行数を上書きできる(既定5000)。
+ * @returns {Promise<{skipped: boolean, rowCount: number}>}
+ */
+async function processFileStreaming(endpointName, fileKey, handlers) {
+  const alreadyDone = await db.withConnection(async (connection) => {
+    const status = await db.getProgressStatus(connection, endpointName, fileKey);
+    return status === 'SUCCESS';
+  });
+
+  if (alreadyDone) {
+    console.log(`  [SKIP] ${fileKey} (取り込み済み)`);
+    return { skipped: true, rowCount: 0 };
+  }
+
+  return db.withConnection(async (connection) => {
+    await db.markProgressStarted(connection, endpointName, fileKey);
+    await connection.commit();
+
+    try {
+      await db.truncateTable(connection, handlers.stagingTable);
+
+      let inserted = 0;
+      await jquantsClient.streamBulkFile(
+        fileKey,
+        async (csvBatch) => {
+          const dbRows = csvBatch.map(handlers.mapRow);
+          csvMapper.validateLengths(dbRows, handlers.columns, handlers.bindDefs);
+          inserted += await db.bulkInsert(
+            connection,
+            handlers.stagingTable,
+            handlers.columns,
+            dbRows,
+            {
+              valueExpressions: handlers.valueExpressions,
+              bindDefs: handlers.bindDefs,
+              batchSize: handlers.batchSize,
+            }
+          );
+        },
+        handlers.streamBatchSize
+      );
+
+      await handlers.merge(connection);
+
+      await db.markProgressSuccess(connection, endpointName, fileKey, inserted);
+      await connection.commit();
+
+      console.log(`  [OK]   ${fileKey} (${inserted.toLocaleString()}行, streaming)`);
+      return { skipped: false, rowCount: inserted };
+    } catch (err) {
+      await connection.rollback().catch(() => {});
       await db.markProgressFailed(connection, endpointName, fileKey, err.message);
       await connection.commit().catch(() => {});
       console.error(`  [FAIL] ${fileKey}: ${err.message}`);
@@ -631,13 +713,20 @@ const FINANCIAL_SUMMARY_HANDLERS = {
   },
 };
 
-/** 日経225オプション四本値(オプション銘柄コードなので銘柄への外部キーは無い) */
+/**
+ * 日経225オプション四本値(オプション銘柄コードなので銘柄への外部キーは無い)
+ *
+ * streaming: true — 月次historicalファイルが14万行を超えることがあり、
+ * 通常のprocessFile()(全行を一括パース)だとメモリの小さいVMでOOMになった
+ * (2026-09-06)。processFileStreaming()経由でバッチ単位に処理する。
+ */
 const OPTION_225_HANDLERS = {
   stagingTable: 'INDEX_OPTION_PRICE_DAILY_STG',
   columns: csvMapper.OPTION_225_COLUMNS,
   valueExpressions: csvMapper.OPTION_225_VALUE_EXPRESSIONS,
   bindDefs: csvMapper.OPTION_225_BIND_DEFS,
   mapRow: csvMapper.mapOption225Row,
+  streaming: true,
   merge: async (connection) => {
     await mergeSql.mergeOptionPriceDaily(connection);
   },
@@ -660,6 +749,276 @@ async function loadOption225() {
     'Phase 14: 日経225オプション四本値'
   );
 }
+
+//==================================================================
+// 大量保有報告書(EDINET) (Tier 4)
+//
+// Bulk API非対応のため、Tier1〜3までとは根本的に違う取込方式を取る
+// (個別API呼出し+pagination_keyページング、進捗管理は「日付単位」)。
+// 設計の詳細・なぜステージングテーブルを使わないか等は
+// ddl/14_large_volume_shareholders.sql の冒頭コメントを参照。
+//==================================================================
+
+/** データ提供期間の開始日(仕様書より: 提出日2021年7月1日以降) */
+const EDINET_LARGE_VOLUME_START_DATE = '2021-07-01';
+
+/** 'YYYY-MM-DD' 文字列をDateに変換する(常にUTC正午として扱い、日付ズレを避ける) */
+function parseDateStr(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+}
+
+/** Dateを'YYYY-MM-DD'文字列に戻す */
+function formatDateStr(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * startからendまでの平日(月〜金)を'YYYY-MM-DD'の配列で返す(両端含む)。
+ *
+ * 【TSEの取引カレンダー(TRADING_CALENDAR)を使わず単純な平日判定にしている理由】
+ *   大量保有報告書はEDINET(金融庁)への提出であり、東証の休業日(大納会・大発会等)
+ *   とは休日の基準が別。TRADING_CALENDARを流用すると「EDINETは営業日だが
+ *   東証は休みの日」を取りこぼす恐れがある。国民の祝日には空振り(0件応答)の
+ *   リクエストが年20日程度発生するが実害はほぼ無いため、安全側に倒している。
+ * @param {string} startStr 'YYYY-MM-DD'
+ * @param {string} endStr 'YYYY-MM-DD'
+ * @returns {string[]}
+ */
+function businessDaysBetween(startStr, endStr) {
+  const days = [];
+  let cur = parseDateStr(startStr);
+  const end = parseDateStr(endStr);
+  while (cur.getTime() <= end.getTime()) {
+    const dow = cur.getUTCDay(); // 0=日, 6=土
+    if (dow !== 0 && dow !== 6) {
+      days.push(formatDateStr(cur));
+    }
+    cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return days;
+}
+
+/**
+ * EQUITY_MASTERに存在する銘柄コードの集合を取得する。
+ *
+ * Tier1〜3の skipUnknownCodes() はステージングテーブルからまとめて未知コードを
+ * 検出する方式だったが、Tier4はステージングテーブルを持たずJSONを1件ずつ処理する
+ * ため、事前にこの集合をロードしてJS側でチェックする方式にしている。
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<Set<string>>}
+ */
+async function loadKnownEquityCodes(connection) {
+  const result = await connection.execute('SELECT code FROM equity_master');
+  return new Set(result.rows.map((r) => r[0]));
+}
+
+/**
+ * スキップした銘柄をまとめて報告する(Tier4版。reportSkippedCodes()と違い
+ * 「ファイル」ではなく「書類」単位の集計であることを明示する)。
+ */
+function reportSkippedLargeVolumeCodes() {
+  const label = 'LARGE_VOLUME_SHAREHOLDER';
+  const tally = skippedCodes.get(label);
+  if (!tally || tally.size === 0) return;
+
+  const entries = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  const totalDocs = entries.reduce((sum, [, n]) => sum + n, 0);
+  console.warn(
+    `  ⚠ EQUITY_MASTERに存在しないため取り込まなかった銘柄が ${entries.length}件 ` +
+      `ありました(延べ${totalDocs}書類)`
+  );
+  for (const [code, n] of entries.slice(0, 20)) {
+    console.warn(`      ${code}  (${n}書類で出現)`);
+  }
+  if (entries.length > 20) {
+    console.warn(`      ... 他 ${entries.length - 20}件`);
+  }
+  console.warn(
+    '    これらは東証以外の取引所に単独上場している銘柄と考えられます\n' +
+      '    (J-Quantsの銘柄マスタは東証データのため構造的に含まれません)。'
+  );
+  skippedCodes.delete(label);
+}
+
+/**
+ * 指定日の大量保有報告書を取得し、DBへ反映する。
+ *
+ * 進捗はLOAD_PROGRESSにendpoint_name=ENDPOINT_EDINET_LARGE_VOLUME,
+ * file_key=date('YYYY-MM-DD')として記録する(ファイル単位ではなく日付単位に読み替え)。
+ * 提出日(sub_date)＝クエリのdateである(API仕様書より)ことを前提に、
+ * その日付でLARGE_VOLUME_SHAREHOLDERをDELETEしてからINSERTする
+ * (ON DELETE CASCADEで子・孫テーブルも連動して洗い替えられる)。
+ *
+ * @param {string} date 'YYYY-MM-DD'
+ * @param {Set<string>} knownCodes EQUITY_MASTERに存在する銘柄コードの集合
+ * @returns {Promise<{skipped: boolean, docCount: number}>}
+ */
+async function processEdinetDate(date, knownCodes) {
+  const alreadyDone = await db.withConnection(async (connection) => {
+    const status = await db.getProgressStatus(connection, ENDPOINT_EDINET_LARGE_VOLUME, date);
+    return status === 'SUCCESS';
+  });
+  if (alreadyDone) {
+    return { skipped: true, docCount: 0 };
+  }
+
+  const rawDocs = await jquantsClient.fetchAllApiPages(ENDPOINT_EDINET_LARGE_VOLUME, { date });
+
+  const docRows = [];
+  const holderRows = [];
+  const acqDispRows = [];
+  const borrowingRows = [];
+  const creditorRows = [];
+
+  for (const doc of rawDocs) {
+    const code = doc.Code === undefined || doc.Code === null ? null : String(doc.Code).trim();
+    if (code !== null && !knownCodes.has(code)) {
+      const label = 'LARGE_VOLUME_SHAREHOLDER';
+      if (!skippedCodes.has(label)) {
+        skippedCodes.set(label, new Map());
+      }
+      const tally = skippedCodes.get(label);
+      tally.set(code, (tally.get(code) || 0) + 1);
+      continue;
+    }
+
+    const mapped = edinetMapper.mapLargeVolumeShareholderDoc(doc);
+    docRows.push(mapped.docRow);
+    holderRows.push(...mapped.holderRows);
+    acqDispRows.push(...mapped.acqDispRows);
+    borrowingRows.push(...mapped.borrowingRows);
+    creditorRows.push(...mapped.creditorRows);
+  }
+
+  return db.withConnection(async (connection) => {
+    await db.markProgressStarted(connection, ENDPOINT_EDINET_LARGE_VOLUME, date);
+    await connection.commit(); // 開始記録は先に確定させる
+
+    try {
+      // 親をDELETEすればON DELETE CASCADEで子・孫テーブルも連動して消える
+      await connection.execute(
+        `DELETE FROM large_volume_shareholder WHERE sub_date = TO_DATE(:date, 'YYYY-MM-DD')`,
+        { date }
+      );
+
+      await db.bulkInsert(connection, 'large_volume_shareholder', edinetMapper.DOC_COLUMNS, docRows, {
+        valueExpressions: edinetMapper.DOC_VALUE_EXPRESSIONS,
+        bindDefs: edinetMapper.DOC_BIND_DEFS,
+      });
+      await db.bulkInsert(
+        connection,
+        'large_volume_shareholder_holder',
+        edinetMapper.HOLDER_COLUMNS,
+        holderRows,
+        { valueExpressions: edinetMapper.HOLDER_VALUE_EXPRESSIONS, bindDefs: edinetMapper.HOLDER_BIND_DEFS }
+      );
+      await db.bulkInsert(
+        connection,
+        'large_volume_shareholder_acq_disp',
+        edinetMapper.ACQ_DISP_COLUMNS,
+        acqDispRows,
+        { valueExpressions: edinetMapper.ACQ_DISP_VALUE_EXPRESSIONS, bindDefs: edinetMapper.ACQ_DISP_BIND_DEFS }
+      );
+      await db.bulkInsert(
+        connection,
+        'large_volume_shareholder_borrowing',
+        edinetMapper.BORROWING_COLUMNS,
+        borrowingRows,
+        { valueExpressions: edinetMapper.BORROWING_VALUE_EXPRESSIONS, bindDefs: edinetMapper.BORROWING_BIND_DEFS }
+      );
+      await db.bulkInsert(
+        connection,
+        'large_volume_shareholder_creditor',
+        edinetMapper.CREDITOR_COLUMNS,
+        creditorRows,
+        { valueExpressions: edinetMapper.CREDITOR_VALUE_EXPRESSIONS, bindDefs: edinetMapper.CREDITOR_BIND_DEFS }
+      );
+
+      await db.markProgressSuccess(connection, ENDPOINT_EDINET_LARGE_VOLUME, date, docRows.length);
+      await connection.commit();
+      return { skipped: false, docCount: docRows.length };
+    } catch (err) {
+      await connection.rollback().catch(() => {});
+      await db.markProgressFailed(connection, ENDPOINT_EDINET_LARGE_VOLUME, date, err.message);
+      await connection.commit().catch(() => {});
+      throw err;
+    }
+  });
+}
+
+/**
+ * Phase 15: 大量保有報告書(EDINET) (Tier 4)
+ *
+ * 2021-07-01(データ提供開始日)から本日まで、平日単位でループしてAPIを呼ぶ。
+ * 1日ごとにLOAD_PROGRESSへ記録するため、中断しても再実行すれば続きから処理される。
+ * 1日の呼び出し失敗は他の日を止めない(空売り系と同じ考え方。5.5節参照)。
+ */
+async function loadLargeVolumeShareholders() {
+  console.log('=== Phase 15: 大量保有報告書(EDINET)の取り込み ===');
+
+  const today = formatDateStr(new Date());
+  const dates = businessDaysBetween(EDINET_LARGE_VOLUME_START_DATE, today);
+  console.log(`対象日数: ${dates.length}日 (${EDINET_LARGE_VOLUME_START_DATE} 〜 ${today}、土日を除く平日単位)`);
+
+  const knownCodes = await db.withConnection((connection) => loadKnownEquityCodes(connection));
+
+  csvMapper.resetTruncationCount();
+
+  let totalDocs = 0;
+  let processedDays = 0;
+  let skippedDays = 0;
+  const failures = [];
+
+  for (let i = 0; i < dates.length; i += 1) {
+    const date = dates[i];
+    process.stdout.write(`[${i + 1}/${dates.length}] ${date} `);
+    try {
+      const { skipped, docCount } = await processEdinetDate(date, knownCodes);
+      if (skipped) {
+        skippedDays += 1;
+        console.log('[SKIP] (取り込み済み)');
+      } else {
+        processedDays += 1;
+        totalDocs += docCount;
+        console.log(`[OK] ${docCount}件`);
+      }
+    } catch (err) {
+      console.error(`[FAIL] ${err.message}`);
+      failures.push({ date, message: err.message });
+    }
+    await jquantsClient.apiThrottle();
+  }
+
+  console.log(
+    `Phase 15 完了: 処理 ${processedDays}日 / スキップ(取り込み済み) ${skippedDays}日 / ` +
+      `失敗 ${failures.length}日 / 合計 ${totalDocs.toLocaleString()}件の書類\n`
+  );
+
+  reportSkippedLargeVolumeCodes();
+
+  const truncated = csvMapper.getTruncationCount();
+  if (truncated > 0) {
+    console.log(
+      `  ※ 長すぎるテキストを ${truncated.toLocaleString()} 件切り詰めました(末尾に「…」が付きます)。\n` +
+        '     氏名・住所・保有目的等の自由記述のみが対象です。\n'
+    );
+  }
+
+  if (failures.length > 0) {
+    console.warn(`  ⚠ ${failures.length}日で失敗しました。再実行すると失敗分だけ再処理されます:`);
+    for (const f of failures.slice(0, 20)) {
+      console.warn(`      ${f.date}: ${f.message}`);
+    }
+    if (failures.length > 20) {
+      console.warn(`      ... 他 ${failures.length - 20}件`);
+    }
+  }
+}
+
 
 
 //------------------------------------------------------------------
@@ -685,6 +1044,7 @@ const PHASE_DEFS = [
   { key: 'earnings-date', run: () => loadEarningsSchedule() },
   { key: 'financial-summary', run: () => loadFinancialSummary() },
   { key: 'options-225', run: () => loadOption225() },
+  { key: 'edinet-large-volume', run: () => loadLargeVolumeShareholders() },
 ];
 
 /** グループ名でまとめて指定できるようにする */
@@ -695,6 +1055,7 @@ const PHASE_GROUPS = {
   indices: ['trading-calendar', 'index-topix', 'index-daily'],
   tier2: ['investor-types', 'earnings-date'],
   tier3: ['financial-summary', 'options-225'],
+  tier4: ['edinet-large-volume'],
 };
 
 /**
@@ -817,6 +1178,13 @@ module.exports = {
   OPTION_225_HANDLERS,
   loadInvestorTypes,
   loadEarningsSchedule,
+  ENDPOINT_EDINET_LARGE_VOLUME,
+  EDINET_LARGE_VOLUME_START_DATE,
+  formatDateStr,
+  businessDaysBetween,
+  loadKnownEquityCodes,
+  processEdinetDate,
+  loadLargeVolumeShareholders,
   PHASE_DEFS,
   PHASE_GROUPS,
   resolvePhases,
