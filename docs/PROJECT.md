@@ -169,6 +169,27 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 いずれも過誤訂正・予定日変更を「同一キーで公表日違いの複数行」として保持する方式で、
 `equity_margin_alert`と同じパターン。詳細は DDL 冒頭コメントを参照。
 
+**財務情報・日経225オプション四本値**（`13_financial_summary_and_options.sql`。実装済み・**実データ未確認**）
+
+| テーブル | 元エンドポイント | 主キー | 備考 |
+|---|---|---|---|
+| `financial_summary` | `/fins/summary` | `disc_no` | 補助データ(FK skip対象)。111列。DiscNoは開示単位でグローバルに一意 |
+| `index_option_price_daily` | `/derivatives/bars/daily/options/225` | `trade_date, code, em_mrgn_trg_div` | FKなし。緊急取引証拠金発動時は同一日・銘柄で2行 |
+
+ビュー: `v_financial_summary_latest`（`code, cur_per_type, cur_per_en`単位でDiscNo最大=最後に開示された行）。
+
+財務情報は投資部門別情報等と異なり、DiscNo自体が開示イベントの代理キーとして
+機能するため、同一キーへの単純MERGE(上書き)方式にしている(公表日違いの複数行を
+保持する方式ではない)。数値項目は全て文字列型・空文字=未開示(0ではない)で来る前提。
+
+**このTierはCowork(Claude)のdevice_bashからapi.jquants.comへ到達できないため
+`inspect-bulk-csv.js`での実データ確認ができていない。本番投入前に必ず**
+```bash
+node scripts/inspect-bulk-csv.js financial-summary options-225 --rows 3
+```
+**を実行し、ヘッダー名・空欄表現が想定通りか確認すること。** 想定と違えば
+`csvMapper.js`の`FINANCIAL_SUMMARY_*`/`OPTION_225_*`を実データに合わせて修正する。
+
 ### 4.2 設計上の決めごと
 
 **（1） 取り込みは全て「ステージング → MERGE」**
@@ -233,6 +254,8 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | `ENDPOINT_MARGIN_INTEREST` | `/markets/margin-interest` |
 | `ENDPOINT_MARGIN_ALERT` | `/markets/margin-alert` |
 | `ENDPOINT_SHORT_POSITION` | `/markets/short-sale-report` |
+| `ENDPOINT_FINANCIAL_SUMMARY` | `/fins/summary` |
+| `ENDPOINT_OPTION_225` | `/derivatives/bars/daily/options/225` |
 
 ### 5.2 Phase 構成
 
@@ -252,12 +275,16 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | 10 | 指数四本値 | `index_price_daily` |
 | 11 | 投資部門別情報 | `investor_type_trading` |
 | 12 | 決算発表予定日 | `earnings_schedule` |
+| 13 | 財務情報 | `financial_summary` |
+| 14 | 日経225オプション四本値 | `index_option_price_daily` |
 
 Phase 4〜7 は `equity_master` への外部キーを持つので、**Phase 1 の完了後**に実行する。
 Phase 8〜10 は銘柄単位のデータではないため `equity_master` への外部キーを持たず、
 Phase 1 と独立して(先に)実行しても問題ない。
 Phase 11 も銘柄単位ではないため外部キーを持たない。Phase 12 は補助データとして
 `equity_master` への外部キーを持つため Phase 1 の完了後に実行する。
+Phase 13 も補助データとして `equity_master` への外部キーを持つため Phase 1 の完了後に
+実行する。Phase 14 はオプション銘柄コードで外部キーを持たない。
 
 **一部だけ実行する**:
 
@@ -265,11 +292,12 @@ Phase 11 も銘柄単位ではないため外部キーを持たない。Phase 12
 node src/loadInitial.js --only short              # Phase 4〜7
 node src/loadInitial.js --only indices             # Phase 8〜10
 node src/loadInitial.js --only tier2               # Phase 11〜12
+node src/loadInitial.js --only tier3               # Phase 13〜14
 node src/loadInitial.js --only short-position     # Phase 7 だけ
 node src/loadInitial.js --only short-ratio,margin-interest
 ```
 
-グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）
+グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）/ `tier3`（13〜14）
 
 ### 5.3 再開と冪等性
 
@@ -286,6 +314,7 @@ node src/loadInitial.js --only short-ratio,margin-interest
 | 4〜7（空売り・信用取引） | **初回投入 完了** |
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
+| 13〜14（財務情報・日経225オプション四本値） | **実装済み・実データ未確認・初回投入 未実施**（2026-09-06） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
@@ -293,6 +322,16 @@ Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想�
 
 Phase 11〜12 はユーザーの手元で`inspect-bulk-csv.js`によるヘッダー確認・DDL適用・
 初回投入(`--only tier2`)を実行し、エラー無く完了している。
+
+Phase 13〜14 はDDL(`13_financial_summary_and_options.sql`)・`csvMapper.js`・
+`mergeSql.js`・`loadInitial.js`・`loadDaily.js`・`inspect-bulk-csv.js`の対応まで
+完了しているが、Cowork(Claude)のdevice_bashからapi.jquants.comへの通信が
+egressで遮断されているため実データでの確認ができていない。ユーザーの手元で
+次の順で実行すること:
+1. `node scripts/inspect-bulk-csv.js financial-summary options-225 --rows 3` でヘッダー確認
+2. 想定と違えば `csvMapper.js` の該当マッピングを実データに合わせて修正
+3. `ddl/13_financial_summary_and_options.sql` を適用
+4. `node src/loadInitial.js --only tier3` で初回投入
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 

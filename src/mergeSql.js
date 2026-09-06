@@ -746,6 +746,196 @@ async function mergeEarningsSchedule(connection) {
 }
 
 
+async function mergeFinancialSummary(connection) {
+  const sql = `
+    MERGE INTO financial_summary t
+    USING (
+      SELECT disc_date, disc_time, code, disc_no, doc_type, cur_per_type, cur_per_st, cur_per_en, cur_fy_st, cur_fy_en, nxt_fy_st, nxt_fy_en, sales, op, odp, np, eps, deps, ta, eq, eq_ar, bps, cfo, cfi, cff, cash_eq, div_1q, div_2q, div_3q, div_fy, div_ann, div_unit, div_total_ann, payout_ratio_ann, f_div_1q, f_div_2q, f_div_3q, f_div_fy, f_div_ann, f_div_unit, f_div_total_ann, f_payout_ratio_ann, nxf_div_1q, nxf_div_2q, nxf_div_3q, nxf_div_fy, nxf_div_ann, nxf_div_unit, nxf_payout_ratio_ann, f_sales_2q, f_op_2q, f_odp_2q, f_np_2q, f_eps_2q, nxf_sales_2q, nxf_op_2q, nxf_odp_2q, nxf_np_2q, nxf_eps_2q, f_sales, f_op, f_odp, f_np, f_eps, nxf_sales, nxf_op, nxf_odp, nxf_np, nxf_eps, mat_chg_sub, sig_chg_in_c, chg_by_as_rev, chg_no_as_rev, chg_ac_est, retro_rst, sh_out_fy, tr_sh_fy, avg_sh, nc_sales, nc_op, nc_odp, nc_np, nc_eps, nc_ta, nc_eq, nc_eq_ar, nc_bps, fnc_sales_2q, fnc_op_2q, fnc_odp_2q, fnc_np_2q, fnc_eps_2q, nxfnc_sales_2q, nxfnc_op_2q, nxfnc_odp_2q, nxfnc_np_2q, nxfnc_eps_2q, fnc_sales, fnc_op, fnc_odp, fnc_np, fnc_eps, nxfnc_sales, nxfnc_op, nxfnc_odp, nxfnc_np, nxfnc_eps, sh_eq, nc_sh_eq, roe, nc_roe
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.disc_no
+                                  ORDER BY s.loaded_at DESC) AS rn
+        FROM financial_summary_stg s
+        WHERE s.disc_no IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.disc_no = s.disc_no)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.disc_date = s.disc_date,
+        t.disc_time = s.disc_time,
+        t.code = s.code,
+        t.doc_type = s.doc_type,
+        t.cur_per_type = s.cur_per_type,
+        t.cur_per_st = s.cur_per_st,
+        t.cur_per_en = s.cur_per_en,
+        t.cur_fy_st = s.cur_fy_st,
+        t.cur_fy_en = s.cur_fy_en,
+        t.nxt_fy_st = s.nxt_fy_st,
+        t.nxt_fy_en = s.nxt_fy_en,
+        t.sales = s.sales,
+        t.op = s.op,
+        t.odp = s.odp,
+        t.np = s.np,
+        t.eps = s.eps,
+        t.deps = s.deps,
+        t.ta = s.ta,
+        t.eq = s.eq,
+        t.eq_ar = s.eq_ar,
+        t.bps = s.bps,
+        t.cfo = s.cfo,
+        t.cfi = s.cfi,
+        t.cff = s.cff,
+        t.cash_eq = s.cash_eq,
+        t.div_1q = s.div_1q,
+        t.div_2q = s.div_2q,
+        t.div_3q = s.div_3q,
+        t.div_fy = s.div_fy,
+        t.div_ann = s.div_ann,
+        t.div_unit = s.div_unit,
+        t.div_total_ann = s.div_total_ann,
+        t.payout_ratio_ann = s.payout_ratio_ann,
+        t.f_div_1q = s.f_div_1q,
+        t.f_div_2q = s.f_div_2q,
+        t.f_div_3q = s.f_div_3q,
+        t.f_div_fy = s.f_div_fy,
+        t.f_div_ann = s.f_div_ann,
+        t.f_div_unit = s.f_div_unit,
+        t.f_div_total_ann = s.f_div_total_ann,
+        t.f_payout_ratio_ann = s.f_payout_ratio_ann,
+        t.nxf_div_1q = s.nxf_div_1q,
+        t.nxf_div_2q = s.nxf_div_2q,
+        t.nxf_div_3q = s.nxf_div_3q,
+        t.nxf_div_fy = s.nxf_div_fy,
+        t.nxf_div_ann = s.nxf_div_ann,
+        t.nxf_div_unit = s.nxf_div_unit,
+        t.nxf_payout_ratio_ann = s.nxf_payout_ratio_ann,
+        t.f_sales_2q = s.f_sales_2q,
+        t.f_op_2q = s.f_op_2q,
+        t.f_odp_2q = s.f_odp_2q,
+        t.f_np_2q = s.f_np_2q,
+        t.f_eps_2q = s.f_eps_2q,
+        t.nxf_sales_2q = s.nxf_sales_2q,
+        t.nxf_op_2q = s.nxf_op_2q,
+        t.nxf_odp_2q = s.nxf_odp_2q,
+        t.nxf_np_2q = s.nxf_np_2q,
+        t.nxf_eps_2q = s.nxf_eps_2q,
+        t.f_sales = s.f_sales,
+        t.f_op = s.f_op,
+        t.f_odp = s.f_odp,
+        t.f_np = s.f_np,
+        t.f_eps = s.f_eps,
+        t.nxf_sales = s.nxf_sales,
+        t.nxf_op = s.nxf_op,
+        t.nxf_odp = s.nxf_odp,
+        t.nxf_np = s.nxf_np,
+        t.nxf_eps = s.nxf_eps,
+        t.mat_chg_sub = s.mat_chg_sub,
+        t.sig_chg_in_c = s.sig_chg_in_c,
+        t.chg_by_as_rev = s.chg_by_as_rev,
+        t.chg_no_as_rev = s.chg_no_as_rev,
+        t.chg_ac_est = s.chg_ac_est,
+        t.retro_rst = s.retro_rst,
+        t.sh_out_fy = s.sh_out_fy,
+        t.tr_sh_fy = s.tr_sh_fy,
+        t.avg_sh = s.avg_sh,
+        t.nc_sales = s.nc_sales,
+        t.nc_op = s.nc_op,
+        t.nc_odp = s.nc_odp,
+        t.nc_np = s.nc_np,
+        t.nc_eps = s.nc_eps,
+        t.nc_ta = s.nc_ta,
+        t.nc_eq = s.nc_eq,
+        t.nc_eq_ar = s.nc_eq_ar,
+        t.nc_bps = s.nc_bps,
+        t.fnc_sales_2q = s.fnc_sales_2q,
+        t.fnc_op_2q = s.fnc_op_2q,
+        t.fnc_odp_2q = s.fnc_odp_2q,
+        t.fnc_np_2q = s.fnc_np_2q,
+        t.fnc_eps_2q = s.fnc_eps_2q,
+        t.nxfnc_sales_2q = s.nxfnc_sales_2q,
+        t.nxfnc_op_2q = s.nxfnc_op_2q,
+        t.nxfnc_odp_2q = s.nxfnc_odp_2q,
+        t.nxfnc_np_2q = s.nxfnc_np_2q,
+        t.nxfnc_eps_2q = s.nxfnc_eps_2q,
+        t.fnc_sales = s.fnc_sales,
+        t.fnc_op = s.fnc_op,
+        t.fnc_odp = s.fnc_odp,
+        t.fnc_np = s.fnc_np,
+        t.fnc_eps = s.fnc_eps,
+        t.nxfnc_sales = s.nxfnc_sales,
+        t.nxfnc_op = s.nxfnc_op,
+        t.nxfnc_odp = s.nxfnc_odp,
+        t.nxfnc_np = s.nxfnc_np,
+        t.nxfnc_eps = s.nxfnc_eps,
+        t.sh_eq = s.sh_eq,
+        t.nc_sh_eq = s.nc_sh_eq,
+        t.roe = s.roe,
+        t.nc_roe = s.nc_roe
+        , t.loaded_at = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (disc_date, disc_time, code, disc_no, doc_type, cur_per_type, cur_per_st, cur_per_en, cur_fy_st, cur_fy_en, nxt_fy_st, nxt_fy_en, sales, op, odp, np, eps, deps, ta, eq, eq_ar, bps, cfo, cfi, cff, cash_eq, div_1q, div_2q, div_3q, div_fy, div_ann, div_unit, div_total_ann, payout_ratio_ann, f_div_1q, f_div_2q, f_div_3q, f_div_fy, f_div_ann, f_div_unit, f_div_total_ann, f_payout_ratio_ann, nxf_div_1q, nxf_div_2q, nxf_div_3q, nxf_div_fy, nxf_div_ann, nxf_div_unit, nxf_payout_ratio_ann, f_sales_2q, f_op_2q, f_odp_2q, f_np_2q, f_eps_2q, nxf_sales_2q, nxf_op_2q, nxf_odp_2q, nxf_np_2q, nxf_eps_2q, f_sales, f_op, f_odp, f_np, f_eps, nxf_sales, nxf_op, nxf_odp, nxf_np, nxf_eps, mat_chg_sub, sig_chg_in_c, chg_by_as_rev, chg_no_as_rev, chg_ac_est, retro_rst, sh_out_fy, tr_sh_fy, avg_sh, nc_sales, nc_op, nc_odp, nc_np, nc_eps, nc_ta, nc_eq, nc_eq_ar, nc_bps, fnc_sales_2q, fnc_op_2q, fnc_odp_2q, fnc_np_2q, fnc_eps_2q, nxfnc_sales_2q, nxfnc_op_2q, nxfnc_odp_2q, nxfnc_np_2q, nxfnc_eps_2q, fnc_sales, fnc_op, fnc_odp, fnc_np, fnc_eps, nxfnc_sales, nxfnc_op, nxfnc_odp, nxfnc_np, nxfnc_eps, sh_eq, nc_sh_eq, roe, nc_roe, loaded_at)
+      VALUES (s.disc_date, s.disc_time, s.code, s.disc_no, s.doc_type, s.cur_per_type, s.cur_per_st, s.cur_per_en, s.cur_fy_st, s.cur_fy_en, s.nxt_fy_st, s.nxt_fy_en, s.sales, s.op, s.odp, s.np, s.eps, s.deps, s.ta, s.eq, s.eq_ar, s.bps, s.cfo, s.cfi, s.cff, s.cash_eq, s.div_1q, s.div_2q, s.div_3q, s.div_fy, s.div_ann, s.div_unit, s.div_total_ann, s.payout_ratio_ann, s.f_div_1q, s.f_div_2q, s.f_div_3q, s.f_div_fy, s.f_div_ann, s.f_div_unit, s.f_div_total_ann, s.f_payout_ratio_ann, s.nxf_div_1q, s.nxf_div_2q, s.nxf_div_3q, s.nxf_div_fy, s.nxf_div_ann, s.nxf_div_unit, s.nxf_payout_ratio_ann, s.f_sales_2q, s.f_op_2q, s.f_odp_2q, s.f_np_2q, s.f_eps_2q, s.nxf_sales_2q, s.nxf_op_2q, s.nxf_odp_2q, s.nxf_np_2q, s.nxf_eps_2q, s.f_sales, s.f_op, s.f_odp, s.f_np, s.f_eps, s.nxf_sales, s.nxf_op, s.nxf_odp, s.nxf_np, s.nxf_eps, s.mat_chg_sub, s.sig_chg_in_c, s.chg_by_as_rev, s.chg_no_as_rev, s.chg_ac_est, s.retro_rst, s.sh_out_fy, s.tr_sh_fy, s.avg_sh, s.nc_sales, s.nc_op, s.nc_odp, s.nc_np, s.nc_eps, s.nc_ta, s.nc_eq, s.nc_eq_ar, s.nc_bps, s.fnc_sales_2q, s.fnc_op_2q, s.fnc_odp_2q, s.fnc_np_2q, s.fnc_eps_2q, s.nxfnc_sales_2q, s.nxfnc_op_2q, s.nxfnc_odp_2q, s.nxfnc_np_2q, s.nxfnc_eps_2q, s.fnc_sales, s.fnc_op, s.fnc_odp, s.fnc_np, s.fnc_eps, s.nxfnc_sales, s.nxfnc_op, s.nxfnc_odp, s.nxfnc_np, s.nxfnc_eps, s.sh_eq, s.nc_sh_eq, s.roe, s.nc_roe, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+async function mergeOptionPriceDaily(connection) {
+  const sql = `
+    MERGE INTO index_option_price_daily t
+    USING (
+      SELECT trade_date, code, o, h, l, c, eo, eh, el, ec, ao, ah, al, ac, vo, oi, va, contract_month, strike_price, vo_oa, em_mrgn_trg_div, pc_div, last_trading_date, sq_date, settle_price, theoretical_price, base_volatility, underlying_price, implied_volatility, interest_rate
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.trade_date, s.code, s.em_mrgn_trg_div
+                                  ORDER BY s.loaded_at DESC) AS rn
+        FROM index_option_price_daily_stg s
+        WHERE s.trade_date IS NOT NULL AND s.code IS NOT NULL AND s.em_mrgn_trg_div IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.trade_date = s.trade_date AND t.code = s.code AND t.em_mrgn_trg_div = s.em_mrgn_trg_div)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.o = s.o,
+        t.h = s.h,
+        t.l = s.l,
+        t.c = s.c,
+        t.eo = s.eo,
+        t.eh = s.eh,
+        t.el = s.el,
+        t.ec = s.ec,
+        t.ao = s.ao,
+        t.ah = s.ah,
+        t.al = s.al,
+        t.ac = s.ac,
+        t.vo = s.vo,
+        t.oi = s.oi,
+        t.va = s.va,
+        t.contract_month = s.contract_month,
+        t.strike_price = s.strike_price,
+        t.vo_oa = s.vo_oa,
+        t.pc_div = s.pc_div,
+        t.last_trading_date = s.last_trading_date,
+        t.sq_date = s.sq_date,
+        t.settle_price = s.settle_price,
+        t.theoretical_price = s.theoretical_price,
+        t.base_volatility = s.base_volatility,
+        t.underlying_price = s.underlying_price,
+        t.implied_volatility = s.implied_volatility,
+        t.interest_rate = s.interest_rate
+        , t.loaded_at = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (trade_date, code, o, h, l, c, eo, eh, el, ec, ao, ah, al, ac, vo, oi, va, contract_month, strike_price, vo_oa, em_mrgn_trg_div, pc_div, last_trading_date, sq_date, settle_price, theoretical_price, base_volatility, underlying_price, implied_volatility, interest_rate, loaded_at)
+      VALUES (s.trade_date, s.code, s.o, s.h, s.l, s.c, s.eo, s.eh, s.el, s.ec, s.ao, s.ah, s.al, s.ac, s.vo, s.oi, s.va, s.contract_month, s.strike_price, s.vo_oa, s.em_mrgn_trg_div, s.pc_div, s.last_trading_date, s.sq_date, s.settle_price, s.theoretical_price, s.base_volatility, s.underlying_price, s.implied_volatility, s.interest_rate, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+
 module.exports = {
   mergeMaster,
   mergeMasterHist,
@@ -769,5 +959,9 @@ module.exports = {
   // 投資部門別情報・決算発表予定日関連 (Tier 2)
   mergeInvestorTypeTrading,
   mergeEarningsSchedule,
+
+  // 財務情報・日経225オプション四本値関連 (Tier 3)
+  mergeFinancialSummary,
+  mergeOptionPriceDaily,
 };
 

@@ -130,6 +130,18 @@ const TARGETS = [
     endpoint: loadInitial.ENDPOINT_EARNINGS_DATE,
     expected: ['PubDate', 'SchDate', 'FQName', 'FYE', 'Code', 'CoName', 'CoNameEn'],
   },
+  {
+    key: 'financial-summary',
+    label: '財務情報',
+    endpoint: loadInitial.ENDPOINT_FINANCIAL_SUMMARY,
+    expected: ['DiscDate', 'DiscTime', 'Code', 'DiscNo', 'DocType', 'CurPerType', 'CurPerSt', 'CurPerEn', 'CurFYSt', 'CurFYEn', 'NxtFYSt', 'NxtFYEn', 'Sales', 'OP', 'OdP', 'NP', 'EPS', 'DEPS', 'TA', 'Eq', 'EqAR', 'BPS', 'CFO', 'CFI', 'CFF', 'CashEq', 'Div1Q', 'Div2Q', 'Div3Q', 'DivFY', 'DivAnn', 'DivUnit', 'DivTotalAnn', 'PayoutRatioAnn', 'FDiv1Q', 'FDiv2Q', 'FDiv3Q', 'FDivFY', 'FDivAnn', 'FDivUnit', 'FDivTotalAnn', 'FPayoutRatioAnn', 'NxFDiv1Q', 'NxFDiv2Q', 'NxFDiv3Q', 'NxFDivFY', 'NxFDivAnn', 'NxFDivUnit', 'NxFPayoutRatioAnn', 'FSales2Q', 'FOP2Q', 'FOdP2Q', 'FNP2Q', 'FEPS2Q', 'NxFSales2Q', 'NxFOP2Q', 'NxFOdP2Q', 'NxFNp2Q', 'NxFEPS2Q', 'FSales', 'FOP', 'FOdP', 'FNP', 'FEPS', 'NxFSales', 'NxFOP', 'NxFOdP', 'NxFNp', 'NxFEPS', 'MatChgSub', 'SigChgInC', 'ChgByASRev', 'ChgNoASRev', 'ChgAcEst', 'RetroRst', 'ShOutFY', 'TrShFY', 'AvgSh', 'NCSales', 'NCOP', 'NCOdP', 'NCNP', 'NCEPS', 'NCTA', 'NCEq', 'NCEqAR', 'NCBPS', 'FNCSales2Q', 'FNCOP2Q', 'FNCOdP2Q', 'FNCNP2Q', 'FNCEPS2Q', 'NxFNCSales2Q', 'NxFNCOP2Q', 'NxFNCOdP2Q', 'NxFNCNP2Q', 'NxFNCEPS2Q', 'FNCSales', 'FNCOP', 'FNCOdP', 'FNCNP', 'FNCEPS', 'NxFNCSales', 'NxFNCOP', 'NxFNCOdP', 'NxFNCNP', 'NxFNCEPS', 'ShEq', 'NCShEq', 'ROE', 'NCROE'],
+  },
+  {
+    key: 'options-225',
+    label: '日経225オプション四本値',
+    endpoint: loadInitial.ENDPOINT_OPTION_225,
+    expected: ['Date', 'Code', 'O', 'H', 'L', 'C', 'EO', 'EH', 'EL', 'EC', 'AO', 'AH', 'AL', 'AC', 'Vo', 'OI', 'Va', 'CM', 'Strike', 'VoOA', 'EmMrgnTrgDiv', 'PCDiv', 'LTD', 'SQD', 'Settle', 'Theo', 'BaseVol', 'UnderPx', 'IV', 'IR'],
+  },
 ];
 
 function parseArgs(argv) {

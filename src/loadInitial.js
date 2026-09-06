@@ -67,6 +67,10 @@ const ENDPOINT_INDEX_DAILY = '/indices/bars/daily';           // 指数四本値
 const ENDPOINT_INVESTOR_TYPES = '/equities/investor-types';   // 投資部門別情報(FKなし)
 const ENDPOINT_EARNINGS_DATE = '/fins/earnings-date';         // 決算発表予定日(補助データ、FKあり)
 
+// 財務情報・日経225オプション四本値(Tier 3、いずれもStandardプラン以上)
+const ENDPOINT_FINANCIAL_SUMMARY = '/fins/summary';                         // 財務情報(補助データ、FKあり)
+const ENDPOINT_OPTION_225 = '/derivatives/bars/daily/options/225';          // 日経225オプション四本値(FKなし)
+
 /**
  * Bulk APIのKeyを処理順(時系列)に並べ替える。
  * historical(月次)を古い順に処理し、その後 live(日次)を古い順に処理することで、
@@ -607,6 +611,57 @@ async function loadEarningsSchedule() {
   );
 }
 
+//==================================================================
+// 財務情報・日経225オプション四本値のハンドラ (Tier 3)
+//==================================================================
+
+/**
+ * 財務情報(補助データ)
+ * 決算発表予定日と同様、EQUITY_MASTERに無い銘柄コードはスキップする。
+ */
+const FINANCIAL_SUMMARY_HANDLERS = {
+  stagingTable: 'FINANCIAL_SUMMARY_STG',
+  columns: csvMapper.FINANCIAL_SUMMARY_COLUMNS,
+  valueExpressions: csvMapper.FINANCIAL_SUMMARY_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.FINANCIAL_SUMMARY_BIND_DEFS,
+  mapRow: csvMapper.mapFinancialSummaryRow,
+  merge: async (connection) => {
+    await skipUnknownCodes(connection, 'FINANCIAL_SUMMARY_STG', '財務情報');
+    await mergeSql.mergeFinancialSummary(connection);
+  },
+};
+
+/** 日経225オプション四本値(オプション銘柄コードなので銘柄への外部キーは無い) */
+const OPTION_225_HANDLERS = {
+  stagingTable: 'INDEX_OPTION_PRICE_DAILY_STG',
+  columns: csvMapper.OPTION_225_COLUMNS,
+  valueExpressions: csvMapper.OPTION_225_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.OPTION_225_BIND_DEFS,
+  mapRow: csvMapper.mapOption225Row,
+  merge: async (connection) => {
+    await mergeSql.mergeOptionPriceDaily(connection);
+  },
+};
+
+/** Phase 13: 財務情報 */
+async function loadFinancialSummary() {
+  await loadEndpoint(
+    ENDPOINT_FINANCIAL_SUMMARY,
+    FINANCIAL_SUMMARY_HANDLERS,
+    'Phase 13: 財務情報'
+  );
+}
+
+/** Phase 14: 日経225オプション四本値 */
+async function loadOption225() {
+  await loadEndpoint(
+    ENDPOINT_OPTION_225,
+    OPTION_225_HANDLERS,
+    'Phase 14: 日経225オプション四本値'
+  );
+}
+
+
 //------------------------------------------------------------------
 // フェーズの選択
 //
@@ -628,6 +683,8 @@ const PHASE_DEFS = [
   { key: 'index-daily', run: () => loadIndexDaily() },
   { key: 'investor-types', run: () => loadInvestorTypes() },
   { key: 'earnings-date', run: () => loadEarningsSchedule() },
+  { key: 'financial-summary', run: () => loadFinancialSummary() },
+  { key: 'options-225', run: () => loadOption225() },
 ];
 
 /** グループ名でまとめて指定できるようにする */
@@ -637,6 +694,7 @@ const PHASE_GROUPS = {
   short: ['short-ratio', 'margin-interest', 'margin-alert', 'short-position'],
   indices: ['trading-calendar', 'index-topix', 'index-daily'],
   tier2: ['investor-types', 'earnings-date'],
+  tier3: ['financial-summary', 'options-225'],
 };
 
 /**
@@ -753,6 +811,10 @@ module.exports = {
   ENDPOINT_EARNINGS_DATE,
   INVESTOR_TYPES_HANDLERS,
   EARNINGS_SCHEDULE_HANDLERS,
+  ENDPOINT_FINANCIAL_SUMMARY,
+  ENDPOINT_OPTION_225,
+  FINANCIAL_SUMMARY_HANDLERS,
+  OPTION_225_HANDLERS,
   loadInvestorTypes,
   loadEarningsSchedule,
   PHASE_DEFS,

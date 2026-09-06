@@ -1102,6 +1102,605 @@ function mapEarningsScheduleRow(row) {
 }
 
 
+//------------------------------------------------------------------
+// FINANCIAL_SUMMARY_STG (財務情報 /fins/summary) Tier3
+//------------------------------------------------------------------
+const FINANCIAL_SUMMARY_COLUMNS = [
+  'disc_date',
+  'disc_time',
+  'code',
+  'disc_no',
+  'doc_type',
+  'cur_per_type',
+  'cur_per_st',
+  'cur_per_en',
+  'cur_fy_st',
+  'cur_fy_en',
+  'nxt_fy_st',
+  'nxt_fy_en',
+  'sales',
+  'op',
+  'odp',
+  'np',
+  'eps',
+  'deps',
+  'ta',
+  'eq',
+  'eq_ar',
+  'bps',
+  'cfo',
+  'cfi',
+  'cff',
+  'cash_eq',
+  'div_1q',
+  'div_2q',
+  'div_3q',
+  'div_fy',
+  'div_ann',
+  'div_unit',
+  'div_total_ann',
+  'payout_ratio_ann',
+  'f_div_1q',
+  'f_div_2q',
+  'f_div_3q',
+  'f_div_fy',
+  'f_div_ann',
+  'f_div_unit',
+  'f_div_total_ann',
+  'f_payout_ratio_ann',
+  'nxf_div_1q',
+  'nxf_div_2q',
+  'nxf_div_3q',
+  'nxf_div_fy',
+  'nxf_div_ann',
+  'nxf_div_unit',
+  'nxf_payout_ratio_ann',
+  'f_sales_2q',
+  'f_op_2q',
+  'f_odp_2q',
+  'f_np_2q',
+  'f_eps_2q',
+  'nxf_sales_2q',
+  'nxf_op_2q',
+  'nxf_odp_2q',
+  'nxf_np_2q',
+  'nxf_eps_2q',
+  'f_sales',
+  'f_op',
+  'f_odp',
+  'f_np',
+  'f_eps',
+  'nxf_sales',
+  'nxf_op',
+  'nxf_odp',
+  'nxf_np',
+  'nxf_eps',
+  'mat_chg_sub',
+  'sig_chg_in_c',
+  'chg_by_as_rev',
+  'chg_no_as_rev',
+  'chg_ac_est',
+  'retro_rst',
+  'sh_out_fy',
+  'tr_sh_fy',
+  'avg_sh',
+  'nc_sales',
+  'nc_op',
+  'nc_odp',
+  'nc_np',
+  'nc_eps',
+  'nc_ta',
+  'nc_eq',
+  'nc_eq_ar',
+  'nc_bps',
+  'fnc_sales_2q',
+  'fnc_op_2q',
+  'fnc_odp_2q',
+  'fnc_np_2q',
+  'fnc_eps_2q',
+  'nxfnc_sales_2q',
+  'nxfnc_op_2q',
+  'nxfnc_odp_2q',
+  'nxfnc_np_2q',
+  'nxfnc_eps_2q',
+  'fnc_sales',
+  'fnc_op',
+  'fnc_odp',
+  'fnc_np',
+  'fnc_eps',
+  'nxfnc_sales',
+  'nxfnc_op',
+  'nxfnc_odp',
+  'nxfnc_np',
+  'nxfnc_eps',
+  'sh_eq',
+  'nc_sh_eq',
+  'roe',
+  'nc_roe',
+];
+
+const FINANCIAL_SUMMARY_VALUE_EXPRESSIONS = [
+  "TO_DATE(?, 'YYYY-MM-DD')", // disc_date
+  null, // disc_time
+  null, // code
+  null, // disc_no
+  null, // doc_type
+  null, // cur_per_type
+  "TO_DATE(?, 'YYYY-MM-DD')", // cur_per_st
+  "TO_DATE(?, 'YYYY-MM-DD')", // cur_per_en
+  "TO_DATE(?, 'YYYY-MM-DD')", // cur_fy_st
+  "TO_DATE(?, 'YYYY-MM-DD')", // cur_fy_en
+  "TO_DATE(?, 'YYYY-MM-DD')", // nxt_fy_st
+  "TO_DATE(?, 'YYYY-MM-DD')", // nxt_fy_en
+  null, // sales
+  null, // op
+  null, // odp
+  null, // np
+  null, // eps
+  null, // deps
+  null, // ta
+  null, // eq
+  null, // eq_ar
+  null, // bps
+  null, // cfo
+  null, // cfi
+  null, // cff
+  null, // cash_eq
+  null, // div_1q
+  null, // div_2q
+  null, // div_3q
+  null, // div_fy
+  null, // div_ann
+  null, // div_unit
+  null, // div_total_ann
+  null, // payout_ratio_ann
+  null, // f_div_1q
+  null, // f_div_2q
+  null, // f_div_3q
+  null, // f_div_fy
+  null, // f_div_ann
+  null, // f_div_unit
+  null, // f_div_total_ann
+  null, // f_payout_ratio_ann
+  null, // nxf_div_1q
+  null, // nxf_div_2q
+  null, // nxf_div_3q
+  null, // nxf_div_fy
+  null, // nxf_div_ann
+  null, // nxf_div_unit
+  null, // nxf_payout_ratio_ann
+  null, // f_sales_2q
+  null, // f_op_2q
+  null, // f_odp_2q
+  null, // f_np_2q
+  null, // f_eps_2q
+  null, // nxf_sales_2q
+  null, // nxf_op_2q
+  null, // nxf_odp_2q
+  null, // nxf_np_2q
+  null, // nxf_eps_2q
+  null, // f_sales
+  null, // f_op
+  null, // f_odp
+  null, // f_np
+  null, // f_eps
+  null, // nxf_sales
+  null, // nxf_op
+  null, // nxf_odp
+  null, // nxf_np
+  null, // nxf_eps
+  null, // mat_chg_sub
+  null, // sig_chg_in_c
+  null, // chg_by_as_rev
+  null, // chg_no_as_rev
+  null, // chg_ac_est
+  null, // retro_rst
+  null, // sh_out_fy
+  null, // tr_sh_fy
+  null, // avg_sh
+  null, // nc_sales
+  null, // nc_op
+  null, // nc_odp
+  null, // nc_np
+  null, // nc_eps
+  null, // nc_ta
+  null, // nc_eq
+  null, // nc_eq_ar
+  null, // nc_bps
+  null, // fnc_sales_2q
+  null, // fnc_op_2q
+  null, // fnc_odp_2q
+  null, // fnc_np_2q
+  null, // fnc_eps_2q
+  null, // nxfnc_sales_2q
+  null, // nxfnc_op_2q
+  null, // nxfnc_odp_2q
+  null, // nxfnc_np_2q
+  null, // nxfnc_eps_2q
+  null, // fnc_sales
+  null, // fnc_op
+  null, // fnc_odp
+  null, // fnc_np
+  null, // fnc_eps
+  null, // nxfnc_sales
+  null, // nxfnc_op
+  null, // nxfnc_odp
+  null, // nxfnc_np
+  null, // nxfnc_eps
+  null, // sh_eq
+  null, // nc_sh_eq
+  null, // roe
+  null, // nc_roe
+];
+
+const FINANCIAL_SUMMARY_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 10 }, // disc_date
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // disc_time
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // code
+  { type: oracledb.STRING, maxSize: 80, maxChars: 20 }, // disc_no
+  { type: oracledb.STRING, maxSize: 800, maxChars: 200 }, // doc_type
+  { type: oracledb.STRING, maxSize: 16, maxChars: 4 }, // cur_per_type
+  { type: oracledb.STRING, maxSize: 10 }, // cur_per_st
+  { type: oracledb.STRING, maxSize: 10 }, // cur_per_en
+  { type: oracledb.STRING, maxSize: 10 }, // cur_fy_st
+  { type: oracledb.STRING, maxSize: 10 }, // cur_fy_en
+  { type: oracledb.STRING, maxSize: 10 }, // nxt_fy_st
+  { type: oracledb.STRING, maxSize: 10 }, // nxt_fy_en
+  { type: oracledb.NUMBER }, // sales
+  { type: oracledb.NUMBER }, // op
+  { type: oracledb.NUMBER }, // odp
+  { type: oracledb.NUMBER }, // np
+  { type: oracledb.NUMBER }, // eps
+  { type: oracledb.NUMBER }, // deps
+  { type: oracledb.NUMBER }, // ta
+  { type: oracledb.NUMBER }, // eq
+  { type: oracledb.NUMBER }, // eq_ar
+  { type: oracledb.NUMBER }, // bps
+  { type: oracledb.NUMBER }, // cfo
+  { type: oracledb.NUMBER }, // cfi
+  { type: oracledb.NUMBER }, // cff
+  { type: oracledb.NUMBER }, // cash_eq
+  { type: oracledb.NUMBER }, // div_1q
+  { type: oracledb.NUMBER }, // div_2q
+  { type: oracledb.NUMBER }, // div_3q
+  { type: oracledb.NUMBER }, // div_fy
+  { type: oracledb.NUMBER }, // div_ann
+  { type: oracledb.NUMBER }, // div_unit
+  { type: oracledb.NUMBER }, // div_total_ann
+  { type: oracledb.NUMBER }, // payout_ratio_ann
+  { type: oracledb.NUMBER }, // f_div_1q
+  { type: oracledb.NUMBER }, // f_div_2q
+  { type: oracledb.NUMBER }, // f_div_3q
+  { type: oracledb.NUMBER }, // f_div_fy
+  { type: oracledb.NUMBER }, // f_div_ann
+  { type: oracledb.NUMBER }, // f_div_unit
+  { type: oracledb.NUMBER }, // f_div_total_ann
+  { type: oracledb.NUMBER }, // f_payout_ratio_ann
+  { type: oracledb.NUMBER }, // nxf_div_1q
+  { type: oracledb.NUMBER }, // nxf_div_2q
+  { type: oracledb.NUMBER }, // nxf_div_3q
+  { type: oracledb.NUMBER }, // nxf_div_fy
+  { type: oracledb.NUMBER }, // nxf_div_ann
+  { type: oracledb.NUMBER }, // nxf_div_unit
+  { type: oracledb.NUMBER }, // nxf_payout_ratio_ann
+  { type: oracledb.NUMBER }, // f_sales_2q
+  { type: oracledb.NUMBER }, // f_op_2q
+  { type: oracledb.NUMBER }, // f_odp_2q
+  { type: oracledb.NUMBER }, // f_np_2q
+  { type: oracledb.NUMBER }, // f_eps_2q
+  { type: oracledb.NUMBER }, // nxf_sales_2q
+  { type: oracledb.NUMBER }, // nxf_op_2q
+  { type: oracledb.NUMBER }, // nxf_odp_2q
+  { type: oracledb.NUMBER }, // nxf_np_2q
+  { type: oracledb.NUMBER }, // nxf_eps_2q
+  { type: oracledb.NUMBER }, // f_sales
+  { type: oracledb.NUMBER }, // f_op
+  { type: oracledb.NUMBER }, // f_odp
+  { type: oracledb.NUMBER }, // f_np
+  { type: oracledb.NUMBER }, // f_eps
+  { type: oracledb.NUMBER }, // nxf_sales
+  { type: oracledb.NUMBER }, // nxf_op
+  { type: oracledb.NUMBER }, // nxf_odp
+  { type: oracledb.NUMBER }, // nxf_np
+  { type: oracledb.NUMBER }, // nxf_eps
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // mat_chg_sub
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // sig_chg_in_c
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // chg_by_as_rev
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // chg_no_as_rev
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // chg_ac_est
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // retro_rst
+  { type: oracledb.NUMBER }, // sh_out_fy
+  { type: oracledb.NUMBER }, // tr_sh_fy
+  { type: oracledb.NUMBER }, // avg_sh
+  { type: oracledb.NUMBER }, // nc_sales
+  { type: oracledb.NUMBER }, // nc_op
+  { type: oracledb.NUMBER }, // nc_odp
+  { type: oracledb.NUMBER }, // nc_np
+  { type: oracledb.NUMBER }, // nc_eps
+  { type: oracledb.NUMBER }, // nc_ta
+  { type: oracledb.NUMBER }, // nc_eq
+  { type: oracledb.NUMBER }, // nc_eq_ar
+  { type: oracledb.NUMBER }, // nc_bps
+  { type: oracledb.NUMBER }, // fnc_sales_2q
+  { type: oracledb.NUMBER }, // fnc_op_2q
+  { type: oracledb.NUMBER }, // fnc_odp_2q
+  { type: oracledb.NUMBER }, // fnc_np_2q
+  { type: oracledb.NUMBER }, // fnc_eps_2q
+  { type: oracledb.NUMBER }, // nxfnc_sales_2q
+  { type: oracledb.NUMBER }, // nxfnc_op_2q
+  { type: oracledb.NUMBER }, // nxfnc_odp_2q
+  { type: oracledb.NUMBER }, // nxfnc_np_2q
+  { type: oracledb.NUMBER }, // nxfnc_eps_2q
+  { type: oracledb.NUMBER }, // fnc_sales
+  { type: oracledb.NUMBER }, // fnc_op
+  { type: oracledb.NUMBER }, // fnc_odp
+  { type: oracledb.NUMBER }, // fnc_np
+  { type: oracledb.NUMBER }, // fnc_eps
+  { type: oracledb.NUMBER }, // nxfnc_sales
+  { type: oracledb.NUMBER }, // nxfnc_op
+  { type: oracledb.NUMBER }, // nxfnc_odp
+  { type: oracledb.NUMBER }, // nxfnc_np
+  { type: oracledb.NUMBER }, // nxfnc_eps
+  { type: oracledb.NUMBER }, // sh_eq
+  { type: oracledb.NUMBER }, // nc_sh_eq
+  { type: oracledb.NUMBER }, // roe
+  { type: oracledb.NUMBER }, // nc_roe
+];
+
+function mapFinancialSummaryRow(row) {
+  return [
+    toDateStr(pick(row, 'DiscDate')), // disc_date
+    toStr(pick(row, 'DiscTime')), // disc_time
+    toStr(pick(row, 'Code')), // code
+    toStr(pick(row, 'DiscNo')), // disc_no
+    toStr(pick(row, 'DocType')), // doc_type
+    toStr(pick(row, 'CurPerType')), // cur_per_type
+    toDateStr(pick(row, 'CurPerSt')), // cur_per_st
+    toDateStr(pick(row, 'CurPerEn')), // cur_per_en
+    toDateStr(pick(row, 'CurFYSt')), // cur_fy_st
+    toDateStr(pick(row, 'CurFYEn')), // cur_fy_en
+    toDateStr(pick(row, 'NxtFYSt')), // nxt_fy_st
+    toDateStr(pick(row, 'NxtFYEn')), // nxt_fy_en
+    toNumRelaxed(pick(row, 'Sales')), // sales
+    toNumRelaxed(pick(row, 'OP')), // op
+    toNumRelaxed(pick(row, 'OdP')), // odp
+    toNumRelaxed(pick(row, 'NP')), // np
+    toNumRelaxed(pick(row, 'EPS')), // eps
+    toNumRelaxed(pick(row, 'DEPS')), // deps
+    toNumRelaxed(pick(row, 'TA')), // ta
+    toNumRelaxed(pick(row, 'Eq')), // eq
+    toNumRelaxed(pick(row, 'EqAR')), // eq_ar
+    toNumRelaxed(pick(row, 'BPS')), // bps
+    toNumRelaxed(pick(row, 'CFO')), // cfo
+    toNumRelaxed(pick(row, 'CFI')), // cfi
+    toNumRelaxed(pick(row, 'CFF')), // cff
+    toNumRelaxed(pick(row, 'CashEq')), // cash_eq
+    toNumRelaxed(pick(row, 'Div1Q')), // div_1q
+    toNumRelaxed(pick(row, 'Div2Q')), // div_2q
+    toNumRelaxed(pick(row, 'Div3Q')), // div_3q
+    toNumRelaxed(pick(row, 'DivFY')), // div_fy
+    toNumRelaxed(pick(row, 'DivAnn')), // div_ann
+    toNumRelaxed(pick(row, 'DivUnit')), // div_unit
+    toNumRelaxed(pick(row, 'DivTotalAnn')), // div_total_ann
+    toNumRelaxed(pick(row, 'PayoutRatioAnn')), // payout_ratio_ann
+    toNumRelaxed(pick(row, 'FDiv1Q')), // f_div_1q
+    toNumRelaxed(pick(row, 'FDiv2Q')), // f_div_2q
+    toNumRelaxed(pick(row, 'FDiv3Q')), // f_div_3q
+    toNumRelaxed(pick(row, 'FDivFY')), // f_div_fy
+    toNumRelaxed(pick(row, 'FDivAnn')), // f_div_ann
+    toNumRelaxed(pick(row, 'FDivUnit')), // f_div_unit
+    toNumRelaxed(pick(row, 'FDivTotalAnn')), // f_div_total_ann
+    toNumRelaxed(pick(row, 'FPayoutRatioAnn')), // f_payout_ratio_ann
+    toNumRelaxed(pick(row, 'NxFDiv1Q')), // nxf_div_1q
+    toNumRelaxed(pick(row, 'NxFDiv2Q')), // nxf_div_2q
+    toNumRelaxed(pick(row, 'NxFDiv3Q')), // nxf_div_3q
+    toNumRelaxed(pick(row, 'NxFDivFY')), // nxf_div_fy
+    toNumRelaxed(pick(row, 'NxFDivAnn')), // nxf_div_ann
+    toNumRelaxed(pick(row, 'NxFDivUnit')), // nxf_div_unit
+    toNumRelaxed(pick(row, 'NxFPayoutRatioAnn')), // nxf_payout_ratio_ann
+    toNumRelaxed(pick(row, 'FSales2Q')), // f_sales_2q
+    toNumRelaxed(pick(row, 'FOP2Q')), // f_op_2q
+    toNumRelaxed(pick(row, 'FOdP2Q')), // f_odp_2q
+    toNumRelaxed(pick(row, 'FNP2Q')), // f_np_2q
+    toNumRelaxed(pick(row, 'FEPS2Q')), // f_eps_2q
+    toNumRelaxed(pick(row, 'NxFSales2Q')), // nxf_sales_2q
+    toNumRelaxed(pick(row, 'NxFOP2Q')), // nxf_op_2q
+    toNumRelaxed(pick(row, 'NxFOdP2Q')), // nxf_odp_2q
+    toNumRelaxed(pick(row, 'NxFNp2Q')), // nxf_np_2q
+    toNumRelaxed(pick(row, 'NxFEPS2Q')), // nxf_eps_2q
+    toNumRelaxed(pick(row, 'FSales')), // f_sales
+    toNumRelaxed(pick(row, 'FOP')), // f_op
+    toNumRelaxed(pick(row, 'FOdP')), // f_odp
+    toNumRelaxed(pick(row, 'FNP')), // f_np
+    toNumRelaxed(pick(row, 'FEPS')), // f_eps
+    toNumRelaxed(pick(row, 'NxFSales')), // nxf_sales
+    toNumRelaxed(pick(row, 'NxFOP')), // nxf_op
+    toNumRelaxed(pick(row, 'NxFOdP')), // nxf_odp
+    toNumRelaxed(pick(row, 'NxFNp')), // nxf_np
+    toNumRelaxed(pick(row, 'NxFEPS')), // nxf_eps
+    toStr(pick(row, 'MatChgSub')), // mat_chg_sub
+    toStr(pick(row, 'SigChgInC')), // sig_chg_in_c
+    toStr(pick(row, 'ChgByASRev')), // chg_by_as_rev
+    toStr(pick(row, 'ChgNoASRev')), // chg_no_as_rev
+    toStr(pick(row, 'ChgAcEst')), // chg_ac_est
+    toStr(pick(row, 'RetroRst')), // retro_rst
+    toNumRelaxed(pick(row, 'ShOutFY')), // sh_out_fy
+    toNumRelaxed(pick(row, 'TrShFY')), // tr_sh_fy
+    toNumRelaxed(pick(row, 'AvgSh')), // avg_sh
+    toNumRelaxed(pick(row, 'NCSales')), // nc_sales
+    toNumRelaxed(pick(row, 'NCOP')), // nc_op
+    toNumRelaxed(pick(row, 'NCOdP')), // nc_odp
+    toNumRelaxed(pick(row, 'NCNP')), // nc_np
+    toNumRelaxed(pick(row, 'NCEPS')), // nc_eps
+    toNumRelaxed(pick(row, 'NCTA')), // nc_ta
+    toNumRelaxed(pick(row, 'NCEq')), // nc_eq
+    toNumRelaxed(pick(row, 'NCEqAR')), // nc_eq_ar
+    toNumRelaxed(pick(row, 'NCBPS')), // nc_bps
+    toNumRelaxed(pick(row, 'FNCSales2Q')), // fnc_sales_2q
+    toNumRelaxed(pick(row, 'FNCOP2Q')), // fnc_op_2q
+    toNumRelaxed(pick(row, 'FNCOdP2Q')), // fnc_odp_2q
+    toNumRelaxed(pick(row, 'FNCNP2Q')), // fnc_np_2q
+    toNumRelaxed(pick(row, 'FNCEPS2Q')), // fnc_eps_2q
+    toNumRelaxed(pick(row, 'NxFNCSales2Q')), // nxfnc_sales_2q
+    toNumRelaxed(pick(row, 'NxFNCOP2Q')), // nxfnc_op_2q
+    toNumRelaxed(pick(row, 'NxFNCOdP2Q')), // nxfnc_odp_2q
+    toNumRelaxed(pick(row, 'NxFNCNP2Q')), // nxfnc_np_2q
+    toNumRelaxed(pick(row, 'NxFNCEPS2Q')), // nxfnc_eps_2q
+    toNumRelaxed(pick(row, 'FNCSales')), // fnc_sales
+    toNumRelaxed(pick(row, 'FNCOP')), // fnc_op
+    toNumRelaxed(pick(row, 'FNCOdP')), // fnc_odp
+    toNumRelaxed(pick(row, 'FNCNP')), // fnc_np
+    toNumRelaxed(pick(row, 'FNCEPS')), // fnc_eps
+    toNumRelaxed(pick(row, 'NxFNCSales')), // nxfnc_sales
+    toNumRelaxed(pick(row, 'NxFNCOP')), // nxfnc_op
+    toNumRelaxed(pick(row, 'NxFNCOdP')), // nxfnc_odp
+    toNumRelaxed(pick(row, 'NxFNCNP')), // nxfnc_np
+    toNumRelaxed(pick(row, 'NxFNCEPS')), // nxfnc_eps
+    toNumRelaxed(pick(row, 'ShEq')), // sh_eq
+    toNumRelaxed(pick(row, 'NCShEq')), // nc_sh_eq
+    toNumRelaxed(pick(row, 'ROE')), // roe
+    toNumRelaxed(pick(row, 'NCROE')), // nc_roe
+  ];
+}
+
+//------------------------------------------------------------------
+// OPTION_225_PRICE_STG (日経225オプション四本値 /derivatives/bars/daily/options/225) Tier3
+//------------------------------------------------------------------
+const OPTION_225_COLUMNS = [
+  'trade_date',
+  'code',
+  'o',
+  'h',
+  'l',
+  'c',
+  'eo',
+  'eh',
+  'el',
+  'ec',
+  'ao',
+  'ah',
+  'al',
+  'ac',
+  'vo',
+  'oi',
+  'va',
+  'contract_month',
+  'strike_price',
+  'vo_oa',
+  'em_mrgn_trg_div',
+  'pc_div',
+  'last_trading_date',
+  'sq_date',
+  'settle_price',
+  'theoretical_price',
+  'base_volatility',
+  'underlying_price',
+  'implied_volatility',
+  'interest_rate',
+];
+
+const OPTION_225_VALUE_EXPRESSIONS = [
+  "TO_DATE(?, 'YYYY-MM-DD')", // trade_date
+  null, // code
+  null, // o
+  null, // h
+  null, // l
+  null, // c
+  null, // eo
+  null, // eh
+  null, // el
+  null, // ec
+  null, // ao
+  null, // ah
+  null, // al
+  null, // ac
+  null, // vo
+  null, // oi
+  null, // va
+  null, // contract_month
+  null, // strike_price
+  null, // vo_oa
+  null, // em_mrgn_trg_div
+  null, // pc_div
+  "TO_DATE(?, 'YYYY-MM-DD')", // last_trading_date
+  "TO_DATE(?, 'YYYY-MM-DD')", // sq_date
+  null, // settle_price
+  null, // theoretical_price
+  null, // base_volatility
+  null, // underlying_price
+  null, // implied_volatility
+  null, // interest_rate
+];
+
+const OPTION_225_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 10 }, // trade_date
+  { type: oracledb.STRING, maxSize: 80, maxChars: 20 }, // code
+  { type: oracledb.NUMBER }, // o
+  { type: oracledb.NUMBER }, // h
+  { type: oracledb.NUMBER }, // l
+  { type: oracledb.NUMBER }, // c
+  { type: oracledb.NUMBER }, // eo
+  { type: oracledb.NUMBER }, // eh
+  { type: oracledb.NUMBER }, // el
+  { type: oracledb.NUMBER }, // ec
+  { type: oracledb.NUMBER }, // ao
+  { type: oracledb.NUMBER }, // ah
+  { type: oracledb.NUMBER }, // al
+  { type: oracledb.NUMBER }, // ac
+  { type: oracledb.NUMBER }, // vo
+  { type: oracledb.NUMBER }, // oi
+  { type: oracledb.NUMBER }, // va
+  { type: oracledb.STRING, maxSize: 28, maxChars: 7 }, // contract_month
+  { type: oracledb.NUMBER }, // strike_price
+  { type: oracledb.NUMBER }, // vo_oa
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // em_mrgn_trg_div
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // pc_div
+  { type: oracledb.STRING, maxSize: 10 }, // last_trading_date
+  { type: oracledb.STRING, maxSize: 10 }, // sq_date
+  { type: oracledb.NUMBER }, // settle_price
+  { type: oracledb.NUMBER }, // theoretical_price
+  { type: oracledb.NUMBER }, // base_volatility
+  { type: oracledb.NUMBER }, // underlying_price
+  { type: oracledb.NUMBER }, // implied_volatility
+  { type: oracledb.NUMBER }, // interest_rate
+];
+
+function mapOption225Row(row) {
+  return [
+    toDateStr(pick(row, 'Date')), // trade_date
+    toStr(pick(row, 'Code')), // code
+    toNumRelaxed(pick(row, 'O')), // o
+    toNumRelaxed(pick(row, 'H')), // h
+    toNumRelaxed(pick(row, 'L')), // l
+    toNumRelaxed(pick(row, 'C')), // c
+    toNumRelaxed(pick(row, 'EO')), // eo
+    toNumRelaxed(pick(row, 'EH')), // eh
+    toNumRelaxed(pick(row, 'EL')), // el
+    toNumRelaxed(pick(row, 'EC')), // ec
+    toNumRelaxed(pick(row, 'AO')), // ao
+    toNumRelaxed(pick(row, 'AH')), // ah
+    toNumRelaxed(pick(row, 'AL')), // al
+    toNumRelaxed(pick(row, 'AC')), // ac
+    toNumRelaxed(pick(row, 'Vo')), // vo
+    toNumRelaxed(pick(row, 'OI')), // oi
+    toNumRelaxed(pick(row, 'Va')), // va
+    toStr(pick(row, 'CM')), // contract_month
+    toNumRelaxed(pick(row, 'Strike')), // strike_price
+    toNumRelaxed(pick(row, 'VoOA')), // vo_oa
+    toStr(pick(row, 'EmMrgnTrgDiv')), // em_mrgn_trg_div
+    toStr(pick(row, 'PCDiv')), // pc_div
+    toDateStr(pick(row, 'LTD')), // last_trading_date
+    toDateStr(pick(row, 'SQD')), // sq_date
+    toNumRelaxed(pick(row, 'Settle')), // settle_price
+    toNumRelaxed(pick(row, 'Theo')), // theoretical_price
+    toNumRelaxed(pick(row, 'BaseVol')), // base_volatility
+    toNumRelaxed(pick(row, 'UnderPx')), // underlying_price
+    toNumRelaxed(pick(row, 'IV')), // implied_volatility
+    toNumRelaxed(pick(row, 'IR')), // interest_rate
+  ];
+}
+
+
 module.exports = {
   toStr,
   validateLengths,
@@ -1166,4 +1765,14 @@ module.exports = {
   EARNINGS_SCHEDULE_VALUE_EXPRESSIONS,
   EARNINGS_SCHEDULE_BIND_DEFS,
   mapEarningsScheduleRow,
+
+  // 財務情報・日経225オプション四本値関連 (Tier 3)
+  FINANCIAL_SUMMARY_COLUMNS,
+  FINANCIAL_SUMMARY_VALUE_EXPRESSIONS,
+  FINANCIAL_SUMMARY_BIND_DEFS,
+  mapFinancialSummaryRow,
+  OPTION_225_COLUMNS,
+  OPTION_225_VALUE_EXPRESSIONS,
+  OPTION_225_BIND_DEFS,
+  mapOption225Row,
 };

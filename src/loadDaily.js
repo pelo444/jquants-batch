@@ -19,6 +19,8 @@
  *   Phase10: 指数四本値           → INDEX_PRICE_DAILY
  *   Phase11: 投資部門別情報        → INVESTOR_TYPE_TRADING
  *   Phase12: 決算発表予定日        → EARNINGS_SCHEDULE
+ *   Phase13: 財務情報              → FINANCIAL_SUMMARY
+ *   Phase14: 日経225オプション四本値 → INDEX_OPTION_PRICE_DAILY
  *
  * 【Phase 4〜7 の公開タイミングについて】
  *   これらは株価と公開タイミングが異なる(空売り残高報告は報告があった日のみ、
@@ -262,6 +264,8 @@ async function main() {
     ['Phase 10 指数四本値', loadInitial.ENDPOINT_INDEX_DAILY, loadInitial.INDEX_DAILY_HANDLERS],
     ['Phase 11 投資部門別情報', loadInitial.ENDPOINT_INVESTOR_TYPES, loadInitial.INVESTOR_TYPES_HANDLERS],
     ['Phase 12 決算発表予定日', loadInitial.ENDPOINT_EARNINGS_DATE, loadInitial.EARNINGS_SCHEDULE_HANDLERS],
+    ['Phase 13 財務情報', loadInitial.ENDPOINT_FINANCIAL_SUMMARY, loadInitial.FINANCIAL_SUMMARY_HANDLERS],
+    ['Phase 14 日経225オプション四本値', loadInitial.ENDPOINT_OPTION_225, loadInitial.OPTION_225_HANDLERS],
   ];
 
   const shortResults = [];
