@@ -22,6 +22,8 @@
  *   Phase13: 財務情報              → FINANCIAL_SUMMARY
  *   Phase14: 日経225オプション四本値 → INDEX_OPTION_PRICE_DAILY
  *   Phase15: 大量保有報告書(EDINET) → LARGE_VOLUME_SHAREHOLDER(Bulk非対応、日付単位で直近14日をチェック)
+ *   Phase16: 大株主状況(EDINET)        → EDINET_MAJOR_SHAREHOLDER(同上)
+ *   Phase17: 政策保有株式(EDINET)      → EDINET_CROSS_SHAREHOLDING(同上)
  *
  * 【Phase 4〜7 の公開タイミングについて】
  *   これらは株価と公開タイミングが異なる(空売り残高報告は報告があった日のみ、
@@ -262,6 +264,75 @@ async function processEdinetLargeVolume() {
 }
 
 
+/**
+ * Phase 16: 大株主状況(EDINET)
+ *
+ * Phase15(大量保有報告書)と同型。直近14日分の平日を毎回チェックし、
+ * LOAD_PROGRESSがSUCCESSでない日だけ処理する。
+ * @returns {Promise<{processedDays: number, totalDocs: number, failures: {date: string, message: string}[]}>}
+ */
+async function processEdinetMajorShareholder() {
+  const EDINET_LOOKBACK_DAYS = 14;
+  const today = loadInitial.formatDateStr(new Date());
+  const lookbackStart = loadInitial.formatDateStr(
+    new Date(Date.now() - EDINET_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+  );
+  const candidateDates = loadInitial.businessDaysBetween(lookbackStart, today);
+
+  const knownCodes = await db.withConnection((connection) => loadInitial.loadKnownEquityCodes(connection));
+
+  let processedDays = 0;
+  let totalDocs = 0;
+  const failures = [];
+  for (const date of candidateDates) {
+    try {
+      const { skipped, docCount } = await loadInitial.processEdinetMajorShareholderDate(date, knownCodes);
+      if (!skipped) {
+        processedDays += 1;
+        totalDocs += docCount;
+      }
+    } catch (err) {
+      failures.push({ date, message: err.message });
+    }
+    await jquantsClient.apiThrottle();
+  }
+  return { processedDays, totalDocs, failures };
+}
+
+/**
+ * Phase 17: 政策保有株式(EDINET)
+ *
+ * Phase15・Phase16と同型。直近14日分の平日を毎回チェックする。
+ * @returns {Promise<{processedDays: number, totalDocs: number, failures: {date: string, message: string}[]}>}
+ */
+async function processEdinetCrossShareholding() {
+  const EDINET_LOOKBACK_DAYS = 14;
+  const today = loadInitial.formatDateStr(new Date());
+  const lookbackStart = loadInitial.formatDateStr(
+    new Date(Date.now() - EDINET_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+  );
+  const candidateDates = loadInitial.businessDaysBetween(lookbackStart, today);
+
+  const knownCodes = await db.withConnection((connection) => loadInitial.loadKnownEquityCodes(connection));
+
+  let processedDays = 0;
+  let totalDocs = 0;
+  const failures = [];
+  for (const date of candidateDates) {
+    try {
+      const { skipped, docCount } = await loadInitial.processEdinetCrossShareholdingDate(date, knownCodes);
+      if (!skipped) {
+        processedDays += 1;
+        totalDocs += docCount;
+      }
+    } catch (err) {
+      failures.push({ date, message: err.message });
+    }
+    await jquantsClient.apiThrottle();
+  }
+  return { processedDays, totalDocs, failures };
+}
+
 async function main() {
   const startedAt = Date.now();
   log('日次投入バッチを開始します');
@@ -341,6 +412,48 @@ async function main() {
     logError(`Phase 15 大量保有報告書(EDINET) でエラーが発生しました: ${err.message}`);
     console.error(err.stack || err);
     failures.push({ label: 'Phase 15 大量保有報告書(EDINET)', message: err.message, error: err });
+  }
+
+  // --- Phase 16: 大株主状況(EDINET) ---
+  try {
+    const majorLabel = 'Phase 16 大株主状況(EDINET)';
+    const r = await processEdinetMajorShareholder();
+    if (r.processedDays > 0) {
+      shortResults.push({ label: majorLabel, fileCount: r.processedDays, rowCount: r.totalDocs });
+    } else {
+      log(`${majorLabel}: 新規日付はありません`);
+    }
+    if (r.failures.length > 0) {
+      for (const f of r.failures) {
+        logError(`${majorLabel} ${f.date} でエラー: ${f.message}`);
+      }
+      failures.push({ label: majorLabel, message: `${r.failures.length}日で失敗しました` });
+    }
+  } catch (err) {
+    logError(`Phase 16 大株主状況(EDINET) でエラーが発生しました: ${err.message}`);
+    console.error(err.stack || err);
+    failures.push({ label: 'Phase 16 大株主状況(EDINET)', message: err.message, error: err });
+  }
+
+  // --- Phase 17: 政策保有株式(EDINET) ---
+  try {
+    const crossLabel = 'Phase 17 政策保有株式(EDINET)';
+    const r = await processEdinetCrossShareholding();
+    if (r.processedDays > 0) {
+      shortResults.push({ label: crossLabel, fileCount: r.processedDays, rowCount: r.totalDocs });
+    } else {
+      log(`${crossLabel}: 新規日付はありません`);
+    }
+    if (r.failures.length > 0) {
+      for (const f of r.failures) {
+        logError(`${crossLabel} ${f.date} でエラー: ${f.message}`);
+      }
+      failures.push({ label: crossLabel, message: `${r.failures.length}日で失敗しました` });
+    }
+  } catch (err) {
+    logError(`Phase 17 政策保有株式(EDINET) でエラーが発生しました: ${err.message}`);
+    console.error(err.stack || err);
+    failures.push({ label: 'Phase 17 政策保有株式(EDINET)', message: err.message, error: err });
   }
 
   // --- 欠損チェック ---

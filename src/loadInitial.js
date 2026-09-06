@@ -74,6 +74,8 @@ const ENDPOINT_OPTION_225 = '/derivatives/bars/daily/options/225';          // �
 
 // 大量保有報告書(EDINET) (Tier 4。Bulk非対応、個別API呼出し+pagination_keyページング)
 const ENDPOINT_EDINET_LARGE_VOLUME = '/edinet/large-volume-shareholders';
+const ENDPOINT_EDINET_MAJOR_SHAREHOLDER = '/edinet/major-shareholders'; // 大株主状況
+const ENDPOINT_EDINET_CROSS_SHAREHOLDING = '/edinet/cross-shareholdings'; // 政策保有株式
 
 /**
  * Bulk APIのKeyを処理順(時系列)に並べ替える。
@@ -1046,6 +1048,390 @@ async function loadLargeVolumeShareholders() {
 
 
 
+
+//==================================================================
+// 大株主状況(EDINET) (Tier 4 続き。大量保有報告書と同じ個別API基盤を再利用)
+//
+// 大量保有報告書(Phase 15)と全く同じ「個別API呼出し+pagination_keyページング、
+// 日付単位のLOAD_PROGRESS、doc_idベースの事前DELETE」方式を踏襲する。
+// テーブル設計の詳細はddl/15_edinet_major_shareholders.sql冒頭コメントを参照。
+//==================================================================
+
+/** データ提供期間の開始日(仕様書より: 提出日2016年6月1日以降) */
+const EDINET_MAJOR_SHAREHOLDER_START_DATE = '2016-06-01';
+
+/**
+ * スキップした銘柄をまとめて報告する(Phase16・17共用の汎用版)。
+ * reportSkippedLargeVolumeCodes()と同じロジックだが、テーブル名を出さず
+ * displayNameで表示名を渡せるようにしている(1関数で複数エンドポイントに対応するため)。
+ * @param {string} label skippedCodesのキー
+ * @param {string} displayName ログ表示用の日本語名
+ */
+function reportSkippedEdinetDocCodes(label, displayName) {
+  const tally = skippedCodes.get(label);
+  if (!tally || tally.size === 0) return;
+
+  const entries = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  const totalDocs = entries.reduce((sum, [, n]) => sum + n, 0);
+  console.warn(
+    `  ⚠ EQUITY_MASTERに存在しないため取り込まなかった銘柄が ${entries.length}件 ` +
+      `ありました(延べ${totalDocs}書類、${displayName})`
+  );
+  for (const [code, n] of entries.slice(0, 20)) {
+    console.warn(`      ${code}  (${n}書類で出現)`);
+  }
+  if (entries.length > 20) {
+    console.warn(`      ... 他 ${entries.length - 20}件`);
+  }
+  console.warn(
+    '    これらは東証以外の取引所に単独上場している銘柄と考えられます\n' +
+      '    (J-Quantsの銘柄マスタは東証データのため構造的に含まれません)。'
+  );
+  skippedCodes.delete(label);
+}
+
+/**
+ * 指定日の大株主状況を取得し、DBへ反映する(Phase15のprocessEdinetDateと同型)。
+ * @param {string} date 'YYYY-MM-DD'
+ * @param {Set<string>} knownCodes EQUITY_MASTERに存在する銘柄コードの集合
+ * @returns {Promise<{skipped: boolean, docCount: number}>}
+ */
+async function processEdinetMajorShareholderDate(date, knownCodes) {
+  const alreadyDone = await db.withConnection(async (connection) => {
+    const status = await db.getProgressStatus(connection, ENDPOINT_EDINET_MAJOR_SHAREHOLDER, date);
+    return status === 'SUCCESS';
+  });
+  if (alreadyDone) {
+    return { skipped: true, docCount: 0 };
+  }
+
+  const rawDocs = await jquantsClient.fetchAllApiPages(ENDPOINT_EDINET_MAJOR_SHAREHOLDER, { date });
+
+  const docRows = [];
+  const docIds = [];
+  const holderRows = [];
+
+  for (const doc of rawDocs) {
+    const code = doc.Code === undefined || doc.Code === null ? null : String(doc.Code).trim();
+    if (code !== null && !knownCodes.has(code)) {
+      const label = 'EDINET_MAJOR_SHAREHOLDER';
+      if (!skippedCodes.has(label)) {
+        skippedCodes.set(label, new Map());
+      }
+      const tally = skippedCodes.get(label);
+      tally.set(code, (tally.get(code) || 0) + 1);
+      continue;
+    }
+
+    const mapped = edinetMapper.mapMajorShareholderDoc(doc);
+    docRows.push(mapped.docRow);
+    docIds.push(mapped.docRow[0]); // MAJOR_SHAREHOLDER_DOC_COLUMNSの先頭がdoc_id
+    holderRows.push(...mapped.holderRows);
+  }
+
+  return db.withConnection(async (connection) => {
+    await db.markProgressStarted(connection, ENDPOINT_EDINET_MAJOR_SHAREHOLDER, date);
+    await connection.commit();
+
+    try {
+      // doc_id単位の事前DELETE(理由はprocessEdinetDateのコメント参照。
+      // 同一書類が別日付クエリでも稀に再度返ってくるケースへの対処。
+      // 大量保有報告書で11日分発生したのと同じ問題が起こり得る前提で最初から入れておく)。
+      if (docIds.length > 0) {
+        await connection.executeMany(
+          `DELETE FROM edinet_major_shareholder WHERE doc_id = :docId`,
+          docIds.map((docId) => ({ docId }))
+        );
+      }
+
+      // 親をDELETEすればON DELETE CASCADEで子テーブルも連動して消える
+      await connection.execute(
+        `DELETE FROM edinet_major_shareholder WHERE sub_date = TO_DATE(:targetDate, 'YYYY-MM-DD')`,
+        { targetDate: date }
+      );
+
+      await db.bulkInsert(
+        connection,
+        'edinet_major_shareholder',
+        edinetMapper.MAJOR_SHAREHOLDER_DOC_COLUMNS,
+        docRows,
+        {
+          valueExpressions: edinetMapper.MAJOR_SHAREHOLDER_DOC_VALUE_EXPRESSIONS,
+          bindDefs: edinetMapper.MAJOR_SHAREHOLDER_DOC_BIND_DEFS,
+        }
+      );
+      await db.bulkInsert(
+        connection,
+        'edinet_major_shareholder_holder',
+        edinetMapper.MAJOR_SHAREHOLDER_HOLDER_COLUMNS,
+        holderRows,
+        {
+          valueExpressions: edinetMapper.MAJOR_SHAREHOLDER_HOLDER_VALUE_EXPRESSIONS,
+          bindDefs: edinetMapper.MAJOR_SHAREHOLDER_HOLDER_BIND_DEFS,
+        }
+      );
+
+      await db.markProgressSuccess(connection, ENDPOINT_EDINET_MAJOR_SHAREHOLDER, date, docRows.length);
+      await connection.commit();
+      return { skipped: false, docCount: docRows.length };
+    } catch (err) {
+      await connection.rollback().catch(() => {});
+      await db.markProgressFailed(connection, ENDPOINT_EDINET_MAJOR_SHAREHOLDER, date, err.message);
+      await connection.commit().catch(() => {});
+      throw err;
+    }
+  });
+}
+
+/**
+ * Phase 16: 大株主状況(EDINET)
+ *
+ * 2016-06-01(データ提供開始日)から本日まで、平日単位でループしてAPIを呼ぶ。
+ * Phase15と同じ考え方(1日ごとにLOAD_PROGRESSへ記録、1日の失敗は他日を止めない)。
+ */
+async function loadEdinetMajorShareholders() {
+  console.log('=== Phase 16: 大株主状況(EDINET)の取り込み ===');
+
+  const today = formatDateStr(new Date());
+  const dates = businessDaysBetween(EDINET_MAJOR_SHAREHOLDER_START_DATE, today);
+  console.log(`対象日数: ${dates.length}日 (${EDINET_MAJOR_SHAREHOLDER_START_DATE} 〜 ${today}、土日を除く平日単位)`);
+
+  const knownCodes = await db.withConnection((connection) => loadKnownEquityCodes(connection));
+
+  csvMapper.resetTruncationCount();
+
+  let totalDocs = 0;
+  let processedDays = 0;
+  let skippedDays = 0;
+  const failures = [];
+
+  for (let i = 0; i < dates.length; i += 1) {
+    const date = dates[i];
+    process.stdout.write(`[${i + 1}/${dates.length}] ${date} `);
+    try {
+      const { skipped, docCount } = await processEdinetMajorShareholderDate(date, knownCodes);
+      if (skipped) {
+        skippedDays += 1;
+        console.log('[SKIP] (取り込み済み)');
+      } else {
+        processedDays += 1;
+        totalDocs += docCount;
+        console.log(`[OK] ${docCount}件`);
+      }
+    } catch (err) {
+      console.error(`[FAIL] ${err.message}`);
+      failures.push({ date, message: err.message });
+    }
+    await jquantsClient.apiThrottle();
+  }
+
+  console.log(
+    `Phase 16 完了: 処理 ${processedDays}日 / スキップ(取り込み済み) ${skippedDays}日 / ` +
+      `失敗 ${failures.length}日 / 合計 ${totalDocs.toLocaleString()}件の書類\n`
+  );
+
+  reportSkippedEdinetDocCodes('EDINET_MAJOR_SHAREHOLDER', '大株主状況');
+
+  const truncated = csvMapper.getTruncationCount();
+  if (truncated > 0) {
+    console.log(
+      `  ※ 長すぎるテキストを ${truncated.toLocaleString()} 件切り詰めました(末尾に「…」が付きます)。\n` +
+        '     氏名・住所等の自由記述のみが対象です。\n'
+    );
+  }
+
+  if (failures.length > 0) {
+    console.warn(`  ⚠ ${failures.length}日で失敗しました。再実行すると失敗分だけ再処理されます:`);
+    for (const f of failures.slice(0, 20)) {
+      console.warn(`      ${f.date}: ${f.message}`);
+    }
+    if (failures.length > 20) {
+      console.warn(`      ... 他 ${failures.length - 20}件`);
+    }
+  }
+}
+
+//==================================================================
+// 政策保有株式(EDINET) (Tier 4 続き)
+//
+// 大量保有報告書・大株主状況と同じ個別API基盤を使うが、レスポンス構造は
+// 書類 → Report/Largest/SecondLargestの3スコープ → Spec/Deemの銘柄配列、
+// という3階層のネストになっており、これまでで最も深い。テーブル設計・
+// 理由の詳細はddl/16_edinet_cross_shareholdings.sql冒頭コメントを参照。
+//==================================================================
+
+/** データ提供期間の開始日(仕様書より: 提出日2020年3月31日以降) */
+const EDINET_CROSS_SHAREHOLDING_START_DATE = '2020-03-31';
+
+/**
+ * 指定日の政策保有株式を取得し、DBへ反映する。
+ * @param {string} date 'YYYY-MM-DD'
+ * @param {Set<string>} knownCodes EQUITY_MASTERに存在する銘柄コードの集合
+ * @returns {Promise<{skipped: boolean, docCount: number}>}
+ */
+async function processEdinetCrossShareholdingDate(date, knownCodes) {
+  const alreadyDone = await db.withConnection(async (connection) => {
+    const status = await db.getProgressStatus(connection, ENDPOINT_EDINET_CROSS_SHAREHOLDING, date);
+    return status === 'SUCCESS';
+  });
+  if (alreadyDone) {
+    return { skipped: true, docCount: 0 };
+  }
+
+  const rawDocs = await jquantsClient.fetchAllApiPages(ENDPOINT_EDINET_CROSS_SHAREHOLDING, { date });
+
+  const docRows = [];
+  const docIds = [];
+  const holderRows = [];
+  const stockRows = [];
+
+  for (const doc of rawDocs) {
+    const code = doc.Code === undefined || doc.Code === null ? null : String(doc.Code).trim();
+    if (code !== null && !knownCodes.has(code)) {
+      const label = 'EDINET_CROSS_SHAREHOLDING';
+      if (!skippedCodes.has(label)) {
+        skippedCodes.set(label, new Map());
+      }
+      const tally = skippedCodes.get(label);
+      tally.set(code, (tally.get(code) || 0) + 1);
+      continue;
+    }
+
+    const mapped = edinetMapper.mapCrossShareholdingDoc(doc);
+    docRows.push(mapped.docRow);
+    docIds.push(mapped.docRow[0]); // CROSS_SHAREHOLDING_DOC_COLUMNSの先頭がdoc_id
+    holderRows.push(...mapped.holderRows);
+    stockRows.push(...mapped.stockRows);
+  }
+
+  return db.withConnection(async (connection) => {
+    await db.markProgressStarted(connection, ENDPOINT_EDINET_CROSS_SHAREHOLDING, date);
+    await connection.commit();
+
+    try {
+      if (docIds.length > 0) {
+        await connection.executeMany(
+          `DELETE FROM edinet_cross_shareholding WHERE doc_id = :docId`,
+          docIds.map((docId) => ({ docId }))
+        );
+      }
+
+      await connection.execute(
+        `DELETE FROM edinet_cross_shareholding WHERE sub_date = TO_DATE(:targetDate, 'YYYY-MM-DD')`,
+        { targetDate: date }
+      );
+
+      await db.bulkInsert(
+        connection,
+        'edinet_cross_shareholding',
+        edinetMapper.CROSS_SHAREHOLDING_DOC_COLUMNS,
+        docRows,
+        {
+          valueExpressions: edinetMapper.CROSS_SHAREHOLDING_DOC_VALUE_EXPRESSIONS,
+          bindDefs: edinetMapper.CROSS_SHAREHOLDING_DOC_BIND_DEFS,
+        }
+      );
+      await db.bulkInsert(
+        connection,
+        'edinet_cross_shareholding_holder',
+        edinetMapper.CROSS_SHAREHOLDING_HOLDER_COLUMNS,
+        holderRows,
+        {
+          valueExpressions: edinetMapper.CROSS_SHAREHOLDING_HOLDER_VALUE_EXPRESSIONS,
+          bindDefs: edinetMapper.CROSS_SHAREHOLDING_HOLDER_BIND_DEFS,
+        }
+      );
+      await db.bulkInsert(
+        connection,
+        'edinet_cross_shareholding_stock',
+        edinetMapper.CROSS_SHAREHOLDING_STOCK_COLUMNS,
+        stockRows,
+        {
+          valueExpressions: edinetMapper.CROSS_SHAREHOLDING_STOCK_VALUE_EXPRESSIONS,
+          bindDefs: edinetMapper.CROSS_SHAREHOLDING_STOCK_BIND_DEFS,
+        }
+      );
+
+      await db.markProgressSuccess(connection, ENDPOINT_EDINET_CROSS_SHAREHOLDING, date, docRows.length);
+      await connection.commit();
+      return { skipped: false, docCount: docRows.length };
+    } catch (err) {
+      await connection.rollback().catch(() => {});
+      await db.markProgressFailed(connection, ENDPOINT_EDINET_CROSS_SHAREHOLDING, date, err.message);
+      await connection.commit().catch(() => {});
+      throw err;
+    }
+  });
+}
+
+/**
+ * Phase 17: 政策保有株式(EDINET)
+ *
+ * 2020-03-31(データ提供開始日)から本日まで、平日単位でループしてAPIを呼ぶ。
+ */
+async function loadEdinetCrossShareholdings() {
+  console.log('=== Phase 17: 政策保有株式(EDINET)の取り込み ===');
+
+  const today = formatDateStr(new Date());
+  const dates = businessDaysBetween(EDINET_CROSS_SHAREHOLDING_START_DATE, today);
+  console.log(`対象日数: ${dates.length}日 (${EDINET_CROSS_SHAREHOLDING_START_DATE} 〜 ${today}、土日を除く平日単位)`);
+
+  const knownCodes = await db.withConnection((connection) => loadKnownEquityCodes(connection));
+
+  csvMapper.resetTruncationCount();
+
+  let totalDocs = 0;
+  let processedDays = 0;
+  let skippedDays = 0;
+  const failures = [];
+
+  for (let i = 0; i < dates.length; i += 1) {
+    const date = dates[i];
+    process.stdout.write(`[${i + 1}/${dates.length}] ${date} `);
+    try {
+      const { skipped, docCount } = await processEdinetCrossShareholdingDate(date, knownCodes);
+      if (skipped) {
+        skippedDays += 1;
+        console.log('[SKIP] (取り込み済み)');
+      } else {
+        processedDays += 1;
+        totalDocs += docCount;
+        console.log(`[OK] ${docCount}件`);
+      }
+    } catch (err) {
+      console.error(`[FAIL] ${err.message}`);
+      failures.push({ date, message: err.message });
+    }
+    await jquantsClient.apiThrottle();
+  }
+
+  console.log(
+    `Phase 17 完了: 処理 ${processedDays}日 / スキップ(取り込み済み) ${skippedDays}日 / ` +
+      `失敗 ${failures.length}日 / 合計 ${totalDocs.toLocaleString()}件の書類\n`
+  );
+
+  reportSkippedEdinetDocCodes('EDINET_CROSS_SHAREHOLDING', '政策保有株式');
+
+  const truncated = csvMapper.getTruncationCount();
+  if (truncated > 0) {
+    console.log(
+      `  ※ 長すぎるテキストを ${truncated.toLocaleString()} 件切り詰めました(末尾に「…」が付きます)。\n` +
+        '     保有目的等の自由記述のみが対象です。\n'
+    );
+  }
+
+  if (failures.length > 0) {
+    console.warn(`  ⚠ ${failures.length}日で失敗しました。再実行すると失敗分だけ再処理されます:`);
+    for (const f of failures.slice(0, 20)) {
+      console.warn(`      ${f.date}: ${f.message}`);
+    }
+    if (failures.length > 20) {
+      console.warn(`      ... 他 ${failures.length - 20}件`);
+    }
+  }
+}
+
+
 //------------------------------------------------------------------
 // フェーズの選択
 //
@@ -1070,6 +1456,8 @@ const PHASE_DEFS = [
   { key: 'financial-summary', run: () => loadFinancialSummary() },
   { key: 'options-225', run: () => loadOption225() },
   { key: 'edinet-large-volume', run: () => loadLargeVolumeShareholders() },
+  { key: 'edinet-major-shareholders', run: () => loadEdinetMajorShareholders() },
+  { key: 'edinet-cross-shareholdings', run: () => loadEdinetCrossShareholdings() },
 ];
 
 /** グループ名でまとめて指定できるようにする */
@@ -1080,7 +1468,7 @@ const PHASE_GROUPS = {
   indices: ['trading-calendar', 'index-topix', 'index-daily'],
   tier2: ['investor-types', 'earnings-date'],
   tier3: ['financial-summary', 'options-225'],
-  tier4: ['edinet-large-volume'],
+  tier4: ['edinet-large-volume', 'edinet-major-shareholders', 'edinet-cross-shareholdings'],
 };
 
 /**
@@ -1210,6 +1598,15 @@ module.exports = {
   loadKnownEquityCodes,
   processEdinetDate,
   loadLargeVolumeShareholders,
+  ENDPOINT_EDINET_MAJOR_SHAREHOLDER,
+  EDINET_MAJOR_SHAREHOLDER_START_DATE,
+  processEdinetMajorShareholderDate,
+  loadEdinetMajorShareholders,
+  ENDPOINT_EDINET_CROSS_SHAREHOLDING,
+  EDINET_CROSS_SHAREHOLDING_START_DATE,
+  processEdinetCrossShareholdingDate,
+  loadEdinetCrossShareholdings,
+  reportSkippedEdinetDocCodes,
   PHASE_DEFS,
   PHASE_GROUPS,
   resolvePhases,

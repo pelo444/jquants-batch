@@ -232,6 +232,49 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 再投入は`node src/loadInitial.js --only tier4`を再実行すればよい
 (`load_progress`がFAILEDの日付だけ自動的に再処理される)。
 
+**大株主状況（EDINET）**（`15_edinet_major_shareholders.sql`。実装済み・**実データ未確認・DDL未適用**。Tier 4続き）
+
+| テーブル | 内容 | 主キー |
+|---|---|---|
+| `edinet_major_shareholder` | 書類メタ(書類単位で1行) | `doc_id` |
+| `edinet_major_shareholder_holder` | 大株主明細(Hldrs配列。通常上位10名、同順位タイで11位以降もあり) | `doc_id, hldr_rank` |
+
+ビュー: `v_edinet_major_shareholder_detail`(書類×株主を1行に展開した入口ビュー)。
+
+大量保有報告書と全く同じ「個別API呼出し+`pagination_key`ページング、日付単位の
+`load_progress`、doc_id単位の事前DELETE」方式(Phase 16、対象期間2016-06-01〜)。
+`HLDR_RANK`は大量保有報告書の`HLDR_SEQ`(配列インデックスの代理キー)と違い、
+レスポンスの`Rank`項目自体が書類内で一意な値のためそのまま主キーの一部に使っている。
+
+大量保有報告書と同じ理由(Cowork(Claude)のdevice_bashからapi.jquants.comへの通信が
+egressで遮断されている)により**実データ未確認**。本番投入前に必ず
+`node scripts/inspect-edinet-api.js major-shareholders --date 2025-06-20`で実データを
+確認し、想定と違えば`src/edinetMapper.js`の該当箇所を修正すること。
+
+**政策保有株式（EDINET）**（`16_edinet_cross_shareholdings.sql`。実装済み・**実データ未確認・DDL未適用**。Tier 4続き）
+
+| テーブル | 内容 | 主キー |
+|---|---|---|
+| `edinet_cross_shareholding` | 書類メタ(書類単位で1行) | `doc_id` |
+| `edinet_cross_shareholding_holder` | 提出会社(REPORT)/連結最大保有会社(LARGEST)/連結第二最大保有会社(SECOND_LARGEST)の保有ブロック | `doc_id, scope_type` |
+| `edinet_cross_shareholding_stock` | 特定投資株式(SPEC)・みなし保有株式(DEEM)の銘柄明細 | `doc_id, scope_type, stock_type, stock_seq` |
+
+ビュー: `v_edinet_cross_shareholding_overview`(書類×保有ブロックの概観)、
+`v_edinet_cross_shareholding_stock_detail`(提出会社自身が政策保有する銘柄の一覧)。
+
+これまでで最も深い3階層のネスト(書類 → Report/Largest/SecondLargestの3スコープ →
+Spec/Deemの銘柄配列)を持つエンドポイント(Phase 17、対象期間2020-03-31〜)。
+Largest/SecondLargestは親会社が無い会社ではnullになるため、その場合は
+`edinet_cross_shareholding_holder`に行自体を作らない(該当スコープの
+`edinet_cross_shareholding_stock`行も存在しない)。保有目的等の自由記述
+(`HoldRat`/`SpecFn`/`DeemFn`/`ListedIncRsn`/`NonListedIncRsn`)は大量保有報告書の
+`HldgPurp`等と同じ`clampText()`方式(VARCHAR2(1000 CHAR) + 切り詰め)で処理する
+(CLOBは本プロジェクトに前例が無く、既存の切り詰め方式との一貫性を優先した判断)。
+
+大量保有報告書と同じ理由で**実データ未確認**。本番投入前に必ず
+`node scripts/inspect-edinet-api.js cross-shareholdings --date 2025-06-20`で
+実データを確認すること。
+
 ### 4.2 設計上の決めごと
 
 **（1） 取り込みは全て「ステージング → MERGE」**
@@ -325,6 +368,8 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | 13 | 財務情報 | `financial_summary` |
 | 14 | 日経225オプション四本値 | `index_option_price_daily` |
 | 15 | 大量保有報告書(EDINET) | `large_volume_shareholder`等5テーブル |
+| 16 | 大株主状況(EDINET) | `edinet_major_shareholder`等2テーブル |
+| 17 | 政策保有株式(EDINET) | `edinet_cross_shareholding`等3テーブル |
 
 Phase 4〜7 は `equity_master` への外部キーを持つので、**Phase 1 の完了後**に実行する。
 Phase 8〜10 は銘柄単位のデータではないため `equity_master` への外部キーを持たず、
@@ -334,7 +379,8 @@ Phase 11 も銘柄単位ではないため外部キーを持たない。Phase 12
 Phase 13 も補助データとして `equity_master` への外部キーを持つため Phase 1 の完了後に
 実行する。Phase 14 はオプション銘柄コードで外部キーを持たない。Phase 15 も補助データとして
 `equity_master` への外部キーを持つが、Phase 1〜14とは違い「ファイル」ではなく「日付」を
-処理単位とする(5.1節・7.1節参照)。
+処理単位とする(5.1節・7.1節参照)。Phase 16・17も同じ理由で「日付」を処理単位とし、
+それぞれ2016-06-01・2020-03-31を開始日とする。
 
 **一部だけ実行する**:
 
@@ -345,10 +391,12 @@ node src/loadInitial.js --only tier2               # Phase 11〜12
 node src/loadInitial.js --only tier3               # Phase 13〜14
 node src/loadInitial.js --only short-position     # Phase 7 だけ
 node src/loadInitial.js --only short-ratio,margin-interest
-node src/loadInitial.js --only tier4               # Phase 15(数分〜十数分かかる。5.1節参照)
+node src/loadInitial.js --only tier4               # Phase 15〜17(数分〜数十分かかる。5.1節参照)
+node src/loadInitial.js --only edinet-major-shareholders     # Phase 16 だけ
+node src/loadInitial.js --only edinet-cross-shareholdings    # Phase 17 だけ
 ```
 
-グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）/ `tier3`（13〜14）/ `tier4`（15）
+グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）/ `tier3`（13〜14）/ `tier4`（15〜17）
 
 ### 5.3 再開と冪等性
 
@@ -367,6 +415,8 @@ node src/loadInitial.js --only tier4               # Phase 15(数分〜十数分
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
 | 13〜14（財務情報・日経225オプション四本値） | **初回投入 完了**（2026-09-06） |
 | 15（大量保有報告書(EDINET)） | **初回投入 完了**（2026-09-06。既知バグ3件対処後、624件の書類を投入。4.1節参照） |
+| 16（大株主状況(EDINET)） | 実装完了・**実データ未確認・DDL未適用**（2026-09-06。4.1節参照） |
+| 17（政策保有株式(EDINET)） | 実装完了・**実データ未確認・DDL未適用**（2026-09-06。4.1節参照） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
@@ -390,6 +440,16 @@ Phase 15（大量保有報告書(EDINET)）も同じ理由(api.jquants.comへの
 3. `ddl/14_large_volume_shareholders.sql` を適用
 4. `node src/loadInitial.js --only tier4` で初回投入(2021-07-01〜本日の平日ループ。
    途中で失敗しても再実行すれば失敗日だけ再処理される。詳細は7.1節参照)
+
+Phase 16（大株主状況(EDINET)）・Phase 17（政策保有株式(EDINET)）も同じ理由・同じ手順で
+実データ未確認・DDL未適用のままユーザーの手元での投入待ち。実行順:
+1. `node scripts/inspect-edinet-api.js major-shareholders --date 2025-06-20` /
+   `node scripts/inspect-edinet-api.js cross-shareholdings --date 2025-06-20` で実データ確認
+2. 想定と違えば `src/edinetMapper.js` の対応箇所(大株主状況はmapMajorShareholderDoc系、
+   政策保有株式はmapCrossShareholdingDoc系)を実データに合わせて修正
+3. `ddl/15_edinet_major_shareholders.sql` / `ddl/16_edinet_cross_shareholdings.sql` を適用
+4. `node src/loadInitial.js --only edinet-major-shareholders,edinet-cross-shareholdings`
+   (または`--only tier4`で大量保有報告書と合わせて実行)で初回投入
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 
@@ -703,9 +763,12 @@ node scripts/claude-query.js --json "SELECT ..."
 ## 12. 未対応・今後の課題
 
 - [x] **大量保有報告書(EDINET)の初回投入**。既知バグ3件(bind変数名/doc_id重複/edinet_code NULL、4.1節参照)対処後、2026-09-06に処理11日/失敗0日/合計624件の書類で完了。(参考: EQUITY_MASTERに無い銘柄4件・延べ5書類はスキップ。東証以外単独上場と推定)
-- [ ] **政策保有株式・大株主状況(EDINET)の実装**。大量保有報告書と同じ個別API
-      基盤(`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用。
-      着手前に`describe_endpoint`でエンドポイント名を確認する(7.1節参照)
+- [x] **政策保有株式・大株主状況(EDINET)の実装**。大量保有報告書と同じ個別API基盤
+      (`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用して実装完了
+      (2026-09-06、Phase 16・17。テーブルは`ddl/15_edinet_major_shareholders.sql`・
+      `ddl/16_edinet_cross_shareholdings.sql`)。**実データ未確認・DDL未適用・未投入**
+- [ ] **大株主状況・政策保有株式(EDINET)の実データ確認・DDL適用・初回投入**。
+      手順は5.4節末尾を参照。ユーザーの手元(Macターミナル)で実行すること
 - [ ] **空売りデータを使った分析方針の具体化**。データは揃ったので、次はここから。
       入口は `v_equity_short_position_sum`（銘柄 × 計算日）と
       `queries/sql/short_selling_overview.sql`（days to cover を含む8本）

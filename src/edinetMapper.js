@@ -352,6 +352,379 @@ function mapLargeVolumeShareholderDoc(doc) {
   return { docRow, holderRows, acqDispRows, borrowingRows, creditorRows };
 }
 
+
+//------------------------------------------------------------------
+// EDINET_MAJOR_SHAREHOLDER (書類メタ) — 大株主状況
+//------------------------------------------------------------------
+const MAJOR_SHAREHOLDER_DOC_COLUMNS = [
+  'doc_id',
+  'code',
+  'edinet_code',
+  'filer_name',
+  'filer_name_en',
+  'doc_type_code',
+  'sub_date',
+  'sub_time',
+  'per_st',
+  'per_en',
+  'cur_per_st',
+  'cur_per_en',
+];
+
+const MAJOR_SHAREHOLDER_DOC_VALUE_EXPRESSIONS = [
+  null, null, null, null, null, null,
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  null,
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  "TO_DATE(?, 'YYYY-MM-DD')",
+];
+
+const MAJOR_SHAREHOLDER_DOC_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 80 },                  // doc_id
+  { type: oracledb.STRING, maxSize: 40 },                  // code
+  { type: oracledb.STRING, maxSize: 80 },                  // edinet_code
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 }, // filer_name
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 }, // filer_name_en
+  { type: oracledb.STRING, maxSize: 40 },                  // doc_type_code
+  { type: oracledb.STRING, maxSize: 10 },                  // sub_date
+  { type: oracledb.STRING, maxSize: 40 },                  // sub_time
+  { type: oracledb.STRING, maxSize: 10 },                  // per_st
+  { type: oracledb.STRING, maxSize: 10 },                  // per_en
+  { type: oracledb.STRING, maxSize: 10 },                  // cur_per_st
+  { type: oracledb.STRING, maxSize: 10 },                  // cur_per_en
+];
+
+function mapMajorShareholderDocRow(doc) {
+  return [
+    toStr(doc.DocId),
+    toStr(doc.Code),
+    toStr(doc.EdinetCode),
+    text(doc.FilerName, 400, 1600, 'FilerName'),
+    text(doc.FilerNameEn, 400, 1600, 'FilerNameEn'),
+    toStr(doc.DocTypeCode),
+    toDateStr(doc.SubDate),
+    toStr(doc.SubTime),
+    toDateStr(doc.PerSt),
+    toDateStr(doc.PerEn),
+    toDateStr(doc.CurPerSt),
+    toDateStr(doc.CurPerEn),
+  ];
+}
+
+//------------------------------------------------------------------
+// EDINET_MAJOR_SHAREHOLDER_HOLDER (Hldrs配列) — 大株主明細
+//------------------------------------------------------------------
+const MAJOR_SHAREHOLDER_HOLDER_COLUMNS = [
+  'doc_id',
+  'hldr_rank',
+  'hldr_name',
+  'hldr_addr',
+  'shs_held',
+  'shs_ratio',
+];
+
+const MAJOR_SHAREHOLDER_HOLDER_VALUE_EXPRESSIONS = new Array(MAJOR_SHAREHOLDER_HOLDER_COLUMNS.length).fill(null);
+
+const MAJOR_SHAREHOLDER_HOLDER_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 80 },                  // doc_id
+  { type: oracledb.NUMBER },                               // hldr_rank
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 }, // hldr_name
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 }, // hldr_addr
+  { type: oracledb.NUMBER },                               // shs_held
+  { type: oracledb.NUMBER },                               // shs_ratio
+];
+
+/**
+ * Hldrs[]の1要素をrowに変換する。
+ * Rankは書類内で一意な自然キーとして使うため主キーの一部にする(配列インデックスの
+ * 代理キーを別途振る必要が無い)。ただしRankが欠けている異常データに備え、
+ * 欠けていた場合は配列インデックス+1で代用する(実データ確認時に警告有無を確認すること)。
+ * @param {string} docId
+ * @param {object} h
+ * @param {number} fallbackRank Rankが無い場合に使う値(配列インデックス+1)
+ */
+function mapMajorShareholderHolderRow(docId, h, fallbackRank) {
+  const rank = h.Rank === undefined || h.Rank === null ? fallbackRank : Number(h.Rank);
+  return [
+    docId,
+    rank,
+    text(h.HldrName, 400, 1600, 'HldrName'),
+    text(h.HldrAddr, 400, 1600, 'HldrAddr'),
+    toNum(h.ShsHeld),
+    toNum(h.ShsRatio),
+  ];
+}
+
+/**
+ * 1書類分のJSON(major-shareholders APIレスポンスのdata配列要素1件)を、
+ * bulkInsert可能な行配列に展開する。
+ * @param {object} doc
+ * @returns {{ docRow: any[], holderRows: any[][] }}
+ */
+function mapMajorShareholderDoc(doc) {
+  const docId = toStr(doc.DocId);
+  const docRow = mapMajorShareholderDocRow(doc);
+
+  const holders = Array.isArray(doc.Hldrs) ? doc.Hldrs : [];
+  const holderRows = holders.map((h, i) => mapMajorShareholderHolderRow(docId, h, i + 1));
+
+  return { docRow, holderRows };
+}
+
+//------------------------------------------------------------------
+// EDINET_CROSS_SHAREHOLDING (書類メタ) — 政策保有株式
+//------------------------------------------------------------------
+const CROSS_SHAREHOLDING_DOC_COLUMNS = [
+  'doc_id',
+  'code',
+  'edinet_code',
+  'filer_name',
+  'filer_name_en',
+  'doc_type_code',
+  'sub_date',
+  'sub_time',
+  'per_st',
+  'per_en',
+];
+
+const CROSS_SHAREHOLDING_DOC_VALUE_EXPRESSIONS = [
+  null, null, null, null, null, null,
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  null,
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  "TO_DATE(?, 'YYYY-MM-DD')",
+];
+
+const CROSS_SHAREHOLDING_DOC_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 80 },                  // doc_id
+  { type: oracledb.STRING, maxSize: 40 },                  // code
+  { type: oracledb.STRING, maxSize: 80 },                  // edinet_code
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 }, // filer_name
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 }, // filer_name_en
+  { type: oracledb.STRING, maxSize: 40 },                  // doc_type_code
+  { type: oracledb.STRING, maxSize: 10 },                  // sub_date
+  { type: oracledb.STRING, maxSize: 40 },                  // sub_time
+  { type: oracledb.STRING, maxSize: 10 },                  // per_st
+  { type: oracledb.STRING, maxSize: 10 },                  // per_en
+];
+
+function mapCrossShareholdingDocRow(doc) {
+  return [
+    toStr(doc.DocId),
+    toStr(doc.Code),
+    toStr(doc.EdinetCode),
+    text(doc.FilerName, 400, 1600, 'FilerName'),
+    text(doc.FilerNameEn, 400, 1600, 'FilerNameEn'),
+    toStr(doc.DocTypeCode),
+    toDateStr(doc.SubDate),
+    toStr(doc.SubTime),
+    toDateStr(doc.PerSt),
+    toDateStr(doc.PerEn),
+  ];
+}
+
+//------------------------------------------------------------------
+// EDINET_CROSS_SHAREHOLDING_HOLDER (Report/Largest/SecondLargestスコープ)
+//------------------------------------------------------------------
+const CROSS_SHAREHOLDING_HOLDER_COLUMNS = [
+  'doc_id',
+  'scope_type',
+  'hldr_name',
+  'hldr_code',
+  'hldr_edinet_code',
+  'listed_iss',
+  'listed_book_val',
+  'listed_inc_iss',
+  'listed_inc_acq_cost',
+  'listed_dec_iss',
+  'listed_dec_sale_amt',
+  'listed_inc_rsn',
+  'non_listed_iss',
+  'non_listed_book_val',
+  'non_listed_inc_iss',
+  'non_listed_inc_acq_cost',
+  'non_listed_dec_iss',
+  'non_listed_dec_sale_amt',
+  'non_listed_inc_rsn',
+  'spec_fn',
+  'deem_fn',
+];
+
+const CROSS_SHAREHOLDING_HOLDER_VALUE_EXPRESSIONS = new Array(CROSS_SHAREHOLDING_HOLDER_COLUMNS.length).fill(null);
+
+const CROSS_SHAREHOLDING_HOLDER_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 80 },                   // doc_id
+  { type: oracledb.STRING, maxSize: 40 },                   // scope_type
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 },  // hldr_name
+  { type: oracledb.STRING, maxSize: 40 },                   // hldr_code
+  { type: oracledb.STRING, maxSize: 80 },                   // hldr_edinet_code
+  { type: oracledb.NUMBER },                                // listed_iss
+  { type: oracledb.NUMBER },                                // listed_book_val
+  { type: oracledb.NUMBER },                                // listed_inc_iss
+  { type: oracledb.NUMBER },                                // listed_inc_acq_cost
+  { type: oracledb.NUMBER },                                // listed_dec_iss
+  { type: oracledb.NUMBER },                                // listed_dec_sale_amt
+  { type: oracledb.STRING, maxSize: 4000, maxChars: 1000 }, // listed_inc_rsn
+  { type: oracledb.NUMBER },                                // non_listed_iss
+  { type: oracledb.NUMBER },                                // non_listed_book_val
+  { type: oracledb.NUMBER },                                // non_listed_inc_iss
+  { type: oracledb.NUMBER },                                // non_listed_inc_acq_cost
+  { type: oracledb.NUMBER },                                // non_listed_dec_iss
+  { type: oracledb.NUMBER },                                // non_listed_dec_sale_amt
+  { type: oracledb.STRING, maxSize: 4000, maxChars: 1000 }, // non_listed_inc_rsn
+  { type: oracledb.STRING, maxSize: 4000, maxChars: 1000 }, // spec_fn
+  { type: oracledb.STRING, maxSize: 4000, maxChars: 1000 }, // deem_fn
+];
+
+/**
+ * Report/Largest/SecondLargestのいずれか1ブロックをrowに変換する。
+ * ブロック自体がnull(親会社が無い等)の場合はnullを返す(呼び出し側でスキップする)。
+ * @param {string} docId
+ * @param {string} scopeType 'REPORT'|'LARGEST'|'SECOND_LARGEST'
+ * @param {object|null} block
+ * @returns {any[]|null}
+ */
+function mapCrossShareholdingHolderRow(docId, scopeType, block) {
+  if (block === null || block === undefined) return null;
+  return [
+    docId,
+    scopeType,
+    text(block.HldrName, 400, 1600, `${scopeType}.HldrName`),
+    toStr(block.HldrCode),
+    toStr(block.HldrEdinetCode),
+    toNum(block.ListedIss),
+    toNum(block.ListedBookVal),
+    toNum(block.ListedIncIss),
+    toNum(block.ListedIncAcqCost),
+    toNum(block.ListedDecIss),
+    toNum(block.ListedDecSaleAmt),
+    text(block.ListedIncRsn, 1000, 4000, `${scopeType}.ListedIncRsn`),
+    toNum(block.NonListedIss),
+    toNum(block.NonListedBookVal),
+    toNum(block.NonListedIncIss),
+    toNum(block.NonListedIncAcqCost),
+    toNum(block.NonListedDecIss),
+    toNum(block.NonListedDecSaleAmt),
+    text(block.NonListedIncRsn, 1000, 4000, `${scopeType}.NonListedIncRsn`),
+    text(block.SpecFn, 1000, 4000, `${scopeType}.SpecFn`),
+    text(block.DeemFn, 1000, 4000, `${scopeType}.DeemFn`),
+  ];
+}
+
+//------------------------------------------------------------------
+// EDINET_CROSS_SHAREHOLDING_STOCK (Spec[]/Deem[]の銘柄単位)
+//------------------------------------------------------------------
+const CROSS_SHAREHOLDING_STOCK_COLUMNS = [
+  'doc_id',
+  'scope_type',
+  'stock_type',
+  'stock_seq',
+  'isr_name',
+  'isr_code',
+  'isr_edinet_code',
+  'cur_shs',
+  'pri_shs',
+  'cur_book_val',
+  'pri_book_val',
+  'cur_shs_not_disc',
+  'pri_shs_not_disc',
+  'cur_book_val_not_disc',
+  'pri_book_val_not_disc',
+  'hold_rat',
+  'isr_holds',
+  'isr_holds_code',
+];
+
+const CROSS_SHAREHOLDING_STOCK_VALUE_EXPRESSIONS = new Array(CROSS_SHAREHOLDING_STOCK_COLUMNS.length).fill(null);
+
+const CROSS_SHAREHOLDING_STOCK_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 80 },                   // doc_id
+  { type: oracledb.STRING, maxSize: 40 },                   // scope_type
+  { type: oracledb.STRING, maxSize: 20 },                   // stock_type
+  { type: oracledb.NUMBER },                                // stock_seq
+  { type: oracledb.STRING, maxSize: 1600, maxChars: 400 },  // isr_name
+  { type: oracledb.STRING, maxSize: 40 },                   // isr_code
+  { type: oracledb.STRING, maxSize: 80 },                   // isr_edinet_code
+  { type: oracledb.NUMBER },                                // cur_shs
+  { type: oracledb.NUMBER },                                // pri_shs
+  { type: oracledb.NUMBER },                                // cur_book_val
+  { type: oracledb.NUMBER },                                // pri_book_val
+  { type: oracledb.STRING, maxSize: 320, maxChars: 80 },    // cur_shs_not_disc
+  { type: oracledb.STRING, maxSize: 320, maxChars: 80 },    // pri_shs_not_disc
+  { type: oracledb.STRING, maxSize: 320, maxChars: 80 },    // cur_book_val_not_disc
+  { type: oracledb.STRING, maxSize: 320, maxChars: 80 },    // pri_book_val_not_disc
+  { type: oracledb.STRING, maxSize: 4000, maxChars: 1000 }, // hold_rat
+  { type: oracledb.STRING, maxSize: 320, maxChars: 80 },    // isr_holds
+  { type: oracledb.STRING, maxSize: 20 },                   // isr_holds_code
+];
+
+function mapCrossShareholdingStockRow(docId, scopeType, stockType, seq, s) {
+  return [
+    docId,
+    scopeType,
+    stockType,
+    seq,
+    text(s.IsrName, 400, 1600, `${stockType}.IsrName`),
+    toStr(s.IsrCode),
+    toStr(s.IsrEdinetCode),
+    toNum(s.CurShs),
+    toNum(s.PriShs),
+    toNum(s.CurBookVal),
+    toNum(s.PriBookVal),
+    text(s.CurShsNotDisc, 80, 320, `${stockType}.CurShsNotDisc`),
+    text(s.PriShsNotDisc, 80, 320, `${stockType}.PriShsNotDisc`),
+    text(s.CurBookValNotDisc, 80, 320, `${stockType}.CurBookValNotDisc`),
+    text(s.PriBookValNotDisc, 80, 320, `${stockType}.PriBookValNotDisc`),
+    text(s.HoldRat, 1000, 4000, `${stockType}.HoldRat`),
+    text(s.IsrHolds, 80, 320, `${stockType}.IsrHolds`),
+    toStr(s.IsrHoldsCode),
+  ];
+}
+
+/**
+ * 1書類分のJSON(cross-shareholdings APIレスポンスのdata配列要素1件)を、
+ * bulkInsert可能な行配列に展開する。
+ *
+ * Report/Largest/SecondLargestの3ブロックのうちnullのものはholderRowsに
+ * 行を作らない(親会社が無い会社ではLargest/SecondLargestがnullになる)。
+ * Spec[]/Deem[]もnullブロックの分は存在しないため自動的にスキップされる。
+ * @param {object} doc
+ * @returns {{ docRow: any[], holderRows: any[][], stockRows: any[][] }}
+ */
+function mapCrossShareholdingDoc(doc) {
+  const docId = toStr(doc.DocId);
+  const docRow = mapCrossShareholdingDocRow(doc);
+
+  const holderRows = [];
+  const stockRows = [];
+
+  const scopes = [
+    ['REPORT', doc.Report],
+    ['LARGEST', doc.Largest],
+    ['SECOND_LARGEST', doc.SecondLargest],
+  ];
+
+  for (const [scopeType, block] of scopes) {
+    const holderRow = mapCrossShareholdingHolderRow(docId, scopeType, block);
+    if (holderRow === null) continue;
+    holderRows.push(holderRow);
+
+    const specs = Array.isArray(block.Spec) ? block.Spec : [];
+    specs.forEach((s, i) => {
+      stockRows.push(mapCrossShareholdingStockRow(docId, scopeType, 'SPEC', i + 1, s));
+    });
+
+    const deems = Array.isArray(block.Deem) ? block.Deem : [];
+    deems.forEach((s, i) => {
+      stockRows.push(mapCrossShareholdingStockRow(docId, scopeType, 'DEEM', i + 1, s));
+    });
+  }
+
+  return { docRow, holderRows, stockRows };
+}
+
 module.exports = {
   DOC_COLUMNS,
   DOC_VALUE_EXPRESSIONS,
@@ -369,4 +742,25 @@ module.exports = {
   CREDITOR_VALUE_EXPRESSIONS,
   CREDITOR_BIND_DEFS,
   mapLargeVolumeShareholderDoc,
+
+  // 大株主状況(EDINET)
+  MAJOR_SHAREHOLDER_DOC_COLUMNS,
+  MAJOR_SHAREHOLDER_DOC_VALUE_EXPRESSIONS,
+  MAJOR_SHAREHOLDER_DOC_BIND_DEFS,
+  MAJOR_SHAREHOLDER_HOLDER_COLUMNS,
+  MAJOR_SHAREHOLDER_HOLDER_VALUE_EXPRESSIONS,
+  MAJOR_SHAREHOLDER_HOLDER_BIND_DEFS,
+  mapMajorShareholderDoc,
+
+  // 政策保有株式(EDINET)
+  CROSS_SHAREHOLDING_DOC_COLUMNS,
+  CROSS_SHAREHOLDING_DOC_VALUE_EXPRESSIONS,
+  CROSS_SHAREHOLDING_DOC_BIND_DEFS,
+  CROSS_SHAREHOLDING_HOLDER_COLUMNS,
+  CROSS_SHAREHOLDING_HOLDER_VALUE_EXPRESSIONS,
+  CROSS_SHAREHOLDING_HOLDER_BIND_DEFS,
+  CROSS_SHAREHOLDING_STOCK_COLUMNS,
+  CROSS_SHAREHOLDING_STOCK_VALUE_EXPRESSIONS,
+  CROSS_SHAREHOLDING_STOCK_BIND_DEFS,
+  mapCrossShareholdingDoc,
 };
