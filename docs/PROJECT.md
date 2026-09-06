@@ -143,8 +143,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 
 各テーブルには `*_stg`（ステージング）が対になっている。
 
-**取引カレンダー・指数四本値**（`11_calendar_and_indices.sql`。2026-09-06時点で実データ未確認。
-下記「取込済みの状況」の実行手順を参照）
+**取引カレンダー・指数四本値**（`11_calendar_and_indices.sql`。2026-09-06 実データ確認・初回投入 完了）
 
 | テーブル | 元エンドポイント | 主キー |
 |---|---|---|
@@ -266,17 +265,11 @@ node src/loadInitial.js --only short-ratio,margin-interest
 |---|---|
 | 1〜3（マスタ・株価） | 完了。過去10年分 |
 | 4〜7（空売り・信用取引） | **初回投入 完了** |
-| 8〜10（取引カレンダー・指数四本値） | コード実装済み・**初回投入は未実行**（2026-09-06時点） |
+| 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
 
-Phase 8〜10 はコード(DDL・csvMapper.js・mergeSql.js・loadInitial.js・loadDaily.js)は
-実装済みだが、初回投入(データ実体の取込)はまだ実行していない。Claude(Cowork)の
-device_bashからapi.jquants.comへの通信がegressで遮断されているため、以下は
-ユーザー自身の手元のターミナルで実行する必要がある。
-
-1. `ddl/11_calendar_and_indices.sql` をATPに適用する
-2. `node scripts/inspect-bulk-csv.js trading-calendar index-topix index-daily --rows 3` で実データを確認する
-   (ヘッダー名や空欄表現が想定と違えば `src/csvMapper.js` を実データに合わせて修正する)
-3. `node src/loadInitial.js --only indices` で初回投入する
+Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
+問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
+ともにエラー無く完了している。
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 
