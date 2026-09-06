@@ -16,13 +16,19 @@
  *   Phase 5: 信用取引残高(/markets/margin-interest)      → EQUITY_MARGIN_INTEREST
  *   Phase 6: 日々公表信用取引残高(/markets/margin-alert) → EQUITY_MARGIN_ALERT
  *   Phase 7: 空売り残高報告(/markets/short-sale-report)  → EQUITY_SHORT_POSITION
+ *   Phase 8: 取引カレンダー(/markets/calendar)            → TRADING_CALENDAR
+ *   Phase 9: TOPIX四本値(/indices/bars/daily/topix)       → TOPIX_PRICE_DAILY
+ *   Phase10: 指数四本値(/indices/bars/daily)              → INDEX_PRICE_DAILY
  *
- * Phase 4〜7 は Standardプラン以上でのみ利用できる。
+ * Phase 4〜10 は Standardプラン以上でのみ利用できる。
  * Phase 5〜7 は EQUITY_MASTER への外部キーを持つためマスタの後に実行する。
+ * Phase 8〜10 は銘柄単位のデータではないため EQUITY_MASTER への外部キーを持たず、
+ * マスタと独立して(先に)実行しても問題ない。
  *
  * 【一部のフェーズだけ実行する】
  *   既に株価まで取り込み済みの環境に空売り系を追加する場合は --only が使える。
  *     node src/loadInitial.js --only short          (Phase 4〜7)
+ *     node src/loadInitial.js --only indices        (Phase 8〜10)
  *     node src/loadInitial.js --only short-ratio    (単独指定)
  *     node src/loadInitial.js --only equity         (Phase 1〜3)
  *
@@ -51,6 +57,11 @@ const ENDPOINT_SHORT_RATIO = '/markets/short-ratio';        // 業種別空売�
 const ENDPOINT_MARGIN_INTEREST = '/markets/margin-interest'; // 信用取引残高
 const ENDPOINT_MARGIN_ALERT = '/markets/margin-alert';       // 日々公表信用取引残高
 const ENDPOINT_SHORT_POSITION = '/markets/short-sale-report'; // 空売り残高報告
+
+// Tier 1: 取引カレンダー・指数四本値(いずれもStandardプラン以上、FKなし)
+const ENDPOINT_TRADING_CALENDAR = '/markets/calendar';        // 取引カレンダー
+const ENDPOINT_INDEX_TOPIX = '/indices/bars/daily/topix';     // TOPIX四本値
+const ENDPOINT_INDEX_DAILY = '/indices/bars/daily';           // 指数四本値(TOPIX以外)
 
 /**
  * Bulk APIのKeyを処理順(時系列)に並べ替える。
@@ -395,6 +406,48 @@ const SHORT_POSITION_HANDLERS = {
   },
 };
 
+//==================================================================
+// 取引カレンダー・指数四本値関連のハンドラ (Tier 1)
+//
+// いずれも EQUITY_MASTER への外部キーを持たない(銘柄単位のデータではないため)。
+//==================================================================
+
+/** 取引カレンダー(銘柄への外部キーは無い) */
+const TRADING_CALENDAR_HANDLERS = {
+  stagingTable: 'TRADING_CALENDAR_STG',
+  columns: csvMapper.CALENDAR_COLUMNS,
+  valueExpressions: csvMapper.CALENDAR_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.CALENDAR_BIND_DEFS,
+  mapRow: csvMapper.mapCalendarRow,
+  merge: async (connection) => {
+    await mergeSql.mergeTradingCalendar(connection);
+  },
+};
+
+/** TOPIX四本値(銘柄への外部キーは無い) */
+const INDEX_TOPIX_HANDLERS = {
+  stagingTable: 'TOPIX_PRICE_DAILY_STG',
+  columns: csvMapper.TOPIX_COLUMNS,
+  valueExpressions: csvMapper.TOPIX_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.TOPIX_BIND_DEFS,
+  mapRow: csvMapper.mapTopixRow,
+  merge: async (connection) => {
+    await mergeSql.mergeTopixPriceDaily(connection);
+  },
+};
+
+/** 指数四本値(銘柄への外部キーは無い) */
+const INDEX_DAILY_HANDLERS = {
+  stagingTable: 'INDEX_PRICE_DAILY_STG',
+  columns: csvMapper.INDEX_DAILY_COLUMNS,
+  valueExpressions: csvMapper.INDEX_DAILY_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.INDEX_DAILY_BIND_DEFS,
+  mapRow: csvMapper.mapIndexDailyRow,
+  merge: async (connection) => {
+    await mergeSql.mergeIndexPriceDaily(connection);
+  },
+};
+
 /**
  * 1エンドポイント分のBulkファイルをすべて取り込む汎用処理。
  * Phase 4以降はどれも同じ流れなので共通化している。
@@ -473,6 +526,33 @@ async function loadShortPosition() {
   );
 }
 
+/** Phase 8: 取引カレンダー */
+async function loadTradingCalendar() {
+  await loadEndpoint(
+    ENDPOINT_TRADING_CALENDAR,
+    TRADING_CALENDAR_HANDLERS,
+    'Phase 8: 取引カレンダー'
+  );
+}
+
+/** Phase 9: TOPIX四本値 */
+async function loadIndexTopix() {
+  await loadEndpoint(
+    ENDPOINT_INDEX_TOPIX,
+    INDEX_TOPIX_HANDLERS,
+    'Phase 9: TOPIX四本値'
+  );
+}
+
+/** Phase 10: 指数四本値 */
+async function loadIndexDaily() {
+  await loadEndpoint(
+    ENDPOINT_INDEX_DAILY,
+    INDEX_DAILY_HANDLERS,
+    'Phase 10: 指数四本値'
+  );
+}
+
 //------------------------------------------------------------------
 // フェーズの選択
 //
@@ -489,6 +569,9 @@ const PHASE_DEFS = [
   { key: 'margin-interest', run: () => loadMarginInterest() },
   { key: 'margin-alert', run: () => loadMarginAlert() },
   { key: 'short-position', run: () => loadShortPosition() },
+  { key: 'trading-calendar', run: () => loadTradingCalendar() },
+  { key: 'index-topix', run: () => loadIndexTopix() },
+  { key: 'index-daily', run: () => loadIndexDaily() },
 ];
 
 /** グループ名でまとめて指定できるようにする */
@@ -496,6 +579,7 @@ const PHASE_GROUPS = {
   all: PHASE_DEFS.map((p) => p.key),
   equity: ['master', 'delisted', 'price'],
   short: ['short-ratio', 'margin-interest', 'margin-alert', 'short-position'],
+  indices: ['trading-calendar', 'index-topix', 'index-daily'],
 };
 
 /**
@@ -588,6 +672,9 @@ module.exports = {
   ENDPOINT_MARGIN_INTEREST,
   ENDPOINT_MARGIN_ALERT,
   ENDPOINT_SHORT_POSITION,
+  ENDPOINT_TRADING_CALENDAR,
+  ENDPOINT_INDEX_TOPIX,
+  ENDPOINT_INDEX_DAILY,
   SHORT_RATIO_HANDLERS,
   MARGIN_INTEREST_HANDLERS,
   MARGIN_ALERT_HANDLERS,
@@ -599,6 +686,12 @@ module.exports = {
   loadMarginInterest,
   loadMarginAlert,
   loadShortPosition,
+  TRADING_CALENDAR_HANDLERS,
+  INDEX_TOPIX_HANDLERS,
+  INDEX_DAILY_HANDLERS,
+  loadTradingCalendar,
+  loadIndexTopix,
+  loadIndexDaily,
   PHASE_DEFS,
   PHASE_GROUPS,
   resolvePhases,

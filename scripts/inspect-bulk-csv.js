@@ -85,6 +85,24 @@ const TARGETS = [
       'PrevRptDate', 'PrevRptRatio', 'Notes',
     ],
   },
+  {
+    key: 'trading-calendar',
+    label: '取引カレンダー',
+    endpoint: loadInitial.ENDPOINT_TRADING_CALENDAR,
+    expected: ['Date', 'HolDiv'],
+  },
+  {
+    key: 'index-topix',
+    label: 'TOPIX四本値',
+    endpoint: loadInitial.ENDPOINT_INDEX_TOPIX,
+    expected: ['Date', 'O', 'H', 'L', 'C'],
+  },
+  {
+    key: 'index-daily',
+    label: '指数四本値',
+    endpoint: loadInitial.ENDPOINT_INDEX_DAILY,
+    expected: ['Date', 'Code', 'O', 'H', 'L', 'C'],
+  },
 ];
 
 function parseArgs(argv) {

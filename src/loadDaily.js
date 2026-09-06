@@ -14,6 +14,9 @@
  *   Phase 5: 信用取引残高          → EQUITY_MARGIN_INTEREST
  *   Phase 6: 日々公表信用取引残高  → EQUITY_MARGIN_ALERT
  *   Phase 7: 空売り残高報告        → EQUITY_SHORT_POSITION
+ *   Phase 8: 取引カレンダー        → TRADING_CALENDAR
+ *   Phase 9: TOPIX四本値          → TOPIX_PRICE_DAILY
+ *   Phase10: 指数四本値           → INDEX_PRICE_DAILY
  *
  * 【Phase 4〜7 の公開タイミングについて】
  *   これらは株価と公開タイミングが異なる(空売り残高報告は報告があった日のみ、
@@ -252,6 +255,9 @@ async function main() {
     ['Phase 5 信用取引残高', loadInitial.ENDPOINT_MARGIN_INTEREST, loadInitial.MARGIN_INTEREST_HANDLERS],
     ['Phase 6 日々公表信用取引残高', loadInitial.ENDPOINT_MARGIN_ALERT, loadInitial.MARGIN_ALERT_HANDLERS],
     ['Phase 7 空売り残高報告', loadInitial.ENDPOINT_SHORT_POSITION, loadInitial.SHORT_POSITION_HANDLERS],
+    ['Phase 8 取引カレンダー', loadInitial.ENDPOINT_TRADING_CALENDAR, loadInitial.TRADING_CALENDAR_HANDLERS],
+    ['Phase 9 TOPIX四本値', loadInitial.ENDPOINT_INDEX_TOPIX, loadInitial.INDEX_TOPIX_HANDLERS],
+    ['Phase 10 指数四本値', loadInitial.ENDPOINT_INDEX_DAILY, loadInitial.INDEX_DAILY_HANDLERS],
   ];
 
   const shortResults = [];

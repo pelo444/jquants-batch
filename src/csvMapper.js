@@ -737,6 +737,120 @@ function mapShortPositionRow(row) {
 }
 
 
+//==================================================================
+// 取引カレンダー・指数四本値関連 (Tier 1)
+//
+// 【CSVヘッダー名について】
+//   API仕様書(/spec/mkt-cal, /spec/idx-bars-daily-topix, /spec/idx-bars-daily)の
+//   記載に基づく。2026-09-06時点でinspect-bulk-csv.jsによる実データ確認が
+//   できていない(Claude(Cowork)のdevice_bashからapi.jquants.comへの通信が
+//   egressで遮断されているため)。ユーザーの手元で
+//     node scripts/inspect-bulk-csv.js trading-calendar index-topix index-daily
+//   を実行し、ヘッダー名・空欄表現が想定通りか確認してから本番投入すること。
+//==================================================================
+
+//------------------------------------------------------------------
+// TRADING_CALENDAR_STG (取引カレンダー)
+// CSVヘッダー(想定): Date,HolDiv
+//------------------------------------------------------------------
+const CALENDAR_COLUMNS = [
+  'calendar_date',
+  'hol_div',
+];
+
+const CALENDAR_VALUE_EXPRESSIONS = [
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  null,
+];
+
+const CALENDAR_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 10 },              // calendar_date
+  { type: oracledb.STRING, maxSize: 4, maxChars: 1 },  // hol_div
+];
+
+function mapCalendarRow(row) {
+  return [
+    toDateStr(pick(row, 'Date')),
+    toStr(pick(row, 'HolDiv')),
+  ];
+}
+
+//------------------------------------------------------------------
+// TOPIX_PRICE_DAILY_STG (TOPIX四本値)
+// CSVヘッダー(想定): Date,O,H,L,C (指数コード列は無い。TOPIX固定)
+//------------------------------------------------------------------
+const TOPIX_COLUMNS = [
+  'price_date',
+  'open_price',
+  'high_price',
+  'low_price',
+  'close_price',
+];
+
+const TOPIX_VALUE_EXPRESSIONS = [
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  null, null, null, null,
+];
+
+const TOPIX_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 10 }, // price_date
+  { type: oracledb.NUMBER },              // open_price
+  { type: oracledb.NUMBER },              // high_price
+  { type: oracledb.NUMBER },              // low_price
+  { type: oracledb.NUMBER },              // close_price
+];
+
+function mapTopixRow(row) {
+  return [
+    toDateStr(pick(row, 'Date')),
+    toNum(pick(row, 'O')),
+    toNum(pick(row, 'H')),
+    toNum(pick(row, 'L')),
+    toNum(pick(row, 'C')),
+  ];
+}
+
+//------------------------------------------------------------------
+// INDEX_PRICE_DAILY_STG (指数四本値)
+// CSVヘッダー(想定): Date,Code,O,H,L,C
+// 「終値のみ提供」の指数はO/H/Lが空欄で来る(仕様書に明記)。toNum()でNULL化される。
+//------------------------------------------------------------------
+const INDEX_DAILY_COLUMNS = [
+  'index_code',
+  'price_date',
+  'open_price',
+  'high_price',
+  'low_price',
+  'close_price',
+];
+
+const INDEX_DAILY_VALUE_EXPRESSIONS = [
+  null,
+  "TO_DATE(?, 'YYYY-MM-DD')",
+  null, null, null, null,
+];
+
+const INDEX_DAILY_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 40, maxChars: 10 }, // index_code
+  { type: oracledb.STRING, maxSize: 10 },               // price_date
+  { type: oracledb.NUMBER },                            // open_price
+  { type: oracledb.NUMBER },                            // high_price
+  { type: oracledb.NUMBER },                            // low_price
+  { type: oracledb.NUMBER },                            // close_price
+];
+
+function mapIndexDailyRow(row) {
+  return [
+    toStr(pick(row, 'Code')),
+    toDateStr(pick(row, 'Date')),
+    toNum(pick(row, 'O')),
+    toNum(pick(row, 'H')),
+    toNum(pick(row, 'L')),
+    toNum(pick(row, 'C')),
+  ];
+}
+
+
 module.exports = {
   toStr,
   validateLengths,
@@ -777,4 +891,18 @@ module.exports = {
   SHORT_POSITION_VALUE_EXPRESSIONS,
   SHORT_POSITION_BIND_DEFS,
   mapShortPositionRow,
+
+  // 取引カレンダー・指数四本値関連
+  CALENDAR_COLUMNS,
+  CALENDAR_VALUE_EXPRESSIONS,
+  CALENDAR_BIND_DEFS,
+  mapCalendarRow,
+  TOPIX_COLUMNS,
+  TOPIX_VALUE_EXPRESSIONS,
+  TOPIX_BIND_DEFS,
+  mapTopixRow,
+  INDEX_DAILY_COLUMNS,
+  INDEX_DAILY_VALUE_EXPRESSIONS,
+  INDEX_DAILY_BIND_DEFS,
+  mapIndexDailyRow,
 };

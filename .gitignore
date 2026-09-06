@@ -9,3 +9,4 @@ wallet/
 
 # chart.js の出力(再生成できるのでコミットしない)
 output/
+.env.claude-readonly

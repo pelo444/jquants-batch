@@ -52,7 +52,9 @@
 │   ├── 06_tag_master_add_230.sql       タグ追加（再エネ）
 │   ├── 07_tag_master_add_300.sql       タグ追加（金融）
 │   ├── 08_short_selling_tables.sql     空売り・信用取引の4テーブル一式
-│   └── 09_short_position_normalize_spaces.sql  既存行の空白正規化
+│   ├── 09_short_position_normalize_spaces.sql  既存行の空白正規化
+│   ├── 10_create_claude_readonly_user.sql  Claude Desktop用読取専用ユーザー
+│   └── 11_calendar_and_indices.sql     取引カレンダー・指数四本値・指数マスタ
 ├── jquants-batch/           ★ gitリポジトリ（GitHub: pelo444/jquants-batch）
 │   ├── src/                 取り込み・チャート・Webアプリ
 │   ├── scripts/             運用スクリプト・調査ツール
@@ -141,6 +143,19 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 
 各テーブルには `*_stg`（ステージング）が対になっている。
 
+**取引カレンダー・指数四本値**（`11_calendar_and_indices.sql`。2026-09-06時点で実データ未確認。
+下記「取込済みの状況」の実行手順を参照）
+
+| テーブル | 元エンドポイント | 主キー |
+|---|---|---|
+| `trading_calendar` | `/markets/calendar` | `calendar_date` |
+| `topix_price_daily` | `/indices/bars/daily/topix` | `price_date` |
+| `index_price_daily` | `/indices/bars/daily` | `index_code, price_date` |
+| `index_master` | (手動管理・参考データ) | `index_code` |
+
+`index_master` はJ-Quantsにマスタ配信APIが無いため`tag_master`と同様に手動管理。
+新しい指数コードが追加されたら都度INSERTを足す。
+
 ### 4.2 設計上の決めごと
 
 **（1） 取り込みは全て「ステージング → MERGE」**
@@ -219,18 +234,24 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | 5 | 信用取引残高 | `equity_margin_interest` |
 | 6 | 日々公表信用取引残高 | `equity_margin_alert` |
 | 7 | 空売り残高報告 | `equity_short_position` |
+| 8 | 取引カレンダー | `trading_calendar` |
+| 9 | TOPIX四本値 | `topix_price_daily` |
+| 10 | 指数四本値 | `index_price_daily` |
 
 Phase 4〜7 は `equity_master` への外部キーを持つので、**Phase 1 の完了後**に実行する。
+Phase 8〜10 は銘柄単位のデータではないため `equity_master` への外部キーを持たず、
+Phase 1 と独立して(先に)実行しても問題ない。
 
 **一部だけ実行する**:
 
 ```bash
 node src/loadInitial.js --only short              # Phase 4〜7
+node src/loadInitial.js --only indices             # Phase 8〜10
 node src/loadInitial.js --only short-position     # Phase 7 だけ
 node src/loadInitial.js --only short-ratio,margin-interest
 ```
 
-グループ: `all` / `equity`（1〜3）/ `short`（4〜7）
+グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）
 
 ### 5.3 再開と冪等性
 
@@ -245,6 +266,17 @@ node src/loadInitial.js --only short-ratio,margin-interest
 |---|---|
 | 1〜3（マスタ・株価） | 完了。過去10年分 |
 | 4〜7（空売り・信用取引） | **初回投入 完了** |
+| 8〜10（取引カレンダー・指数四本値） | コード実装済み・**初回投入は未実行**（2026-09-06時点） |
+
+Phase 8〜10 はコード(DDL・csvMapper.js・mergeSql.js・loadInitial.js・loadDaily.js)は
+実装済みだが、初回投入(データ実体の取込)はまだ実行していない。Claude(Cowork)の
+device_bashからapi.jquants.comへの通信がegressで遮断されているため、以下は
+ユーザー自身の手元のターミナルで実行する必要がある。
+
+1. `ddl/11_calendar_and_indices.sql` をATPに適用する
+2. `node scripts/inspect-bulk-csv.js trading-calendar index-topix index-daily --rows 3` で実データを確認する
+   (ヘッダー名や空欄表現が想定と違えば `src/csvMapper.js` を実データに合わせて修正する)
+3. `node src/loadInitial.js --only indices` で初回投入する
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 
@@ -482,6 +514,29 @@ JQB_WEB_PORT=8080 npm run web
 ### 10.3 inspect-bulk-csv.js
 
 Bulk API の CSV ヘッダーを実データで確認する。DB には接続しない。7 章参照。
+
+### 10.4 claude-query.js — Claude Desktop 用 読み取り専用アクセス
+
+Claude Desktop に直接 SQL を組み立てさせて分析させたい場合の入口。
+GD_JQUANTS(取込バッチ用、フル権限)とは別に、SELECT のみの `claude_ro` ユーザーを
+`ddl/10_create_claude_readonly_user.sql` で作成し、そのユーザーで接続する。
+
+```bash
+node scripts/claude-query.js "SELECT code, co_name FROM equity_master WHERE code = '68570'"
+node scripts/claude-query.js --json "SELECT ..."
+```
+
+**設計判断(なぜこうしたか)**:
+
+- 資格情報は取込バッチの `.env` とは別ファイル `.env.claude-readonly` に置く。
+  `src/config.js` 経由の GD_JQUANTS 資格情報とは完全に分離し、
+  このツールが書き込み権限アカウントを誤って使うことがないようにする。
+- 防御を DB 側(`claude_ro` に SELECT 以外を付与しない)とアプリ側
+  (`claude-query.js` が SELECT/WITH 以外を拒否)の二重にしている。
+  最終的な防御線は DB 側の権限であり、アプリ側のチェックは過信しないこと。
+- `LOAD_PROGRESS` と `*_STG`(ステージング)は分析に不要なので付与対象から外した。
+- 初期セットアップ手順は `ddl/10_create_claude_readonly_user.sql` の冒頭コメント、
+  `.env` の雛形は `jquants-batch/claude-readonly-env.example.txt` を参照。
 
 ---
 

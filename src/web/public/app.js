@@ -48,14 +48,20 @@
   }
 
   function summarize(params) {
-    var labels = {};
-    (meta ? meta.tags : []).forEach(function (t) { labels[t.tagName] = t.label; });
-    var tags = params.tags.map(function (t) { return labels[t] || t; });
-    var shown = tags.slice(0, 4).join('・') + (tags.length > 4 ? ' ほか' + (tags.length - 4) : '');
     var opt = [];
     if (params.minDays > 0) opt.push('最低' + params.minDays + '営業日');
     if (!params.excludeFund) opt.push('ETF含む');
     if (!params.excludeDelisted) opt.push('上場廃止含む');
+
+    var shown;
+    if (params.allStocks) {
+      shown = '全銘柄(タグ絞り込みなし)';
+    } else {
+      var labels = {};
+      (meta ? meta.tags : []).forEach(function (t) { labels[t.tagName] = t.label; });
+      var tags = params.tags.map(function (t) { return labels[t] || t; });
+      shown = tags.slice(0, 4).join('・') + (tags.length > 4 ? ' ほか' + (tags.length - 4) : '');
+    }
     return shown + '　/　' + params.from + ' 〜 ' + params.to +
       (opt.length ? '　/　' + opt.join('・') : '');
   }
@@ -146,10 +152,17 @@
 
   //---------------------------------------------------------------- 取得と描画
   function buildParams() {
-    var tags = selectedTags();
-    if (tags.length === 0) throw new Error('タグを1つ以上選択してください');
+    var allStocks = $('optAllStocks').checked;
+    var tags = allStocks ? [] : selectedTags();
+    if (!allStocks && tags.length === 0) {
+      throw new Error('タグを1つ以上選択するか、「タグ絞り込みなし(全銘柄)」にチェックしてください');
+    }
     var p = new URLSearchParams();
-    p.set('tags', tags.join(','));
+    if (allStocks) {
+      p.set('all', '1');
+    } else {
+      p.set('tags', tags.join(','));
+    }
     p.set('from', $('dFrom').value);
     p.set('to', $('dTo').value);
     p.set('minDays', $('optMinDays').value || '0');
@@ -362,6 +375,14 @@
 
     $('tagClear').addEventListener('click', function () {
       Array.prototype.forEach.call(document.querySelectorAll('.tagcb'), function (c) { c.checked = false; });
+    });
+
+    // 「タグ絞り込みなし(全銘柄)」: ONの間はタグ選択UIを無効化する
+    $('optAllStocks').addEventListener('change', function () {
+      var on = this.checked;
+      $('tagGroups').classList.toggle('disabled', on);
+      $('tagClear').disabled = on;
+      $('tagReq').hidden = on;
     });
 
     $('presets').addEventListener('click', function (ev) {

@@ -122,9 +122,11 @@ input.num { width: 74px; text-align: right; font-variant-numeric: tabular-nums; 
 .field-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .field-head label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .req { font-size: 10px; color: var(--critical); margin-left: 4px; font-weight: 400; }
-.field-actions { margin-left: auto; }
+.field-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.allstocks-opt { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 
 .tag-groups { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.tag-groups.disabled { opacity: .35; pointer-events: none; }
 .tag-group { min-width: 220px; }
 .tag-group-head {
   display: flex; align-items: baseline; gap: 8px;

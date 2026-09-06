@@ -76,7 +76,8 @@ async function fetchTags(connection) {
  *
  * @param {import('oracledb').Connection} connection
  * @param {object} opts
- * @param {string[]} opts.tags          タグ名の配列(OR条件)
+ * @param {string[]} opts.tags          タグ名の配列(OR条件)。allStocksがtrueの場合は無視される
+ * @param {boolean}  [opts.allStocks=false]  trueの場合はタグで絞らず上場銘柄全体を対象にする
  * @param {string}   opts.from          'YYYY-MM-DD'
  * @param {string}   opts.to            'YYYY-MM-DD'
  * @param {number}   [opts.minDays=0]   最低営業日数。流動性が極端に低い銘柄を除くため
@@ -87,6 +88,7 @@ async function fetchTags(connection) {
 async function fetchPerformance(connection, opts) {
   const {
     tags,
+    allStocks = false,
     from,
     to,
     minDays = 0,
@@ -94,17 +96,27 @@ async function fetchPerformance(connection, opts) {
     excludeDelisted = true,
   } = opts;
 
-  if (!Array.isArray(tags) || tags.length === 0) {
+  if (!allStocks && (!Array.isArray(tags) || tags.length === 0)) {
     return [];
   }
 
   const binds = { dFrom: from, dTo: to, minDays };
-  const tagPlaceholders = tags
-    .map((t, i) => {
-      binds[`t${i}`] = t;
-      return `:t${i}`;
-    })
-    .join(', ');
+
+  // allStocks時はタグでのINを行わず、上場銘柄全体をtargetにする。
+  // 対象期間が短ければ(例: 1ヶ月)、走査量は「全銘柄数×短い日数」で収まるため、
+  // rate_price_change.sql が抱えていた「全銘柄×全期間」の重いパターンには当たらない。
+  let targetSql;
+  if (allStocks) {
+    targetSql = `SELECT em.code FROM equity_master em`;
+  } else {
+    const tagPlaceholders = tags
+      .map((t, i) => {
+        binds[`t${i}`] = t;
+        return `:t${i}`;
+      })
+      .join(', ');
+    targetSql = `SELECT DISTINCT ft.code FROM favorite_tag ft WHERE ft.tag_name IN (${tagPlaceholders})`;
+  }
 
   // sector17_code は NULL の銘柄がありうる。NVLしないと NULL <> '99' が
   // UNKNOWN になって行が消えるため、除外の意図と逆の結果になる。
@@ -114,9 +126,7 @@ async function fetchPerformance(connection, opts) {
   const sql = `
     WITH target AS (
         -- 対象銘柄をここで確定させる。以降の走査をこの銘柄だけに限定するのが要点。
-        SELECT DISTINCT ft.code
-        FROM favorite_tag ft
-        WHERE ft.tag_name IN (${tagPlaceholders})
+        ${targetSql}
     ),
     adj AS (
         SELECT p.code,

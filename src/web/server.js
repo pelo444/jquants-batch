@@ -251,27 +251,28 @@ app.get('/api/performance', async (req, res, next) => {
     const meta = await getMeta();
     const knownTags = new Set(meta.tags.map((t) => t.tagName));
 
-    const tags = parseTags(req.query.tags, knownTags);
+    const allStocks = req.query.all === '1' || req.query.all === 'true';
+    const tags = allStocks ? [] : parseTags(req.query.tags, knownTags);
     const { from, to, notice } = resolvePeriod(req.query, meta.latestDate, TABLE_MAX_YEARS);
     const minDays = parseInt0(req.query.minDays, '最低営業日数', 0, 3000, 0);
     const excludeFund = parseBool(req.query.excludeFund, true);
     const excludeDelisted = parseBool(req.query.excludeDelisted, true);
 
     const key = JSON.stringify([
-      'perf', tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
+      'perf', allStocks, tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
     ]);
     let rows = cacheGet(key);
     if (!rows) {
       rows = await db.withConnection((conn) =>
         webQuery.fetchPerformance(conn, {
-          tags, from, to, minDays, excludeFund, excludeDelisted,
+          tags, allStocks, from, to, minDays, excludeFund, excludeDelisted,
         })
       );
       cacheSet(key, rows);
     }
 
     res.json({
-      params: { tags, from, to, minDays, excludeFund, excludeDelisted },
+      params: { tags, allStocks, from, to, minDays, excludeFund, excludeDelisted },
       notice,
       count: rows.length,
       rows,
@@ -312,19 +313,20 @@ app.get('/chart', async (req, res, next) => {
       source = `選択した${codes.length}銘柄`;
     } else {
       const knownTags = new Set(meta.tags.map((t) => t.tagName));
-      const tags = parseTags(req.query.tags, knownTags);
+      const allStocks = req.query.all === '1' || req.query.all === 'true';
+      const tags = allStocks ? [] : parseTags(req.query.tags, knownTags);
       const minDays = parseInt0(req.query.minDays, '最低営業日数', 0, 3000, 0);
       const excludeFund = parseBool(req.query.excludeFund, true);
       const excludeDelisted = parseBool(req.query.excludeDelisted, true);
 
       const key = JSON.stringify([
-        'perf', tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
+        'perf', allStocks, tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
       ]);
       let perf = cacheGet(key);
       if (!perf) {
         perf = await db.withConnection((conn) =>
           webQuery.fetchPerformance(conn, {
-            tags, from, to, minDays, excludeFund, excludeDelisted,
+            tags, allStocks, from, to, minDays, excludeFund, excludeDelisted,
           })
         );
         cacheSet(key, perf);
@@ -337,7 +339,8 @@ app.get('/chart', async (req, res, next) => {
       const ordered = order === 'asc' ? perf.slice().reverse() : perf;
       codes = ordered.slice(0, limit).map((r) => r.code);
       source =
-        `タグ: ${tags.join(' / ')} ・騰落率${order === 'asc' ? '下位' : '上位'}${codes.length}件` +
+        (allStocks ? '全銘柄' : `タグ: ${tags.join(' / ')}`) +
+        ` ・騰落率${order === 'asc' ? '下位' : '上位'}${codes.length}件` +
         (perf.length > codes.length ? `(全${perf.length}銘柄中)` : '');
     }
 

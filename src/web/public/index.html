@@ -26,8 +26,12 @@
     </div>
     <div class="field">
       <div class="field-head">
-        <label>タグ<span class="req">必須</span></label>
+        <label>タグ<span class="req" id="tagReq">必須</span></label>
         <span class="field-actions">
+          <label class="opt allstocks-opt">
+            <input type="checkbox" id="optAllStocks">
+            タグ絞り込みなし(全銘柄)
+          </label>
           <button class="link" id="tagClear" type="button">すべて解除</button>
         </span>
       </div>

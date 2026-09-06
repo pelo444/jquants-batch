@@ -501,6 +501,112 @@ async function replaceShortPosition(connection) {
 }
 
 
+//==================================================================
+// 取引カレンダー・指数四本値関連 (Tier 1)
+// いずれもEQUITY_MASTERへの外部キーを持たない(銘柄単位のデータではないため)。
+//==================================================================
+
+/**
+ * TRADING_CALENDAR_STG から TRADING_CALENDAR へMERGEする。
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<number>} 反映件数
+ */
+async function mergeTradingCalendar(connection) {
+  const sql = `
+    MERGE INTO trading_calendar t
+    USING (
+      SELECT calendar_date, hol_div
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.calendar_date ORDER BY s.loaded_at DESC) AS rn
+        FROM trading_calendar_stg s
+        WHERE s.calendar_date IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.calendar_date = s.calendar_date)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.hol_div   = s.hol_div,
+        t.loaded_at = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (calendar_date, hol_div, loaded_at)
+      VALUES (s.calendar_date, s.hol_div, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+/**
+ * TOPIX_PRICE_DAILY_STG から TOPIX_PRICE_DAILY へMERGEする。
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<number>} 反映件数
+ */
+async function mergeTopixPriceDaily(connection) {
+  const sql = `
+    MERGE INTO topix_price_daily t
+    USING (
+      SELECT price_date, open_price, high_price, low_price, close_price
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.price_date ORDER BY s.loaded_at DESC) AS rn
+        FROM topix_price_daily_stg s
+        WHERE s.price_date IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.price_date = s.price_date)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.open_price  = s.open_price,
+        t.high_price  = s.high_price,
+        t.low_price   = s.low_price,
+        t.close_price = s.close_price,
+        t.loaded_at   = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (price_date, open_price, high_price, low_price, close_price, loaded_at)
+      VALUES (s.price_date, s.open_price, s.high_price, s.low_price, s.close_price, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+/**
+ * INDEX_PRICE_DAILY_STG から INDEX_PRICE_DAILY へMERGEする。
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<number>} 反映件数
+ */
+async function mergeIndexPriceDaily(connection) {
+  const sql = `
+    MERGE INTO index_price_daily t
+    USING (
+      SELECT index_code, price_date, open_price, high_price, low_price, close_price
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.index_code, s.price_date
+                                  ORDER BY s.loaded_at DESC) AS rn
+        FROM index_price_daily_stg s
+        WHERE s.index_code IS NOT NULL AND s.price_date IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.index_code = s.index_code AND t.price_date = s.price_date)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.open_price  = s.open_price,
+        t.high_price  = s.high_price,
+        t.low_price   = s.low_price,
+        t.close_price = s.close_price,
+        t.loaded_at   = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (index_code, price_date, open_price, high_price, low_price, close_price, loaded_at)
+      VALUES (s.index_code, s.price_date, s.open_price, s.high_price, s.low_price, s.close_price, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+
 module.exports = {
   mergeMaster,
   mergeMasterHist,
@@ -515,5 +621,10 @@ module.exports = {
   mergeMarginInterest,
   mergeMarginAlert,
   replaceShortPosition,
+
+  // 取引カレンダー・指数四本値関連
+  mergeTradingCalendar,
+  mergeTopixPriceDaily,
+  mergeIndexPriceDaily,
 };
 
