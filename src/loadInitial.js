@@ -1091,6 +1091,69 @@ function reportSkippedEdinetDocCodes(label, displayName) {
 }
 
 /**
+ * エラーメッセージから、契約プランが実際にカバーする開始日を取り出す。
+ *
+ * J-Quants APIは、契約プランのアクセス可能範囲外の日付をリクエストすると
+ * 400エラーで以下の形式のメッセージを返す:
+ *   "Your subscription covers the following dates: 2016-09-06 ~ . If you want more data, ..."
+ * @param {string} message エラーメッセージ(HTTPエラー本文を含む)
+ * @returns {string|null} 'YYYY-MM-DD'。パターンに一致しなければnull
+ */
+function parseSubscriptionCoverageStart(message) {
+  const m = String(message || '').match(/covers the following dates:\s*(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+/**
+ * 個別API呼出し方式(Tier4)のPhaseで、契約プランのアクセス可能範囲を踏まえた
+ * 実際のループ開始日を求める。
+ *
+ * 【なぜ必要か】
+ *   API仕様書に書かれている「データ提供開始日」は、そのエンドポイント自体が
+ *   いつからデータを持っているかであって、契約プランのアクセス可能範囲とは別。
+ *   Standardプランは「今日から遡って10年」のローリングウィンドウ(下限は日々前進する)
+ *   のため、データ提供開始日がこのウィンドウより古いと、それより前の日付は
+ *   恒久的にアクセス不可になる(ウィンドウの下限は前進する一方なので、時間が経っても
+ *   対象日に追いつかれることは無い)。
+ *
+ *   ハードコードした年数(10年)で判定する方法も考えられるが、プラン変更
+ *   (Premium=20年等)に追随できなくなるため、実際に1日分を問い合わせてみて
+ *   エラーメッセージから真の開始日を検出する方式にした
+ *   (2026-09-06、大株主状況(`edinet-major-shareholders`)の初回投入で
+ *   データ提供開始日2016-06-01が400エラーになり発覚。仕様書のデータ提供開始日と
+ *   実際にアクセス可能な範囲が食い違うケースがあることが分かった)。
+ *
+ *   大量保有報告書(Phase15)のデータ提供開始日(2021-07-01)は現時点(2026年)では
+ *   ローリングウィンドウの範囲内のため今のところこの問題は起きないが、
+ *   2031年以降は同じ問題が起き得る(ウィンドウの下限がいずれ2021-07-01を超えて
+ *   前進するため)。Phase15は稼働中の完成済み機能のため、今回は変更を加えていない。
+ *
+ * @param {string} endpoint 例: '/edinet/major-shareholders'
+ * @param {string} providedStartDate 仕様書のデータ提供開始日('YYYY-MM-DD')
+ * @returns {Promise<string>} 実際にループを開始すべき日付('YYYY-MM-DD')
+ */
+async function resolveEdinetLoopStartDate(endpoint, providedStartDate) {
+  try {
+    await jquantsClient.fetchAllApiPages(endpoint, { date: providedStartDate });
+    return providedStartDate;
+  } catch (err) {
+    const covered = parseSubscriptionCoverageStart(err.message);
+    if (covered && covered > providedStartDate) {
+      console.log(
+        `  ※ 契約プランのアクセス可能範囲により開始日を ${providedStartDate} → ${covered} に調整します\n` +
+          `     (${providedStartDate}〜${covered}の前日までは恒久的にアクセス不可のため対象から除外)`
+      );
+      return covered;
+    }
+    // プラン制約以外の理由(ネットワーク断・一時的な5xx等)であれば、ここでは握り潰さず
+    // 元の開始日をそのまま返す。通常のループ内で同じ日付が再度処理され、
+    // 本来のfailures集計(再実行で再処理される仕組み)に乗る。
+    console.warn(`  ⚠ 開始日のプレフライト確認でエラーが発生しました(プラン制約以外の可能性): ${err.message}`);
+    return providedStartDate;
+  }
+}
+
+/**
  * 指定日の大株主状況を取得し、DBへ反映する(Phase15のprocessEdinetDateと同型)。
  * @param {string} date 'YYYY-MM-DD'
  * @param {Set<string>} knownCodes EQUITY_MASTERに存在する銘柄コードの集合
@@ -1193,8 +1256,9 @@ async function loadEdinetMajorShareholders() {
   console.log('=== Phase 16: 大株主状況(EDINET)の取り込み ===');
 
   const today = formatDateStr(new Date());
-  const dates = businessDaysBetween(EDINET_MAJOR_SHAREHOLDER_START_DATE, today);
-  console.log(`対象日数: ${dates.length}日 (${EDINET_MAJOR_SHAREHOLDER_START_DATE} 〜 ${today}、土日を除く平日単位)`);
+  const startDate = await resolveEdinetLoopStartDate(ENDPOINT_EDINET_MAJOR_SHAREHOLDER, EDINET_MAJOR_SHAREHOLDER_START_DATE);
+  const dates = businessDaysBetween(startDate, today);
+  console.log(`対象日数: ${dates.length}日 (${startDate} 〜 ${today}、土日を除く平日単位)`);
 
   const knownCodes = await db.withConnection((connection) => loadKnownEquityCodes(connection));
 
@@ -1373,8 +1437,9 @@ async function loadEdinetCrossShareholdings() {
   console.log('=== Phase 17: 政策保有株式(EDINET)の取り込み ===');
 
   const today = formatDateStr(new Date());
-  const dates = businessDaysBetween(EDINET_CROSS_SHAREHOLDING_START_DATE, today);
-  console.log(`対象日数: ${dates.length}日 (${EDINET_CROSS_SHAREHOLDING_START_DATE} 〜 ${today}、土日を除く平日単位)`);
+  const startDate = await resolveEdinetLoopStartDate(ENDPOINT_EDINET_CROSS_SHAREHOLDING, EDINET_CROSS_SHAREHOLDING_START_DATE);
+  const dates = businessDaysBetween(startDate, today);
+  console.log(`対象日数: ${dates.length}日 (${startDate} 〜 ${today}、土日を除く平日単位)`);
 
   const knownCodes = await db.withConnection((connection) => loadKnownEquityCodes(connection));
 
@@ -1607,6 +1672,8 @@ module.exports = {
   processEdinetCrossShareholdingDate,
   loadEdinetCrossShareholdings,
   reportSkippedEdinetDocCodes,
+  parseSubscriptionCoverageStart,
+  resolveEdinetLoopStartDate,
   PHASE_DEFS,
   PHASE_GROUPS,
   resolvePhases,
