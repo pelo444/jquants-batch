@@ -103,6 +103,33 @@ const TARGETS = [
     endpoint: loadInitial.ENDPOINT_INDEX_DAILY,
     expected: ['Date', 'Code', 'O', 'H', 'L', 'C'],
   },
+  {
+    key: 'investor-types',
+    label: '投資部門別情報',
+    endpoint: loadInitial.ENDPOINT_INVESTOR_TYPES,
+    expected: [
+      'PubDate', 'StDate', 'EnDate', 'Section',
+      'PropSell', 'PropBuy', 'PropTot', 'PropBal',
+      'BrkSell', 'BrkBuy', 'BrkTot', 'BrkBal',
+      'TotSell', 'TotBuy', 'TotTot', 'TotBal',
+      'IndSell', 'IndBuy', 'IndTot', 'IndBal',
+      'FrgnSell', 'FrgnBuy', 'FrgnTot', 'FrgnBal',
+      'SecCoSell', 'SecCoBuy', 'SecCoTot', 'SecCoBal',
+      'InvTrSell', 'InvTrBuy', 'InvTrTot', 'InvTrBal',
+      'BusCoSell', 'BusCoBuy', 'BusCoTot', 'BusCoBal',
+      'OthCoSell', 'OthCoBuy', 'OthCoTot', 'OthCoBal',
+      'InsCoSell', 'InsCoBuy', 'InsCoTot', 'InsCoBal',
+      'BankSell', 'BankBuy', 'BankTot', 'BankBal',
+      'TrstBnkSell', 'TrstBnkBuy', 'TrstBnkTot', 'TrstBnkBal',
+      'OthFinSell', 'OthFinBuy', 'OthFinTot', 'OthFinBal',
+    ],
+  },
+  {
+    key: 'earnings-date',
+    label: '決算発表予定日',
+    endpoint: loadInitial.ENDPOINT_EARNINGS_DATE,
+    expected: ['PubDate', 'SchDate', 'FQName', 'FYE', 'Code', 'CoName', 'CoNameEn'],
+  },
 ];
 
 function parseArgs(argv) {

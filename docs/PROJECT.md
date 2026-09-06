@@ -55,6 +55,7 @@
 │   ├── 09_short_position_normalize_spaces.sql  既存行の空白正規化
 │   ├── 10_create_claude_readonly_user.sql  Claude Desktop用読取専用ユーザー
 │   └── 11_calendar_and_indices.sql     取引カレンダー・指数四本値・指数マスタ
+│   └── 12_investor_types_and_earnings_date.sql  投資部門別情報・決算発表予定日
 ├── jquants-batch/           ★ gitリポジトリ（GitHub: pelo444/jquants-batch）
 │   ├── src/                 取り込み・チャート・Webアプリ
 │   ├── scripts/             運用スクリプト・調査ツール
@@ -155,6 +156,19 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 `index_master` はJ-Quantsにマスタ配信APIが無いため`tag_master`と同様に手動管理。
 新しい指数コードが追加されたら都度INSERTを足す。
 
+**投資部門別情報・決算発表予定日**（`12_investor_types_and_earnings_date.sql`。2026-09-06 未実行）
+
+| テーブル | 元エンドポイント | 主キー | 備考 |
+|---|---|---|---|
+| `investor_type_trading` | `/equities/investor-types` | `section, st_date, en_date, pub_date` | 市場単位・週次。52列(13部門×4指標) |
+| `earnings_schedule` | `/fins/earnings-date` | `code, fye, fq_name, pub_date` | 補助データ(FK skip対象) |
+
+ビュー: `v_investor_type_trading_latest`（`section, st_date, en_date`単位で公表日最新）、
+`v_earnings_schedule_latest`（`code, fq_name`単位で公表日最新。決算期末はパーティションに含めない）。
+
+いずれも過誤訂正・予定日変更を「同一キーで公表日違いの複数行」として保持する方式で、
+`equity_margin_alert`と同じパターン。詳細は DDL 冒頭コメントを参照。
+
 ### 4.2 設計上の決めごと
 
 **（1） 取り込みは全て「ステージング → MERGE」**
@@ -236,21 +250,26 @@ GET /bulk/get?key=<Key>          → gzip された CSV の署名付きURL
 | 8 | 取引カレンダー | `trading_calendar` |
 | 9 | TOPIX四本値 | `topix_price_daily` |
 | 10 | 指数四本値 | `index_price_daily` |
+| 11 | 投資部門別情報 | `investor_type_trading` |
+| 12 | 決算発表予定日 | `earnings_schedule` |
 
 Phase 4〜7 は `equity_master` への外部キーを持つので、**Phase 1 の完了後**に実行する。
 Phase 8〜10 は銘柄単位のデータではないため `equity_master` への外部キーを持たず、
 Phase 1 と独立して(先に)実行しても問題ない。
+Phase 11 も銘柄単位ではないため外部キーを持たない。Phase 12 は補助データとして
+`equity_master` への外部キーを持つため Phase 1 の完了後に実行する。
 
 **一部だけ実行する**:
 
 ```bash
 node src/loadInitial.js --only short              # Phase 4〜7
 node src/loadInitial.js --only indices             # Phase 8〜10
+node src/loadInitial.js --only tier2               # Phase 11〜12
 node src/loadInitial.js --only short-position     # Phase 7 だけ
 node src/loadInitial.js --only short-ratio,margin-interest
 ```
 
-グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）
+グループ: `all` / `equity`（1〜3）/ `short`（4〜7）/ `indices`（8〜10）/ `tier2`（11〜12）
 
 ### 5.3 再開と冪等性
 
@@ -266,10 +285,18 @@ node src/loadInitial.js --only short-ratio,margin-interest
 | 1〜3（マスタ・株価） | 完了。過去10年分 |
 | 4〜7（空売り・信用取引） | **初回投入 完了** |
 | 8〜10（取引カレンダー・指数四本値） | **初回投入 完了**（2026-09-06） |
+| 11〜12（投資部門別情報・決算発表予定日） | **未実行**（2026-09-06 コード実装のみ完了） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
 ともにエラー無く完了している。
+
+Phase 11〜12 はTier 1と同じ理由（Claude(Cowork)のdevice_bashからapi.jquants.comへの
+通信がegressで遮断されている）で実データ未確認のままコードのみ実装した。ユーザーの
+手元で次の3ステップを実行すること: (1) `node scripts/inspect-bulk-csv.js investor-types
+earnings-date --rows 3` でヘッダー確認、(2) `ddl/12_investor_types_and_earnings_date.sql`
+を適用、(3) `node src/loadInitial.js --only tier2` で初回投入。(1)で✗が出た場合は
+`csvMapper.js`の該当箇所を実データに合わせて修正してから(2)(3)に進むこと。
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 

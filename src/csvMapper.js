@@ -850,6 +850,257 @@ function mapIndexDailyRow(row) {
   ];
 }
 
+//==================================================================
+// 投資部門別情報・決算発表予定日関連 (Tier 2)
+//
+// 【CSVヘッダー名について】
+//   API仕様書(/spec/eq-investor-types, /spec/fin-earnings-date)の記載に基づく。
+//   2026-09-06時点でinspect-bulk-csv.jsによる実データ確認ができていない
+//   (Claude(Cowork)のdevice_bashからapi.jquants.comへの通信がegressで
+//   遮断されているため)。ユーザーの手元で
+//     node scripts/inspect-bulk-csv.js investor-types earnings-date
+//   を実行し、ヘッダー名・空欄表現が想定通りか確認してから本番投入すること。
+//==================================================================
+
+//------------------------------------------------------------------
+// INVESTOR_TYPE_TRADING_STG (投資部門別情報)
+// CSVヘッダー(想定): PubDate,StDate,EnDate,Section,
+//                    (13部門×4指標=52項目、例: PropSell,PropBuy,PropTot,PropBal,...)
+//------------------------------------------------------------------
+const INVESTOR_TYPE_COLUMNS = [
+  'pub_date',
+  'st_date',
+  'en_date',
+  'section',
+  'prop_sell',
+  'prop_buy',
+  'prop_tot',
+  'prop_bal',
+  'brk_sell',
+  'brk_buy',
+  'brk_tot',
+  'brk_bal',
+  'tot_sell',
+  'tot_buy',
+  'tot_tot',
+  'tot_bal',
+  'ind_sell',
+  'ind_buy',
+  'ind_tot',
+  'ind_bal',
+  'frgn_sell',
+  'frgn_buy',
+  'frgn_tot',
+  'frgn_bal',
+  'sec_co_sell',
+  'sec_co_buy',
+  'sec_co_tot',
+  'sec_co_bal',
+  'inv_tr_sell',
+  'inv_tr_buy',
+  'inv_tr_tot',
+  'inv_tr_bal',
+  'bus_co_sell',
+  'bus_co_buy',
+  'bus_co_tot',
+  'bus_co_bal',
+  'oth_co_sell',
+  'oth_co_buy',
+  'oth_co_tot',
+  'oth_co_bal',
+  'ins_co_sell',
+  'ins_co_buy',
+  'ins_co_tot',
+  'ins_co_bal',
+  'bank_sell',
+  'bank_buy',
+  'bank_tot',
+  'bank_bal',
+  'trst_bnk_sell',
+  'trst_bnk_buy',
+  'trst_bnk_tot',
+  'trst_bnk_bal',
+  'oth_fin_sell',
+  'oth_fin_buy',
+  'oth_fin_tot',
+  'oth_fin_bal',
+];
+
+const INVESTOR_TYPE_VALUE_EXPRESSIONS = [
+  "TO_DATE(?, 'YYYY-MM-DD')", // pub_date
+  "TO_DATE(?, 'YYYY-MM-DD')", // st_date
+  "TO_DATE(?, 'YYYY-MM-DD')", // en_date
+  null, // section
+  null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+];
+
+const INVESTOR_TYPE_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 10 },               // pub_date
+  { type: oracledb.STRING, maxSize: 10 },               // st_date
+  { type: oracledb.STRING, maxSize: 10 },               // en_date
+  { type: oracledb.STRING, maxSize: 80, maxChars: 20 }, // section
+  { type: oracledb.NUMBER },  // prop_sell
+  { type: oracledb.NUMBER },  // prop_buy
+  { type: oracledb.NUMBER },  // prop_tot
+  { type: oracledb.NUMBER },  // prop_bal
+  { type: oracledb.NUMBER },  // brk_sell
+  { type: oracledb.NUMBER },  // brk_buy
+  { type: oracledb.NUMBER },  // brk_tot
+  { type: oracledb.NUMBER },  // brk_bal
+  { type: oracledb.NUMBER },  // tot_sell
+  { type: oracledb.NUMBER },  // tot_buy
+  { type: oracledb.NUMBER },  // tot_tot
+  { type: oracledb.NUMBER },  // tot_bal
+  { type: oracledb.NUMBER },  // ind_sell
+  { type: oracledb.NUMBER },  // ind_buy
+  { type: oracledb.NUMBER },  // ind_tot
+  { type: oracledb.NUMBER },  // ind_bal
+  { type: oracledb.NUMBER },  // frgn_sell
+  { type: oracledb.NUMBER },  // frgn_buy
+  { type: oracledb.NUMBER },  // frgn_tot
+  { type: oracledb.NUMBER },  // frgn_bal
+  { type: oracledb.NUMBER },  // sec_co_sell
+  { type: oracledb.NUMBER },  // sec_co_buy
+  { type: oracledb.NUMBER },  // sec_co_tot
+  { type: oracledb.NUMBER },  // sec_co_bal
+  { type: oracledb.NUMBER },  // inv_tr_sell
+  { type: oracledb.NUMBER },  // inv_tr_buy
+  { type: oracledb.NUMBER },  // inv_tr_tot
+  { type: oracledb.NUMBER },  // inv_tr_bal
+  { type: oracledb.NUMBER },  // bus_co_sell
+  { type: oracledb.NUMBER },  // bus_co_buy
+  { type: oracledb.NUMBER },  // bus_co_tot
+  { type: oracledb.NUMBER },  // bus_co_bal
+  { type: oracledb.NUMBER },  // oth_co_sell
+  { type: oracledb.NUMBER },  // oth_co_buy
+  { type: oracledb.NUMBER },  // oth_co_tot
+  { type: oracledb.NUMBER },  // oth_co_bal
+  { type: oracledb.NUMBER },  // ins_co_sell
+  { type: oracledb.NUMBER },  // ins_co_buy
+  { type: oracledb.NUMBER },  // ins_co_tot
+  { type: oracledb.NUMBER },  // ins_co_bal
+  { type: oracledb.NUMBER },  // bank_sell
+  { type: oracledb.NUMBER },  // bank_buy
+  { type: oracledb.NUMBER },  // bank_tot
+  { type: oracledb.NUMBER },  // bank_bal
+  { type: oracledb.NUMBER },  // trst_bnk_sell
+  { type: oracledb.NUMBER },  // trst_bnk_buy
+  { type: oracledb.NUMBER },  // trst_bnk_tot
+  { type: oracledb.NUMBER },  // trst_bnk_bal
+  { type: oracledb.NUMBER },  // oth_fin_sell
+  { type: oracledb.NUMBER },  // oth_fin_buy
+  { type: oracledb.NUMBER },  // oth_fin_tot
+  { type: oracledb.NUMBER },  // oth_fin_bal
+];
+
+function mapInvestorTypeRow(row) {
+  return [
+    toDateStr(pick(row, 'PubDate')),
+    toDateStr(pick(row, 'StDate')),
+    toDateStr(pick(row, 'EnDate')),
+    toStr(pick(row, 'Section')),
+    toNumRelaxed(pick(row, 'PropSell')),
+    toNumRelaxed(pick(row, 'PropBuy')),
+    toNumRelaxed(pick(row, 'PropTot')),
+    toNumRelaxed(pick(row, 'PropBal')),
+    toNumRelaxed(pick(row, 'BrkSell')),
+    toNumRelaxed(pick(row, 'BrkBuy')),
+    toNumRelaxed(pick(row, 'BrkTot')),
+    toNumRelaxed(pick(row, 'BrkBal')),
+    toNumRelaxed(pick(row, 'TotSell')),
+    toNumRelaxed(pick(row, 'TotBuy')),
+    toNumRelaxed(pick(row, 'TotTot')),
+    toNumRelaxed(pick(row, 'TotBal')),
+    toNumRelaxed(pick(row, 'IndSell')),
+    toNumRelaxed(pick(row, 'IndBuy')),
+    toNumRelaxed(pick(row, 'IndTot')),
+    toNumRelaxed(pick(row, 'IndBal')),
+    toNumRelaxed(pick(row, 'FrgnSell')),
+    toNumRelaxed(pick(row, 'FrgnBuy')),
+    toNumRelaxed(pick(row, 'FrgnTot')),
+    toNumRelaxed(pick(row, 'FrgnBal')),
+    toNumRelaxed(pick(row, 'SecCoSell')),
+    toNumRelaxed(pick(row, 'SecCoBuy')),
+    toNumRelaxed(pick(row, 'SecCoTot')),
+    toNumRelaxed(pick(row, 'SecCoBal')),
+    toNumRelaxed(pick(row, 'InvTrSell')),
+    toNumRelaxed(pick(row, 'InvTrBuy')),
+    toNumRelaxed(pick(row, 'InvTrTot')),
+    toNumRelaxed(pick(row, 'InvTrBal')),
+    toNumRelaxed(pick(row, 'BusCoSell')),
+    toNumRelaxed(pick(row, 'BusCoBuy')),
+    toNumRelaxed(pick(row, 'BusCoTot')),
+    toNumRelaxed(pick(row, 'BusCoBal')),
+    toNumRelaxed(pick(row, 'OthCoSell')),
+    toNumRelaxed(pick(row, 'OthCoBuy')),
+    toNumRelaxed(pick(row, 'OthCoTot')),
+    toNumRelaxed(pick(row, 'OthCoBal')),
+    toNumRelaxed(pick(row, 'InsCoSell')),
+    toNumRelaxed(pick(row, 'InsCoBuy')),
+    toNumRelaxed(pick(row, 'InsCoTot')),
+    toNumRelaxed(pick(row, 'InsCoBal')),
+    toNumRelaxed(pick(row, 'BankSell')),
+    toNumRelaxed(pick(row, 'BankBuy')),
+    toNumRelaxed(pick(row, 'BankTot')),
+    toNumRelaxed(pick(row, 'BankBal')),
+    toNumRelaxed(pick(row, 'TrstBnkSell')),
+    toNumRelaxed(pick(row, 'TrstBnkBuy')),
+    toNumRelaxed(pick(row, 'TrstBnkTot')),
+    toNumRelaxed(pick(row, 'TrstBnkBal')),
+    toNumRelaxed(pick(row, 'OthFinSell')),
+    toNumRelaxed(pick(row, 'OthFinBuy')),
+    toNumRelaxed(pick(row, 'OthFinTot')),
+    toNumRelaxed(pick(row, 'OthFinBal')),
+  ];
+}
+
+//------------------------------------------------------------------
+// EARNINGS_SCHEDULE_STG (決算発表予定日)
+// CSVヘッダー(想定): PubDate,SchDate,FQName,FYE,Code,CoName,CoNameEn
+// SchDateは「未定」の場合空文字で来る(toDateStrで自動的にNULL化される)。
+//------------------------------------------------------------------
+const EARNINGS_SCHEDULE_COLUMNS = [
+  'code',
+  'fye',
+  'fq_name',
+  'pub_date',
+  'sch_date',
+  'co_name',
+  'co_name_en',
+];
+
+const EARNINGS_SCHEDULE_VALUE_EXPRESSIONS = [
+  null, // code
+  null, // fye
+  null, // fq_name
+  "TO_DATE(?, 'YYYY-MM-DD')", // pub_date
+  "TO_DATE(?, 'YYYY-MM-DD')", // sch_date(未定はNULL)
+  null, // co_name
+  null, // co_name_en
+];
+
+const EARNINGS_SCHEDULE_BIND_DEFS = [
+  { type: oracledb.STRING, maxSize: 10 },                // code
+  { type: oracledb.STRING, maxSize: 16, maxChars: 4 },   // fye
+  { type: oracledb.STRING, maxSize: 8, maxChars: 2 },    // fq_name
+  { type: oracledb.STRING, maxSize: 10 },                // pub_date
+  { type: oracledb.STRING, maxSize: 10 },                // sch_date
+  { type: oracledb.STRING, maxSize: 2000, maxChars: 500 }, // co_name
+  { type: oracledb.STRING, maxSize: 2000, maxChars: 500 }, // co_name_en
+];
+
+function mapEarningsScheduleRow(row) {
+  return [
+    toStr(pick(row, 'Code')),
+    toStr(pick(row, 'FYE')),
+    toStr(pick(row, 'FQName')),
+    toDateStr(pick(row, 'PubDate')),
+    toDateStr(pick(row, 'SchDate')),
+    toStr(pick(row, 'CoName')),
+    toStr(pick(row, 'CoNameEn')),
+  ];
+}
+
 
 module.exports = {
   toStr,
@@ -905,4 +1156,14 @@ module.exports = {
   INDEX_DAILY_VALUE_EXPRESSIONS,
   INDEX_DAILY_BIND_DEFS,
   mapIndexDailyRow,
+
+  // 投資部門別情報・決算発表予定日関連 (Tier 2)
+  INVESTOR_TYPE_COLUMNS,
+  INVESTOR_TYPE_VALUE_EXPRESSIONS,
+  INVESTOR_TYPE_BIND_DEFS,
+  mapInvestorTypeRow,
+  EARNINGS_SCHEDULE_COLUMNS,
+  EARNINGS_SCHEDULE_VALUE_EXPRESSIONS,
+  EARNINGS_SCHEDULE_BIND_DEFS,
+  mapEarningsScheduleRow,
 };

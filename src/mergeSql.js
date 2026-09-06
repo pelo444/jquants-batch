@@ -607,6 +607,145 @@ async function mergeIndexPriceDaily(connection) {
 }
 
 
+//==================================================================
+// 投資部門別情報・決算発表予定日関連 (Tier 2)
+//==================================================================
+
+/**
+ * INVESTOR_TYPE_TRADING_STG から INVESTOR_TYPE_TRADING へMERGEする。
+ *
+ * 過誤訂正時は「市場名・開始日・終了日が同一で公表日が異なるレコード」が
+ * 追加される仕様(2023/4/3以降)のため、結合キーに公表日を含める。
+ * 訂正前の行は上書きせず両方を保持する(EQUITY_MARGIN_ALERTと同じパターン)。
+ *
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<number>} 反映件数
+ */
+async function mergeInvestorTypeTrading(connection) {
+  const sql = `
+    MERGE INTO investor_type_trading t
+    USING (
+      SELECT section, st_date, en_date, pub_date,
+             prop_sell, prop_buy, prop_tot, prop_bal, brk_sell, brk_buy, brk_tot, brk_bal, tot_sell, tot_buy, tot_tot, tot_bal, ind_sell, ind_buy, ind_tot, ind_bal, frgn_sell, frgn_buy, frgn_tot, frgn_bal, sec_co_sell, sec_co_buy, sec_co_tot, sec_co_bal, inv_tr_sell, inv_tr_buy, inv_tr_tot, inv_tr_bal, bus_co_sell, bus_co_buy, bus_co_tot, bus_co_bal, oth_co_sell, oth_co_buy, oth_co_tot, oth_co_bal, ins_co_sell, ins_co_buy, ins_co_tot, ins_co_bal, bank_sell, bank_buy, bank_tot, bank_bal, trst_bnk_sell, trst_bnk_buy, trst_bnk_tot, trst_bnk_bal, oth_fin_sell, oth_fin_buy, oth_fin_tot, oth_fin_bal
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.section, s.st_date, s.en_date, s.pub_date
+                                  ORDER BY s.loaded_at DESC) AS rn
+        FROM investor_type_trading_stg s
+        WHERE s.section IS NOT NULL AND s.st_date IS NOT NULL
+          AND s.en_date IS NOT NULL AND s.pub_date IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.section = s.section AND t.st_date = s.st_date
+        AND t.en_date = s.en_date AND t.pub_date = s.pub_date)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.prop_sell = s.prop_sell,
+        t.prop_buy = s.prop_buy,
+        t.prop_tot = s.prop_tot,
+        t.prop_bal = s.prop_bal,
+        t.brk_sell = s.brk_sell,
+        t.brk_buy = s.brk_buy,
+        t.brk_tot = s.brk_tot,
+        t.brk_bal = s.brk_bal,
+        t.tot_sell = s.tot_sell,
+        t.tot_buy = s.tot_buy,
+        t.tot_tot = s.tot_tot,
+        t.tot_bal = s.tot_bal,
+        t.ind_sell = s.ind_sell,
+        t.ind_buy = s.ind_buy,
+        t.ind_tot = s.ind_tot,
+        t.ind_bal = s.ind_bal,
+        t.frgn_sell = s.frgn_sell,
+        t.frgn_buy = s.frgn_buy,
+        t.frgn_tot = s.frgn_tot,
+        t.frgn_bal = s.frgn_bal,
+        t.sec_co_sell = s.sec_co_sell,
+        t.sec_co_buy = s.sec_co_buy,
+        t.sec_co_tot = s.sec_co_tot,
+        t.sec_co_bal = s.sec_co_bal,
+        t.inv_tr_sell = s.inv_tr_sell,
+        t.inv_tr_buy = s.inv_tr_buy,
+        t.inv_tr_tot = s.inv_tr_tot,
+        t.inv_tr_bal = s.inv_tr_bal,
+        t.bus_co_sell = s.bus_co_sell,
+        t.bus_co_buy = s.bus_co_buy,
+        t.bus_co_tot = s.bus_co_tot,
+        t.bus_co_bal = s.bus_co_bal,
+        t.oth_co_sell = s.oth_co_sell,
+        t.oth_co_buy = s.oth_co_buy,
+        t.oth_co_tot = s.oth_co_tot,
+        t.oth_co_bal = s.oth_co_bal,
+        t.ins_co_sell = s.ins_co_sell,
+        t.ins_co_buy = s.ins_co_buy,
+        t.ins_co_tot = s.ins_co_tot,
+        t.ins_co_bal = s.ins_co_bal,
+        t.bank_sell = s.bank_sell,
+        t.bank_buy = s.bank_buy,
+        t.bank_tot = s.bank_tot,
+        t.bank_bal = s.bank_bal,
+        t.trst_bnk_sell = s.trst_bnk_sell,
+        t.trst_bnk_buy = s.trst_bnk_buy,
+        t.trst_bnk_tot = s.trst_bnk_tot,
+        t.trst_bnk_bal = s.trst_bnk_bal,
+        t.oth_fin_sell = s.oth_fin_sell,
+        t.oth_fin_buy = s.oth_fin_buy,
+        t.oth_fin_tot = s.oth_fin_tot,
+        t.oth_fin_bal = s.oth_fin_bal,
+        t.loaded_at = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (section, st_date, en_date, pub_date,
+              prop_sell, prop_buy, prop_tot, prop_bal, brk_sell, brk_buy, brk_tot, brk_bal, tot_sell, tot_buy, tot_tot, tot_bal, ind_sell, ind_buy, ind_tot, ind_bal, frgn_sell, frgn_buy, frgn_tot, frgn_bal, sec_co_sell, sec_co_buy, sec_co_tot, sec_co_bal, inv_tr_sell, inv_tr_buy, inv_tr_tot, inv_tr_bal, bus_co_sell, bus_co_buy, bus_co_tot, bus_co_bal, oth_co_sell, oth_co_buy, oth_co_tot, oth_co_bal, ins_co_sell, ins_co_buy, ins_co_tot, ins_co_bal, bank_sell, bank_buy, bank_tot, bank_bal, trst_bnk_sell, trst_bnk_buy, trst_bnk_tot, trst_bnk_bal, oth_fin_sell, oth_fin_buy, oth_fin_tot, oth_fin_bal,
+              loaded_at)
+      VALUES (s.section, s.st_date, s.en_date, s.pub_date,
+              s.prop_sell, s.prop_buy, s.prop_tot, s.prop_bal, s.brk_sell, s.brk_buy, s.brk_tot, s.brk_bal, s.tot_sell, s.tot_buy, s.tot_tot, s.tot_bal, s.ind_sell, s.ind_buy, s.ind_tot, s.ind_bal, s.frgn_sell, s.frgn_buy, s.frgn_tot, s.frgn_bal, s.sec_co_sell, s.sec_co_buy, s.sec_co_tot, s.sec_co_bal, s.inv_tr_sell, s.inv_tr_buy, s.inv_tr_tot, s.inv_tr_bal, s.bus_co_sell, s.bus_co_buy, s.bus_co_tot, s.bus_co_bal, s.oth_co_sell, s.oth_co_buy, s.oth_co_tot, s.oth_co_bal, s.ins_co_sell, s.ins_co_buy, s.ins_co_tot, s.ins_co_bal, s.bank_sell, s.bank_buy, s.bank_tot, s.bank_bal, s.trst_bnk_sell, s.trst_bnk_buy, s.trst_bnk_tot, s.trst_bnk_bal, s.oth_fin_sell, s.oth_fin_buy, s.oth_fin_tot, s.oth_fin_bal,
+              SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+/**
+ * EARNINGS_SCHEDULE_STG から EARNINGS_SCHEDULE へMERGEする。
+ *
+ * 予定日の変更・未定への変更履歴を含めて公表日単位でそのまま保持する
+ * (過去の値は消さない)。「現在有効な予定」は V_EARNINGS_SCHEDULE_LATEST を使う。
+ *
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<number>} 反映件数
+ */
+async function mergeEarningsSchedule(connection) {
+  const sql = `
+    MERGE INTO earnings_schedule t
+    USING (
+      SELECT code, fye, fq_name, pub_date, sch_date, co_name, co_name_en
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.code, s.fye, s.fq_name, s.pub_date
+                                  ORDER BY s.loaded_at DESC) AS rn
+        FROM earnings_schedule_stg s
+        WHERE s.code IS NOT NULL AND s.fye IS NOT NULL
+          AND s.fq_name IS NOT NULL AND s.pub_date IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.code = s.code AND t.fye = s.fye AND t.fq_name = s.fq_name AND t.pub_date = s.pub_date)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.sch_date    = s.sch_date,
+        t.co_name     = s.co_name,
+        t.co_name_en  = s.co_name_en,
+        t.loaded_at   = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (code, fye, fq_name, pub_date, sch_date, co_name, co_name_en, loaded_at)
+      VALUES (s.code, s.fye, s.fq_name, s.pub_date, s.sch_date, s.co_name, s.co_name_en, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+
 module.exports = {
   mergeMaster,
   mergeMasterHist,
@@ -626,5 +765,9 @@ module.exports = {
   mergeTradingCalendar,
   mergeTopixPriceDaily,
   mergeIndexPriceDaily,
+
+  // 投資部門別情報・決算発表予定日関連 (Tier 2)
+  mergeInvestorTypeTrading,
+  mergeEarningsSchedule,
 };
 

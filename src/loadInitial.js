@@ -63,6 +63,10 @@ const ENDPOINT_TRADING_CALENDAR = '/markets/calendar';        // 取引カレン
 const ENDPOINT_INDEX_TOPIX = '/indices/bars/daily/topix';     // TOPIX四本値
 const ENDPOINT_INDEX_DAILY = '/indices/bars/daily';           // 指数四本値(TOPIX以外)
 
+// Tier 2: 投資部門別情報・決算発表予定日
+const ENDPOINT_INVESTOR_TYPES = '/equities/investor-types';   // 投資部門別情報(FKなし)
+const ENDPOINT_EARNINGS_DATE = '/fins/earnings-date';         // 決算発表予定日(補助データ、FKあり)
+
 /**
  * Bulk APIのKeyを処理順(時系列)に並べ替える。
  * historical(月次)を古い順に処理し、その後 live(日次)を古い順に処理することで、
@@ -448,6 +452,38 @@ const INDEX_DAILY_HANDLERS = {
   },
 };
 
+//==================================================================
+// 投資部門別情報・決算発表予定日のハンドラ (Tier 2)
+//==================================================================
+
+/** 投資部門別情報(市場単位。銘柄への外部キーは無い) */
+const INVESTOR_TYPES_HANDLERS = {
+  stagingTable: 'INVESTOR_TYPE_TRADING_STG',
+  columns: csvMapper.INVESTOR_TYPE_COLUMNS,
+  valueExpressions: csvMapper.INVESTOR_TYPE_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.INVESTOR_TYPE_BIND_DEFS,
+  mapRow: csvMapper.mapInvestorTypeRow,
+  merge: async (connection) => {
+    await mergeSql.mergeInvestorTypeTrading(connection);
+  },
+};
+
+/**
+ * 決算発表予定日(補助データ)
+ * 空売り関連と同様、EQUITY_MASTERに無い銘柄コードはスキップする。
+ */
+const EARNINGS_SCHEDULE_HANDLERS = {
+  stagingTable: 'EARNINGS_SCHEDULE_STG',
+  columns: csvMapper.EARNINGS_SCHEDULE_COLUMNS,
+  valueExpressions: csvMapper.EARNINGS_SCHEDULE_VALUE_EXPRESSIONS,
+  bindDefs: csvMapper.EARNINGS_SCHEDULE_BIND_DEFS,
+  mapRow: csvMapper.mapEarningsScheduleRow,
+  merge: async (connection) => {
+    await skipUnknownCodes(connection, 'EARNINGS_SCHEDULE_STG', '決算発表予定日');
+    await mergeSql.mergeEarningsSchedule(connection);
+  },
+};
+
 /**
  * 1エンドポイント分のBulkファイルをすべて取り込む汎用処理。
  * Phase 4以降はどれも同じ流れなので共通化している。
@@ -553,6 +589,24 @@ async function loadIndexDaily() {
   );
 }
 
+/** Phase 11: 投資部門別情報 */
+async function loadInvestorTypes() {
+  await loadEndpoint(
+    ENDPOINT_INVESTOR_TYPES,
+    INVESTOR_TYPES_HANDLERS,
+    'Phase 11: 投資部門別情報'
+  );
+}
+
+/** Phase 12: 決算発表予定日 */
+async function loadEarningsSchedule() {
+  await loadEndpoint(
+    ENDPOINT_EARNINGS_DATE,
+    EARNINGS_SCHEDULE_HANDLERS,
+    'Phase 12: 決算発表予定日'
+  );
+}
+
 //------------------------------------------------------------------
 // フェーズの選択
 //
@@ -572,6 +626,8 @@ const PHASE_DEFS = [
   { key: 'trading-calendar', run: () => loadTradingCalendar() },
   { key: 'index-topix', run: () => loadIndexTopix() },
   { key: 'index-daily', run: () => loadIndexDaily() },
+  { key: 'investor-types', run: () => loadInvestorTypes() },
+  { key: 'earnings-date', run: () => loadEarningsSchedule() },
 ];
 
 /** グループ名でまとめて指定できるようにする */
@@ -580,6 +636,7 @@ const PHASE_GROUPS = {
   equity: ['master', 'delisted', 'price'],
   short: ['short-ratio', 'margin-interest', 'margin-alert', 'short-position'],
   indices: ['trading-calendar', 'index-topix', 'index-daily'],
+  tier2: ['investor-types', 'earnings-date'],
 };
 
 /**
@@ -692,6 +749,12 @@ module.exports = {
   loadTradingCalendar,
   loadIndexTopix,
   loadIndexDaily,
+  ENDPOINT_INVESTOR_TYPES,
+  ENDPOINT_EARNINGS_DATE,
+  INVESTOR_TYPES_HANDLERS,
+  EARNINGS_SCHEDULE_HANDLERS,
+  loadInvestorTypes,
+  loadEarningsSchedule,
   PHASE_DEFS,
   PHASE_GROUPS,
   resolvePhases,

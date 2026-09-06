@@ -17,6 +17,8 @@
  *   Phase 8: 取引カレンダー        → TRADING_CALENDAR
  *   Phase 9: TOPIX四本値          → TOPIX_PRICE_DAILY
  *   Phase10: 指数四本値           → INDEX_PRICE_DAILY
+ *   Phase11: 投資部門別情報        → INVESTOR_TYPE_TRADING
+ *   Phase12: 決算発表予定日        → EARNINGS_SCHEDULE
  *
  * 【Phase 4〜7 の公開タイミングについて】
  *   これらは株価と公開タイミングが異なる(空売り残高報告は報告があった日のみ、
@@ -258,6 +260,8 @@ async function main() {
     ['Phase 8 取引カレンダー', loadInitial.ENDPOINT_TRADING_CALENDAR, loadInitial.TRADING_CALENDAR_HANDLERS],
     ['Phase 9 TOPIX四本値', loadInitial.ENDPOINT_INDEX_TOPIX, loadInitial.INDEX_TOPIX_HANDLERS],
     ['Phase 10 指数四本値', loadInitial.ENDPOINT_INDEX_DAILY, loadInitial.INDEX_DAILY_HANDLERS],
+    ['Phase 11 投資部門別情報', loadInitial.ENDPOINT_INVESTOR_TYPES, loadInitial.INVESTOR_TYPES_HANDLERS],
+    ['Phase 12 決算発表予定日', loadInitial.ENDPOINT_EARNINGS_DATE, loadInitial.EARNINGS_SCHEDULE_HANDLERS],
   ];
 
   const shortResults = [];
