@@ -830,8 +830,8 @@ function reportSkippedLargeVolumeCodes() {
   const entries = [...tally.entries()].sort((a, b) => b[1] - a[1]);
   const totalDocs = entries.reduce((sum, [, n]) => sum + n, 0);
   console.warn(
-    `  ⚠ EQUITY_MASTERに存在しないため取り込まなかった銘柄が ${entries.length}件 ` +
-      `ありました(延べ${totalDocs}書類)`
+    `  ⚠ EQUITY_MASTERに存在しない、または銘柄コードが空欄のため取り込まなかった書類が ` +
+      `${entries.length}件ありました(延べ${totalDocs}書類)`
   );
   for (const [code, n] of entries.slice(0, 20)) {
     console.warn(`      ${code}  (${n}書類で出現)`);
@@ -840,7 +840,8 @@ function reportSkippedLargeVolumeCodes() {
     console.warn(`      ... 他 ${entries.length - 20}件`);
   }
   console.warn(
-    '    これらは東証以外の取引所に単独上場している銘柄と考えられます\n' +
+    '    「(コード欄なし)」は書類自体にCodeが記載されていないケースです。それ以外は\n' +
+      '    東証以外の取引所に単独上場している銘柄と考えられます\n' +
       '    (J-Quantsの銘柄マスタは東証データのため構造的に含まれません)。'
   );
   skippedCodes.delete(label);
@@ -879,13 +880,17 @@ async function processEdinetDate(date, knownCodes) {
 
   for (const doc of rawDocs) {
     const code = doc.Code === undefined || doc.Code === null ? null : String(doc.Code).trim();
-    if (code !== null && !knownCodes.has(code)) {
+    if (code === null || !knownCodes.has(code)) {
+      // Codeが欠落している書類が稀に存在する(2026-09-06、大株主状況の実データで発覚。
+      // 昔の書類はCode自体が空のケースがある)。EQUITY_MASTER未登録銘柄と同様に
+      // 取り込み対象外としてスキップし、集計に含める(CODE列はNOT NULL+FKのため挿入不可)。
       const label = 'LARGE_VOLUME_SHAREHOLDER';
       if (!skippedCodes.has(label)) {
         skippedCodes.set(label, new Map());
       }
       const tally = skippedCodes.get(label);
-      tally.set(code, (tally.get(code) || 0) + 1);
+      const tallyKey = code === null ? '(コード欄なし)' : code;
+      tally.set(tallyKey, (tally.get(tallyKey) || 0) + 1);
       continue;
     }
 
@@ -1074,8 +1079,8 @@ function reportSkippedEdinetDocCodes(label, displayName) {
   const entries = [...tally.entries()].sort((a, b) => b[1] - a[1]);
   const totalDocs = entries.reduce((sum, [, n]) => sum + n, 0);
   console.warn(
-    `  ⚠ EQUITY_MASTERに存在しないため取り込まなかった銘柄が ${entries.length}件 ` +
-      `ありました(延べ${totalDocs}書類、${displayName})`
+    `  ⚠ EQUITY_MASTERに存在しない、または銘柄コードが空欄のため取り込まなかった書類が ` +
+      `${entries.length}件ありました(延べ${totalDocs}書類、${displayName})`
   );
   for (const [code, n] of entries.slice(0, 20)) {
     console.warn(`      ${code}  (${n}書類で出現)`);
@@ -1176,13 +1181,17 @@ async function processEdinetMajorShareholderDate(date, knownCodes) {
 
   for (const doc of rawDocs) {
     const code = doc.Code === undefined || doc.Code === null ? null : String(doc.Code).trim();
-    if (code !== null && !knownCodes.has(code)) {
+    if (code === null || !knownCodes.has(code)) {
+      // Codeが欠落している書類が稀に存在する(2026-09-06、大株主状況の実データで発覚。
+      // 昔の書類はCode自体が空のケースがある)。EQUITY_MASTER未登録銘柄と同様に
+      // 取り込み対象外としてスキップし、集計に含める(CODE列はNOT NULL+FKのため挿入不可)。
       const label = 'EDINET_MAJOR_SHAREHOLDER';
       if (!skippedCodes.has(label)) {
         skippedCodes.set(label, new Map());
       }
       const tally = skippedCodes.get(label);
-      tally.set(code, (tally.get(code) || 0) + 1);
+      const tallyKey = code === null ? '(コード欄なし)' : code;
+      tally.set(tallyKey, (tally.get(tallyKey) || 0) + 1);
       continue;
     }
 
@@ -1351,13 +1360,17 @@ async function processEdinetCrossShareholdingDate(date, knownCodes) {
 
   for (const doc of rawDocs) {
     const code = doc.Code === undefined || doc.Code === null ? null : String(doc.Code).trim();
-    if (code !== null && !knownCodes.has(code)) {
+    if (code === null || !knownCodes.has(code)) {
+      // Codeが欠落している書類が稀に存在する(2026-09-06、大株主状況の実データで発覚。
+      // 昔の書類はCode自体が空のケースがある)。EQUITY_MASTER未登録銘柄と同様に
+      // 取り込み対象外としてスキップし、集計に含める(CODE列はNOT NULL+FKのため挿入不可)。
       const label = 'EDINET_CROSS_SHAREHOLDING';
       if (!skippedCodes.has(label)) {
         skippedCodes.set(label, new Map());
       }
       const tally = skippedCodes.get(label);
-      tally.set(code, (tally.get(code) || 0) + 1);
+      const tallyKey = code === null ? '(コード欄なし)' : code;
+      tally.set(tallyKey, (tally.get(tallyKey) || 0) + 1);
       continue;
     }
 

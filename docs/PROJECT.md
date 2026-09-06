@@ -232,7 +232,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 再投入は`node src/loadInitial.js --only tier4`を再実行すればよい
 (`load_progress`がFAILEDの日付だけ自動的に再処理される)。
 
-**大株主状況（EDINET）**（`15_edinet_major_shareholders.sql`。実装済み・**実データ未確認・DDL未適用**。Tier 4続き）
+**大株主状況（EDINET）**（`15_edinet_major_shareholders.sql`。実装済み・DDL適用済み・**実データ確認済み・初回投入進行中**。Tier 4続き）
 
 | テーブル | 内容 | 主キー |
 |---|---|---|
@@ -280,7 +280,24 @@ Phase15は稼働中の完成済み機能のため、今回この対応は入れ�
 複数残ることがあるが、修正後はそもそもその日付を対象にしないため無害
 (気になる場合は該当行を削除してよいが、削除しなくても再実行に支障は無い)。
 
-**政策保有株式（EDINET）**（`16_edinet_cross_shareholdings.sql`。実装済み・**実データ未確認・DDL未適用**。Tier 4続き）
+**判明した既知の問題2件目と対処(2026-09-06、ユーザーの手元での初回投入で発覚)**:
+
+DDL適用後に再実行したところ、`ORA-01400: cannot insert NULL into ("CODE")`で
+一部の日付が失敗するようになった。原因は、`大株主状況`の書類の中に**`Code`(銘柄コード)
+欄自体が空の書類が存在する**こと(2016年当時の古い書類に多いと見られる)。
+`processEdinetMajorShareholderDate()`のフィルタは元々「`Code`はあるがEQUITY_MASTERに
+無い銘柄」だけをスキップする作りで、「`Code`自体が無い」ケースは想定しておらず、
+そのままNOT NULL制約の`code`列にNULLを挿入しようとして失敗していた。
+
+大量保有報告書(Phase15)・政策保有株式(Phase17)も同じフィルタコードを使っているため
+同じ潜在バグを抱えていた(Phase15は今のところ実データで顕在化していないが、
+Phase17は大株主状況と同じ古い期間(2020-03-31〜)を扱うため今後発生する可能性が高い)。
+3フェーズとも`code === null`の場合もスキップ対象に含めるよう修正し
+(`EQUITY_MASTER未登録`と同じ「取り込み対象外として集計・報告」の扱いにした。
+DDLの変更は不要、`code`列はNOT NULLのまま)、スキップ集計では`(コード欄なし)`という
+専用キーで区別して表示するようにした。
+
+**政策保有株式（EDINET）**（`16_edinet_cross_shareholdings.sql`。実装済み・DDL適用済み・**実データ未確認(投入未実施)**。Tier 4続き）
 
 | テーブル | 内容 | 主キー |
 |---|---|---|
