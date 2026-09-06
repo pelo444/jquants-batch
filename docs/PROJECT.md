@@ -232,7 +232,7 @@ JQUANTS_API_KEY / DB_USER / DB_PASSWORD / DB_CONNECT_STRING
 再投入は`node src/loadInitial.js --only tier4`を再実行すればよい
 (`load_progress`がFAILEDの日付だけ自動的に再処理される)。
 
-**大株主状況（EDINET）**（`15_edinet_major_shareholders.sql`。実装済み・DDL適用済み・**実データ確認済み・初回投入進行中**。Tier 4続き）
+**大株主状況（EDINET）**（`15_edinet_major_shareholders.sql`。実装済み・**実データ確認済み・初回投入完了**。Tier 4続き）
 
 | テーブル | 内容 | 主キー |
 |---|---|---|
@@ -284,20 +284,25 @@ Phase15は稼働中の完成済み機能のため、今回この対応は入れ�
 
 DDL適用後に再実行したところ、`ORA-01400: cannot insert NULL into ("CODE")`で
 一部の日付が失敗するようになった。原因は、`大株主状況`の書類の中に**`Code`(銘柄コード)
-欄自体が空の書類が存在する**こと(2016年当時の古い書類に多いと見られる)。
+欄自体が空の書類が存在する**こと(実データで確認: 2016-09-23分の「石垣島製糖株式会社」など、
+東証に上場していない会社が有価証券報告書を提出するケース)。
 `processEdinetMajorShareholderDate()`のフィルタは元々「`Code`はあるがEQUITY_MASTERに
 無い銘柄」だけをスキップする作りで、「`Code`自体が無い」ケースは想定しておらず、
 そのままNOT NULL制約の`code`列にNULLを挿入しようとして失敗していた。
 
 大量保有報告書(Phase15)・政策保有株式(Phase17)も同じフィルタコードを使っているため
-同じ潜在バグを抱えていた(Phase15は今のところ実データで顕在化していないが、
-Phase17は大株主状況と同じ古い期間(2020-03-31〜)を扱うため今後発生する可能性が高い)。
-3フェーズとも`code === null`の場合もスキップ対象に含めるよう修正し
-(`EQUITY_MASTER未登録`と同じ「取り込み対象外として集計・報告」の扱いにした。
+同じ潜在バグを抱えていた。3フェーズとも`code === null`の場合もスキップ対象に含めるよう
+修正し(`EQUITY_MASTER未登録`と同じ「取り込み対象外として集計・報告」の扱いにした。
 DDLの変更は不要、`code`列はNOT NULLのまま)、スキップ集計では`(コード欄なし)`という
-専用キーで区別して表示するようにした。
+専用キーで区別して表示するようにした。**東証非上場企業は本プロジェクトの分析対象外の
+ため、この扱い(保存せずスキップ)でよいとユーザーが確認済み**。
 
-**政策保有株式（EDINET）**（`16_edinet_cross_shareholdings.sql`。実装済み・DDL適用済み・**実データ未確認(投入未実施)**。Tier 4続き）
+**初回投入結果(2026-09-06、修正後の再実行)**: 大株主状況(Phase16)・政策保有株式(Phase17)
+とも完走(失敗0日)。政策保有株式は処理857日/スキップ(取り込み済み)822日/失敗0日/
+合計13,978件の書類、EQUITY_MASTER未登録またはコード欄なしでスキップした書類が106銘柄
+(延べ354書類)。所要時間は両フェーズ合計40分49秒。
+
+**政策保有株式（EDINET）**（`16_edinet_cross_shareholdings.sql`。実装済み・**実データ確認済み・初回投入完了**。Tier 4続き）
 
 | テーブル | 内容 | 主キー |
 |---|---|---|
@@ -461,8 +466,8 @@ node src/loadInitial.js --only edinet-cross-shareholdings    # Phase 17 だけ
 | 11〜12（投資部門別情報・決算発表予定日） | **初回投入 完了**（2026-09-06） |
 | 13〜14（財務情報・日経225オプション四本値） | **初回投入 完了**（2026-09-06） |
 | 15（大量保有報告書(EDINET)） | **初回投入 完了**（2026-09-06。既知バグ3件対処後、624件の書類を投入。4.1節参照） |
-| 16（大株主状況(EDINET)） | 実装完了・**実データ未確認・DDL未適用**（2026-09-06。4.1節参照） |
-| 17（政策保有株式(EDINET)） | 実装完了・**実データ未確認・DDL未適用**（2026-09-06。4.1節参照） |
+| 16（大株主状況(EDINET)） | **初回投入 完了**（2026-09-06。既知バグ2件対処後。4.1節参照） |
+| 17（政策保有株式(EDINET)） | **初回投入 完了**（2026-09-06。処理857日/失敗0日/13,978件の書類。4.1節参照） |
 
 Phase 8〜10 は`inspect-bulk-csv.js`で実データを確認した結果、想定通りのヘッダーで
 問題は無かった(`csvMapper.js`の修正は不要だった)。DDL適用・初回投入(`--only indices`)
@@ -487,15 +492,9 @@ Phase 15（大量保有報告書(EDINET)）も同じ理由(api.jquants.comへの
 4. `node src/loadInitial.js --only tier4` で初回投入(2021-07-01〜本日の平日ループ。
    途中で失敗しても再実行すれば失敗日だけ再処理される。詳細は7.1節参照)
 
-Phase 16（大株主状況(EDINET)）・Phase 17（政策保有株式(EDINET)）も同じ理由・同じ手順で
-実データ未確認・DDL未適用のままユーザーの手元での投入待ち。実行順:
-1. `node scripts/inspect-edinet-api.js major-shareholders --date 2025-06-20` /
-   `node scripts/inspect-edinet-api.js cross-shareholdings --date 2025-06-20` で実データ確認
-2. 想定と違えば `src/edinetMapper.js` の対応箇所(大株主状況はmapMajorShareholderDoc系、
-   政策保有株式はmapCrossShareholdingDoc系)を実データに合わせて修正
-3. `ddl/15_edinet_major_shareholders.sql` / `ddl/16_edinet_cross_shareholdings.sql` を適用
-4. `node src/loadInitial.js --only edinet-major-shareholders,edinet-cross-shareholdings`
-   (または`--only tier4`で大量保有報告書と合わせて実行)で初回投入
+Phase 16（大株主状況(EDINET)）・Phase 17（政策保有株式(EDINET)）も2026-09-06に
+ユーザーの手元で初回投入完了。ローリング10年ウィンドウ(400エラー)とCode欄が空の書類
+(ORA-01400)の2件のバグが実データで発覚・対処済み(詳細は4.1節参照)。
 
 Phase 7（空売り残高報告）は全 139 ファイル。途中 2 回止まっており、いずれも対処済み:
 
@@ -809,12 +808,11 @@ node scripts/claude-query.js --json "SELECT ..."
 ## 12. 未対応・今後の課題
 
 - [x] **大量保有報告書(EDINET)の初回投入**。既知バグ3件(bind変数名/doc_id重複/edinet_code NULL、4.1節参照)対処後、2026-09-06に処理11日/失敗0日/合計624件の書類で完了。(参考: EQUITY_MASTERに無い銘柄4件・延べ5書類はスキップ。東証以外単独上場と推定)
-- [x] **政策保有株式・大株主状況(EDINET)の実装**。大量保有報告書と同じ個別API基盤
-      (`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用して実装完了
+- [x] **政策保有株式・大株主状況(EDINET)の実装・初回投入**。大量保有報告書と同じ
+      個別API基盤(`jquantsClient.fetchApiPage()`/`fetchAllApiPages()`)を再利用して実装
       (2026-09-06、Phase 16・17。テーブルは`ddl/15_edinet_major_shareholders.sql`・
-      `ddl/16_edinet_cross_shareholdings.sql`)。**実データ未確認・DDL未適用・未投入**
-- [ ] **大株主状況・政策保有株式(EDINET)の実データ確認・DDL適用・初回投入**。
-      手順は5.4節末尾を参照。ユーザーの手元(Macターミナル)で実行すること
+      `ddl/16_edinet_cross_shareholdings.sql`)。ローリング10年ウィンドウ・Code欄が空の
+      書類の2件のバグを実データで発見・対処後、初回投入完了(4.1節参照)
 - [ ] **空売りデータを使った分析方針の具体化**。データは揃ったので、次はここから。
       入口は `v_equity_short_position_sum`（銘柄 × 計算日）と
       `queries/sql/short_selling_overview.sql`（days to cover を含む8本）
