@@ -936,6 +936,74 @@ async function mergeOptionPriceDaily(connection) {
 }
 
 
+/**
+ * ARBITRAGE_BALANCE_STG から ARBITRAGE_BALANCE へMERGEする。
+ *
+ * 【他のMERGEと違う点】
+ * このテーブルだけはJ-Quants由来ではなく、JPXの週間公表資料(.xls)を
+ * scripts/convert-arbitrage-xls.py でCSVにしたものを取り込む
+ * (詳細は ddl/17_arbitrage_balance.sql の冒頭コメント)。
+ *
+ * 合計(*_TOT_*)はステージングに持たせず、ここで当限+翌限以降から算出する。
+ * ファイル側の合計欄をそのまま信じると、内訳と合計が食い違うファイルを
+ * 気づかず取り込んでしまうため。突き合わせは変換スクリプト側で行っている。
+ *
+ * @param {import('oracledb').Connection} connection
+ * @returns {Promise<number>} 反映件数
+ */
+async function mergeArbitrageBalance(connection) {
+  const sql = `
+    MERGE INTO arbitrage_balance t
+    USING (
+      SELECT pos_date,
+             buy_cur_vol, buy_cur_val, buy_nxt_vol, buy_nxt_val,
+             NVL(buy_cur_vol, 0)  + NVL(buy_nxt_vol, 0)  AS buy_tot_vol,
+             NVL(buy_cur_val, 0)  + NVL(buy_nxt_val, 0)  AS buy_tot_val,
+             sell_cur_vol, sell_cur_val, sell_nxt_vol, sell_nxt_val,
+             NVL(sell_cur_vol, 0) + NVL(sell_nxt_vol, 0) AS sell_tot_vol,
+             NVL(sell_cur_val, 0) + NVL(sell_nxt_val, 0) AS sell_tot_val,
+             src_file
+      FROM (
+        SELECT s.*,
+               ROW_NUMBER() OVER (PARTITION BY s.pos_date
+                                  ORDER BY s.src_file DESC) AS rn
+        FROM arbitrage_balance_stg s
+        WHERE s.pos_date IS NOT NULL
+      )
+      WHERE rn = 1
+    ) s
+    ON (t.pos_date = s.pos_date)
+    WHEN MATCHED THEN
+      UPDATE SET
+        t.buy_cur_vol  = s.buy_cur_vol,
+        t.buy_cur_val  = s.buy_cur_val,
+        t.buy_nxt_vol  = s.buy_nxt_vol,
+        t.buy_nxt_val  = s.buy_nxt_val,
+        t.buy_tot_vol  = s.buy_tot_vol,
+        t.buy_tot_val  = s.buy_tot_val,
+        t.sell_cur_vol = s.sell_cur_vol,
+        t.sell_cur_val = s.sell_cur_val,
+        t.sell_nxt_vol = s.sell_nxt_vol,
+        t.sell_nxt_val = s.sell_nxt_val,
+        t.sell_tot_vol = s.sell_tot_vol,
+        t.sell_tot_val = s.sell_tot_val,
+        t.src_file     = s.src_file,
+        t.loaded_at    = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN
+      INSERT (pos_date, buy_cur_vol, buy_cur_val, buy_nxt_vol, buy_nxt_val,
+              buy_tot_vol, buy_tot_val, sell_cur_vol, sell_cur_val,
+              sell_nxt_vol, sell_nxt_val, sell_tot_vol, sell_tot_val,
+              src_file, loaded_at)
+      VALUES (s.pos_date, s.buy_cur_vol, s.buy_cur_val, s.buy_nxt_vol, s.buy_nxt_val,
+              s.buy_tot_vol, s.buy_tot_val, s.sell_cur_vol, s.sell_cur_val,
+              s.sell_nxt_vol, s.sell_nxt_val, s.sell_tot_vol, s.sell_tot_val,
+              s.src_file, SYSTIMESTAMP)
+  `;
+  const result = await connection.execute(sql, {}, { autoCommit: false });
+  return result.rowsAffected || 0;
+}
+
+
 module.exports = {
   mergeMaster,
   mergeMasterHist,
@@ -963,5 +1031,8 @@ module.exports = {
   // 財務情報・日経225オプション四本値関連 (Tier 3)
   mergeFinancialSummary,
   mergeOptionPriceDaily,
+
+  // 裁定取引残高 (JPX手動取込。J-Quants由来ではない)
+  mergeArbitrageBalance,
 };
 

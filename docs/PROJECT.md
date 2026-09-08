@@ -54,8 +54,14 @@
 │   ├── 08_short_selling_tables.sql     空売り・信用取引の4テーブル一式
 │   ├── 09_short_position_normalize_spaces.sql  既存行の空白正規化
 │   ├── 10_create_claude_readonly_user.sql  Claude Desktop用読取専用ユーザー
-│   └── 11_calendar_and_indices.sql     取引カレンダー・指数四本値・指数マスタ
-│   └── 12_investor_types_and_earnings_date.sql  投資部門別情報・決算発表予定日
+│   ├── 11_calendar_and_indices.sql     取引カレンダー・指数四本値・指数マスタ
+│   ├── 12_investor_types_and_earnings_date.sql  投資部門別情報・決算発表予定日
+│   ├── 13_financial_summary_and_options.sql     財務情報・日経225オプション四本値
+│   ├── 14_large_volume_shareholders.sql         大量保有報告書（EDINET）
+│   ├── 15_edinet_major_shareholders.sql         大株主状況（EDINET）
+│   ├── 16_edinet_cross_shareholdings.sql        政策保有株式（EDINET）
+│   ├── 17_arbitrage_balance.sql        裁定取引残高（JPXから手動取込。J-Quants非提供）
+│   └── 18_grant_claude_readonly_phase8_17.sql   CLAUDE_RO への権限追加（Phase 8〜17）
 ├── jquants-batch/           ★ gitリポジトリ（GitHub: pelo444/jquants-batch）
 │   ├── src/                 取り込み・チャート・Webアプリ
 │   ├── scripts/             運用スクリプト・調査ツール
@@ -65,6 +71,8 @@
 │   ├── sql/                 分析用SQL
 │   └── output/              SQLの実行結果（Excel/CSV）
 ├── trend_analysis/          銘柄調査のメモ（Markdown）
+├── manual_dl_datas/         手動ダウンロードした外部データ（gitリポジトリ外）
+│   └── program_weekly/      JPX週間公表資料の .xls（裁定取引残高の元ファイル）
 └── sampledata/              APIレスポンスのサンプル
 ```
 
@@ -326,6 +334,62 @@ Largest/SecondLargestは親会社が無い会社ではnullになるため、そ�
 `node scripts/inspect-edinet-api.js cross-shareholdings --date 2025-06-20`で
 実データを確認すること。
 
+**裁定取引残高**（`17_arbitrage_balance.sql`。**実データ確認済み・取込動作確認済み**。過去分は未取込）
+
+| テーブル | 内容 | 主キー |
+|---|---|---|
+| `arbitrage_balance` | 週末の裁定取引に係る現物ポジション（買残・売残 × 当限/翌限以降 × 株数/金額） | `pos_date` |
+| `arbitrage_balance_stg` | 同ステージング | — |
+
+ビュー: `v_arbitrage_balance_weekly`（億円換算・前週比つき）。
+
+**このプロジェクトで唯一、J-Quants 由来ではないテーブル**。API仕様書の
+「契約ごとに利用可能なAPIとデータ格納期間」に該当エンドポイントが存在せず、
+Premium に上げても取得できないことを確認済み（先物四本値から裁定残は復元できない）。
+マクロ需給ダッシュボード（第一階層）の構成要素として必要なため、
+JPX が毎週第3営業日に公表する「週末の裁定取引に係る現物ポジション」を
+人手で CSV に変換して取り込む例外扱いとする。
+
+日次版（2営業日前・株数のみ）ではなく週間版（株数と金額）を採ったのは、
+金額が付けば空売り比率（円）や信用残の金額換算（円）と同じ土俵で並べられるため。
+
+**ファイルの置き場所に罠がある**。週間版はページ名「裁定取引」ではなく
+**「プログラム売買」**（`.../statistics-equities/program/01.html`）にある。
+ファイル名は `20260828.xls` のような YYYYMMDD 8桁で、その中に
+「２．裁定取引に係る現物ポジション」の表が同梱されている。
+日次版（`260904.xls` のような YYMMDD 6桁）は「裁定取引」ページ側で、株数しか無い。
+バックナンバーは `01-archives-NN.html`（NN=00 が最新）で、**直近3〜4年分しかない**。
+株価・信用残が10年あるのに対しここだけ短いため、長期に遡ると裁定残の列だけ空く。
+
+**単位は 千株・百万円**（2026年8月28日分の実ファイルで確認）。本テーブルは
+他テーブルと揃えて **株・円** で格納するため、変換スクリプト側で 1000倍・1000000倍する。
+DB 側では一切変換しない。
+
+**CSV は提供されていない**（`.xls` と `.pdf` のみ）ため、取込は3段階になる:
+
+1. `.xls` をダウンロードして `manual_dl_datas/program_weekly/` に置く
+2. `python3 scripts/convert-arbitrage-xls.py <ディレクトリ> --out arbitrage.csv`
+3. `node src/loadArbitrage.js arbitrage.csv`（`--dry-run` でDBに触らず確認できる）
+
+2 が **このプロジェクトで唯一の Python スクリプト**。旧形式(BIFF8)の `.xls` を
+Node で読むには SheetJS を npm 公開レジストリ外から入れることになり、
+取り込みバッチ本体に依存を増やしたくなかったため、変換工程だけを切り出した。
+CSV という中間形式はこの分界点でもある。DB への投入は従来どおり Node
+（`src/loadArbitrage.js` + `mergeSql.mergeArbitrageBalance()`）で、
+他テーブルと同じ「ステージング → MERGE」（4.2(1)）。
+
+**`loadDaily.js` の Phase には入れていない。** 自動取得できないものを日次バッチに
+混ぜると毎晩「失敗」し続け、本来の失敗通知が埋もれるため。週1回、手で実行する。
+
+**表の読み方で注意すること**: 表2は 売りポジション(左) / 買いポジション(右) の
+2ブロック構成。PDF から機械抽出すると左右が入れ替わって見えることがあったため、
+変換スクリプトは見出しセルの列位置から毎回マッピングを作り直しており、
+行・列の決め打ちをしていない。実測値は 2026-08-28 で買残 23,212億円 /
+売残 1,728億円。**買残が売残を1桁上回るのが通常の姿**で、逆転していたら
+列の取り違えを疑う（変換スクリプトと `loadArbitrage.js` の両方で桁を検査している）。
+また買残はほぼ全額が当限に乗るため、当限だけを見て増減を語ると
+SQ 前のロールオーバーで読み違える。
+
 ### 4.2 設計上の決めごと
 
 **（1） 取り込みは全て「ステージング → MERGE」**
@@ -582,6 +646,8 @@ J-Quants の銘柄マスタは東証銘柄しか持たない。
 5. **`src/loadDaily.js`** — Phase 一覧に追加
 6. **`scripts/inspect-bulk-csv.js`** — `TARGETS` に追加して実データのヘッダーを確認
 7. **`queries/sql/*.sql`** — 分析用のクエリを書く
+8. **`ddl/NN_*.sql` に CLAUDE_RO への `GRANT SELECT` とシノニムを足す**
+   （`ddl/18_grant_claude_readonly_phase8_17.sql` が実例）
 
 **必ず 6 を先に流す**。CSV のヘッダー名は API 仕様書に明記されていないため、
 実データを見ないと列名も空欄の表現も分からない。
@@ -623,6 +689,8 @@ node scripts/inspect-bulk-csv.js short-position  # 個別
    実データのフィールド名・null表現を確認する。**必ず6の前に流す**
    (CSVと同じ理由。7章冒頭参照)。
 8. **`queries/sql/*.sql`** — 分析用のクエリを書く。
+9. **CLAUDE_RO への `GRANT SELECT` とシノニムを足す**（7章の 8 と同じ。忘れると
+   取り込みは成功しているのに Claude からだけ `ORA-00942` になる）。
 
 ---
 
@@ -726,6 +794,32 @@ NVL(EXP(SUM(LN(NULLIF(adj_factor, 0))) OVER (
 | `market_segment_turnover_and_volatility.sql` | 市場区分別の売買代金・変動率 |
 | `short_selling_overview.sql` | 空売りの概観（days to cover を含む8本） |
 | `tag_insert_*.sql` | タグ付与の投入 SQL（100/200/300番台） |
+| `demand_macro_dashboard.sql` | 第一階層: マクロ需給ダッシュボード（投資部門別・裁定残・信用倍率・空売り比率を週次で横並べ） |
+| `demand_watchlist_sheet.sql` | 第二階層: ウォッチリスト銘柄の需給シート（大量保有・信用残・空売り残・出来高・疑似浮動株比率） |
+| `demand_signal_detection.sql` | 第三階層: シグナル検出（出来高急増・信用倍率1倍割れ・大量保有提出・空売り残5%超の同時点灯） |
+
+**（5） 需給3階層のSQLについて（2026-09-07）**
+
+書籍の「マクロ → 個別銘柄 → シグナル」という3階層の構成をそのまま SQL に落としたもの。
+Web アプリ化を前提に、各ファイルの最後の「本命」クエリが1画面ぶんの結果を返す形にしてある。
+
+設計上の判断を3つ:
+
+- **週の突き合わせは `TRUNC(日付,'IW')`（ISO週の月曜）で行う**。4つのデータは
+  基準日も公表日もバラバラで、`NEXT_DAY(d,'FRI')` は `NLS_DATE_LANGUAGE` で挙動が
+  変わるため使わない。
+- **市場全体の信用倍率は金額換算してから合計する**。株数を単純合計すると
+  株価1万円の銘柄も100円の銘柄も同じ1株として扱うことになり、低位株に引きずられる。
+  申込日時点の終値を掛けて円に直してから集計する（`*_VAL` 列は 2026/9/25 申込分
+  以降しか無いため、過去に遡るには自前換算が要る）。
+- **浮動株比率は近似しか作れない**。J-Quants は浮動株比率も浮動株数も配信していない。
+  `(1 - 自己株式比率) × (1 - 大株主上位10名の保有割合)` で代用しているが、
+  上位10名に信託口が含まれるため過小評価に、上位10名より下の持ち合いを拾えないため
+  過大評価に、それぞれ逆方向へ振れる。**絶対値は信用せず、銘柄間の相対比較と
+  経年の変化方向にだけ使うこと**。JPX の公式な浮動株比率とは別物。
+
+しきい値は全て各SQLの `params` CTE に集めてある。点灯が多すぎる/少なすぎるときは
+SQL 本体ではなく `params` を触る。
 
 ---
 
@@ -789,6 +883,14 @@ node scripts/claude-query.js --json "SELECT ..."
 - 初期セットアップ手順は `ddl/10_create_claude_readonly_user.sql` の冒頭コメント、
   `.env` の雛形は `jquants-batch/claude-readonly-env.example.txt` を参照。
 
+**`ORA-00942: table or view does not exist` が出たら、まず権限を疑う（2026-09-09）。**
+`ddl/10` が対象にしているのは Phase 1〜7 までのオブジェクトだけで、その後に追加した
+Phase 8〜17 と裁定取引残高には `GRANT` もシノニムも作られていなかった。
+`ddl/18_grant_claude_readonly_phase8_17.sql` でまとめて追加してある。
+メッセージは「テーブルが無い」だが、**テーブルはある。見る権限が無い**。
+GD_JQUANTS で同じ SQL が通るならこれ。新しいテーブルを足したときは
+7章の 8（および 7.1 の 9）を忘れないこと。
+
 ---
 
 ## 11. 運用
@@ -816,6 +918,21 @@ node scripts/claude-query.js --json "SELECT ..."
 - [ ] **空売りデータを使った分析方針の具体化**。データは揃ったので、次はここから。
       入口は `v_equity_short_position_sum`（銘柄 × 計算日）と
       `queries/sql/short_selling_overview.sql`（days to cover を含む8本）
+- [x] **裁定取引残高の取込パイプライン**。DDL適用・変換・ローダー・CLAUDE_ROの権限まで
+      2026-09-09 に一気通貫で動作確認済み（2026-08-28分1件。買残23,212.2億円/売残1,728.4億円/
+      ネット21,483.8億円。`.xls` の値とDBの値が一致することを確認）
+- [ ] **裁定取引残高の過去分の取込**。現在1件のみ。バックナンバー
+      （`01-archives-NN.html`、直近3〜4年分）を一括ダウンロードして
+      `manual_dl_datas/program_weekly/` に置き、変換とロードを流し直す。
+      ダウンロード自体は手作業かスクレイピング用のスクリプトが要る
+- [ ] **裁定取引残高の定期取込の運用**。週1回、`.xls` を足して変換とロードを流し直す。
+      ダウンロードを自動化するなら `01.html` から最新ファイルのURLを拾う処理が要る
+- [ ] **需給3階層のWebアプリ化**。SQL は `queries/sql/demand_*.sql` に用意済み。
+      `src/web/` に `/demand` を足し、`webQuery.js` にクエリを移す想定
+- [ ] **大量保有報告書の取込件数の妥当性確認**。初回投入は「処理11日/624件」で
+      完了しているが、2021-07-01 以降の全期間としては少なく見える。
+      `demand_watchlist_sheet.sql` の 1 で件数を確認し、少なすぎるようなら
+      `load_progress` の `/edinet/large-volume-shareholders` の行を精査する
 - [ ] **Web アプリの認証**（既存の OCI 認証サービス経由）
 - [ ] タグ付けの継続（`trend_analysis/` のメモをもとに自分の観点で作り上げる）
 - [ ] 銘柄数が増えたら `130` / `140` の細分（8.3 参照）
