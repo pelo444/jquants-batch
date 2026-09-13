@@ -43,39 +43,44 @@
 
 ```
 /Users/pelo8/apps/jquants/
-├── ddl/                     DDL・マイグレーション（gitリポジトリ外）
-│   ├── 01_create_user_and_tables.sql   ユーザー作成 + 中核テーブル
-│   ├── 02_staging_tables.sql           マスタ・株価のステージング
-│   ├── 03_load_progress.sql            取込進捗テーブル
-│   ├── 04_alter_column_sizes.sql       桁拡張（既存環境向け）
-│   ├── 05_tag_master.sql               タグマスタ + FK + v_equity_tag
-│   ├── 06_tag_master_add_230.sql       タグ追加（再エネ）
-│   ├── 07_tag_master_add_300.sql       タグ追加（金融）
-│   ├── 08_short_selling_tables.sql     空売り・信用取引の4テーブル一式
-│   ├── 09_short_position_normalize_spaces.sql  既存行の空白正規化
-│   ├── 10_create_claude_readonly_user.sql  Claude Desktop用読取専用ユーザー
-│   ├── 11_calendar_and_indices.sql     取引カレンダー・指数四本値・指数マスタ
-│   ├── 12_investor_types_and_earnings_date.sql  投資部門別情報・決算発表予定日
-│   ├── 13_financial_summary_and_options.sql     財務情報・日経225オプション四本値
-│   ├── 14_large_volume_shareholders.sql         大量保有報告書（EDINET）
-│   ├── 15_edinet_major_shareholders.sql         大株主状況（EDINET）
-│   ├── 16_edinet_cross_shareholdings.sql        政策保有株式（EDINET）
-│   ├── 17_arbitrage_balance.sql        裁定取引残高（JPXから手動取込。J-Quants非提供）
-│   ├── 18_grant_claude_readonly_phase8_17.sql   CLAUDE_RO への権限追加（Phase 8〜17）
-│   └── 19_demand_weekly_panel.sql      需給指標の週次パネル（検証用ビュー）
-├── jquants-batch/           ★ gitリポジトリ（GitHub: pelo444/jquants-batch）
+├── jquants-batch/           ★ gitリポジトリ（GitHub: pelo444/jquants-batch。非公開）
 │   ├── src/                 取り込み・チャート・Webアプリ
 │   ├── scripts/             運用スクリプト・調査ツール
 │   ├── docs/PROJECT.md      このファイル
-│   └── output/              chart.js の出力（gitignore）
-├── queries/
-│   ├── sql/                 分析用SQL
-│   └── output/              SQLの実行結果（Excel/CSV）
-├── trend_analysis/          銘柄調査のメモ（Markdown）
+│   ├── output/              chart.js の出力（gitignore）
+│   ├── ddl/                 DDL・マイグレーション
+│   ├── queries/
+│   │   ├── sql/             分析用SQL
+│   │   └── output/          SQLの実行結果（Excel/CSV。gitignore）
+│   └── trend_analysis/      銘柄調査のメモ（Markdown）
 ├── manual_dl_datas/         手動ダウンロードした外部データ（gitリポジトリ外）
 │   └── program_weekly/      JPX週間公表資料の .xls（裁定取引残高の元ファイル）
-└── sampledata/              APIレスポンスのサンプル
+└── sampledata/              APIレスポンスのサンプル（gitリポジトリ外）
+
+jquants-batch/ddl/ の中身:
+├── 01_create_user_and_tables.sql   ユーザー作成 + 中核テーブル
+├── 02_staging_tables.sql           マスタ・株価のステージング
+├── 03_load_progress.sql            取込進捗テーブル
+├── 04_alter_column_sizes.sql       桁拡張（既存環境向け）
+├── 05_tag_master.sql               タグマスタ + FK + v_equity_tag
+├── 06_tag_master_add_230.sql       タグ追加（再エネ）
+├── 07_tag_master_add_300.sql       タグ追加（金融）
+├── 08_short_selling_tables.sql     空売り・信用取引の4テーブル一式
+├── 09_short_position_normalize_spaces.sql  既存行の空白正規化
+├── 10_create_claude_readonly_user.sql  Claude Desktop用読取専用ユーザー
+├── 11_calendar_and_indices.sql     取引カレンダー・指数四本値・指数マスタ
+├── 12_investor_types_and_earnings_date.sql  投資部門別情報・決算発表予定日
+├── 13_financial_summary_and_options.sql     財務情報・日経225オプション四本値
+├── 14_large_volume_shareholders.sql         大量保有報告書（EDINET）
+├── 15_edinet_major_shareholders.sql         大株主状況（EDINET）
+├── 16_edinet_cross_shareholdings.sql        政策保有株式（EDINET）
+├── 17_arbitrage_balance.sql        裁定取引残高（JPXから手動取込。J-Quants非提供）
+├── 18_grant_claude_readonly_phase8_17.sql   CLAUDE_RO への権限追加（Phase 8〜17）
+└── 19_demand_weekly_panel.sql      需給指標の週次パネル（検証用ビュー）
 ```
+
+**本ファイル中の `ddl/...` `queries/sql/...` という表記は、すべて
+`jquants-batch/` からの相対パス**（= リポジトリルートからの相対パス）を指す。
 
 **配置ルール（過去に明示的に決めたこと）**
 
@@ -85,8 +90,24 @@
   （適用済みの環境があるため。ただし `08_*.sql` のようにコメントだけの修正は既存ファイルを直す）。
 - ファイル名は内容から分かる名前にする（`test.sql` `tmp2.sql` のような名前は付けない）。
 
-**注意**: git リポジトリは `jquants-batch/` **だけ**。`ddl/` `queries/` `trend_analysis/` は
-リポジトリ外なので、git では管理されていない。
+**git の管理範囲（2026-09-13 に変更）**
+
+`ddl/` `queries/` `trend_analysis/` は元々リポジトリ外にあり、失うと再現に時間がかかる割に
+バックアップの仕組みが無かった。3つとも `jquants-batch/` 配下へ移して git 管理下に入れた。
+
+リポジトリのルートを1階層上げる（`apps/jquants/` 自体をリポジトリにする）案もあったが、
+**OCI VM のデプロイ先 `/opt/jquants-batch/` と cron のパスが変わってしまう**ため採らなかった。
+`jquants-batch/` 自体は動かさない方式にしたので、
+`scripts/download-arbitrage-archives.js` の出力先など `manual_dl_datas/` への相対パスは
+影響を受けていない。
+
+**リポジトリ外に残しているもの（意図的）**
+
+| ディレクトリ | 理由 |
+|---|---|
+| `manual_dl_datas/` | ダウンローダで再生成できる（7.6MB・約200ファイル） |
+| `sampledata/` | 26MB。中身が `.csv`/`.csv.gz` で `.gitignore` に該当する |
+| `queries/output/` | SQL の実行結果。`.gitignore` の `output/` が全階層に効いて除外される |
 
 ---
 
@@ -973,10 +994,14 @@ GD_JQUANTS で同じ SQL が通るならこれ。新しいテーブルを足し�
 - [ ] **Web アプリの認証**（既存の OCI 認証サービス経由）
 - [ ] タグ付けの継続（`trend_analysis/` のメモをもとに自分の観点で作り上げる）
 - [ ] 銘柄数が増えたら `130` / `140` の細分（8.3 参照）
-- [ ] **セキュリティ**: `jquants-batch/.git/config` の remote URL に GitHub の
-      Personal Access Token が平文で埋まっている。credential helper（macOS なら
-      `git config --global credential.helper osxkeychain`）に移すか SSH 接続に変える。
-      トークンを差し替えるときは、旧トークンを GitHub 側で失効させること
+- [x] **セキュリティ: remote URL の Personal Access Token を排除**（2026-09-13 完了）。
+      Mac・OCI VM とも SSH 接続に切り替え、旧トークンを GitHub 側で失効させた。
+      VM には**リポジトリ単位の Deploy key（読み取り専用）**を登録している
+      （VM は pull しかしないため書き込み権限は不要。VM が侵害されても
+      リポジトリを書き換えられない）。Mac 側はアカウントの SSH key。
+      **Deploy keys はリポジトリの Settings にある**（アカウントの
+      「SSH and GPG keys」とは別の場所。探すときに迷いやすい）:
+      `https://github.com/pelo444/jquants-batch/settings/keys`
 
 ---
 
