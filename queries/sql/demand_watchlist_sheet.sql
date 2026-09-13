@@ -24,6 +24,27 @@
 --   出来高(EQUITY_PRICE_DAILY.VOLUME)も生の株数。
 --   期間内に分割があると株数の基準が途中で変わるため、各クエリは SPLIT_FLAG を
 --   返す。'Y' の銘柄は残高・出来高の前後比較を鵜呑みにしないこと。
+--
+-- 【大量保有報告書のデータ期間(2026-09-13 実データで確認)】
+--   取り込みは2021-07-01開始。全銘柄で4,215銘柄/65,311件、欠損は無い。
+--   ウォッチ21銘柄は全銘柄に書類があり(594件)、大量保有の列は基本的に埋まる。
+--   ただし0件になり得る理由は残る: 2021-07以前から保有し続けていて以降1度も
+--   変更報告書を出していない大量保有者は、このテーブルに現れない。
+--   **LVS_GRP_CNT = 0 は「大量保有者がいない」ではなく「この5年で動きが無かった」。**
+--   ウォッチ銘柄を入れ替えたときは 1 の2本目で書類の有無を確認すること。
+--
+-- 【空売り残高報告が空になるのは正常(大型株ほど起きる)】
+--   V_EQUITY_SHORT_POSITION_SUM は残高割合0.5%以上の報告分だけ。時価総額が大きい
+--   銘柄ほど0.5%の金額が大きく、報告者が1人も出ない状態が普通にある。
+--   SHORT_RATIO_PCT が NULL なのは「空売り残高ゼロ」ではなく「0.5%以上の報告が無い」。
+--   グラフでは0でプロットせず線を切ること(残高系データ共通の仕様)。
+--   ウォッチリストはプライムの大型株が中心のため、この列は欠測が多くなる。
+--
+-- 【この階層の位置づけ】
+--   需給5指標の予測力は10年分で検証済みで、いずれも先行リターンの方向を
+--   予測できなかった(queries/sql/demand_signal_backtest.sql)。
+--   このシートは「いま何が起きているか」の描写と、注目銘柄を絞り込むフィルタとして
+--   使う。単独の売買判断の根拠にはしない。
 --------------------------------------------------------------------------------
 
 
@@ -64,8 +85,43 @@ WHERE EXISTS (SELECT 1 FROM favorite_master f
 -- 【20日平均出来高の取り方】
 --   直近日を含めずに、その前の20営業日の平均を分母にしている。
 --   直近日を含めると急増した当日の出来高が平均を押し上げ、倍率が鈍るため。
+--
+-- 【大量保有は「提出者グループごとの最新」を足し上げる(2026-09-13 実データを見て変更)】
+--   ウォッチ銘柄には5年で594件、1銘柄あたり平均28件あった。ほとんどが変更報告書で、
+--   複数の提出者グループが並行して報告している。「銘柄の直近1件」だけを見ると
+--   たまたま最後に報告したグループの保有割合しか映らず、他グループの保有が消える。
+--   提出者ごとに最新の1件を取り、そのうえで合計する。
+--
+--   ・LVS_TOTAL_PCT が高い(50%前後)ことは、それ自体では異常ではない。
+--     SHIFT の 58.6% を 7 で分解したところ、内訳は創業者の丹下大 33.18% +
+--     機関投資家4者で、二重計上ではなく実態だった(2026-09-13)。
+--     オーナー系・親子上場の銘柄では普通に高く出る。%の水準に閾値を引いて
+--     警告を出すのはやめた(誤検知になる)。
+--   ・代わりに効くのは**鮮度**。同じ分解で、ゴールドマン・サックス証券の 5.05% が
+--     1,514日前(2022-07-22)の報告のまま「保有中」として合計に乗っていた。
+--     報告義務が切れた後は更新されないため、古い報告ほど実態と乖離する。
+--     LVS_GRP_CNT_STALE(params.lvs_stale_days、既定365日)で何グループが古いかを示す。
+--   ・共同保有者が別々に報告していると重複して足し込まれる余地は残る。
+--     **水準そのものより「グループ数」と「直近の変化」を見ること。** 内訳は 7。
+--   ・最新報告で5%未満に落ちたグループは退出済みとして合計から外す(PARAMS.LVS_MIN_RATIO)。
+--     ただし最後の報告のあとに5%未満へ売り切った分は報告義務が無く、見えない。
+--
+-- 【LVS_GRP_CNT = 0 は「大量保有者がいない」ではない】
+--   取り込みは2021-07-01開始。それ以前から保有していて以降1度も変更報告書を
+--   出していない大量保有者は、DBに存在しない。0 は「この5年で動きが無かった」。
+--
+-- 【MARGIN_SEASON_WARN】
+--   3月・9月の権利付最終日前の週は、優待・配当のつなぎ売り(クロス取引)で信用売残が
+--   1.5〜2倍に膨らむ。MARGIN_RATIO の低下を「売り長への転換」と読むと誤る。
+--   該当しうる申込日に 'CROSS' を立てる。立っている週は前週比ではなく前年同期と比べる。
 --------------------------------------------------------------------------------
-WITH target AS (
+WITH params AS (
+    SELECT 0.05  AS lvs_min_ratio,   -- 大量保有者として数える下限(5% = 報告義務の基準)
+           0.005 AS short_min_ratio, -- 空売り残高の報告義務基準(0.5%)
+           365   AS lvs_stale_days   -- 大量保有の最終報告がこれより古いと「古い」扱い
+    FROM dual
+),
+target AS (
     SELECT f.code
     FROM favorite_master f
     WHERE f.is_watching = 1
@@ -80,6 +136,9 @@ px AS (
            p.volume,
            AVG(p.volume) OVER (PARTITION BY p.code ORDER BY p.price_date
                                ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING) AS avg_vol_20d,
+           -- 平均に使えた営業日数。20未満なら「20日平均」ではない(上場直後など)
+           COUNT(p.volume) OVER (PARTITION BY p.code ORDER BY p.price_date
+                               ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING) AS avg_vol_n,
            MAX(CASE WHEN p.adj_factor <> 1 THEN 'Y' END)
                OVER (PARTITION BY p.code ORDER BY p.price_date
                      ROWS BETWEEN 20 PRECEDING AND CURRENT ROW)           AS split_flag,
@@ -89,7 +148,7 @@ px AS (
       AND EXISTS (SELECT 1 FROM target t WHERE t.code = p.code)
 ),
 px_latest AS (
-    SELECT code, price_date, close_price, volume, avg_vol_20d, split_flag
+    SELECT code, price_date, close_price, volume, avg_vol_20d, avg_vol_n, split_flag
     FROM px WHERE rn = 1
 ),
 mgn AS (
@@ -98,6 +157,7 @@ mgn AS (
            MAX(CASE WHEN rn = 1 THEN app_date END)  AS app_date,
            MAX(CASE WHEN rn = 1 THEN long_vol END)  AS long_vol,
            MAX(CASE WHEN rn = 1 THEN shrt_vol END)  AS shrt_vol,
+           MAX(CASE WHEN rn = 2 THEN app_date END)  AS app_date_prev,
            MAX(CASE WHEN rn = 2 THEN long_vol END)  AS long_vol_prev,
            MAX(CASE WHEN rn = 2 THEN shrt_vol END)  AS shrt_vol_prev
     FROM (
@@ -115,10 +175,12 @@ sp AS (
     SELECT code,
            MAX(CASE WHEN rn = 1 THEN calc_date END)         AS calc_date,
            MAX(CASE WHEN rn = 1 THEN total_shrt_ratio END)  AS shrt_ratio,
+           MAX(CASE WHEN rn = 1 THEN total_shrt_shares END) AS shrt_shares,
            MAX(CASE WHEN rn = 1 THEN reporter_count END)    AS reporter_count,
            MAX(CASE WHEN rn = 2 THEN total_shrt_ratio END)  AS shrt_ratio_prev
     FROM (
-        SELECT v.code, v.calc_date, v.total_shrt_ratio, v.reporter_count,
+        SELECT v.code, v.calc_date, v.total_shrt_ratio, v.total_shrt_shares,
+               v.reporter_count,
                ROW_NUMBER() OVER (PARTITION BY v.code ORDER BY v.calc_date DESC) AS rn
         FROM v_equity_short_position_sum v
         WHERE EXISTS (SELECT 1 FROM target t WHERE t.code = v.code)
@@ -126,34 +188,110 @@ sp AS (
     WHERE rn <= 2
     GROUP BY code
 ),
-lvs AS (
-    -- 直近に提出された大量保有報告書(銘柄あたり1件)
-    SELECT code, sub_date, doc_type_code, total_shs_ratio, total_shs_ratio_last,
-           total_out_stks, doc_id
+lvs_grp AS (
+    -- 提出者グループごとの最新1件。
+    --
+    -- 【TOTAL_SHS_RATIO は2割の書類でNULL。補完は保有者1名の書類に限る】
+    --   ウォッチ21銘柄の594件中、親に保有割合が入っているのは426件(2026-09-13)。
+    --   NULLの書類でも子テーブル(保有者明細)の SHS_RATIO は埋まっている。
+    --
+    --   ただし **子の合計で親を再現できるとは限らない**。親が入っている426件で
+    --   検算したところ、62件で一致せず最大13.72ポイントずれた。共同保有者が
+    --   同じ株を重複して計上し、親の合計欄では重複を除いているためと思われる。
+    --
+    --   【この補完は検算を通ったのではない。構造的な理由で採っている】
+    --   保有者数で層別したところ、594件は次の3つにしか分かれなかった:
+    --     親あり  / 保有者2名以上 … 426件
+    --     親NULL / 保有者1名     … 116件
+    --     親NULL / 保有者2名以上 …  52件
+    --   **「親あり かつ 保有者1名」は0件**。つまり親の合計欄は共同保有者がいる
+    --   ときだけ埋まる(1名なら本人の割合が答えなので冗長)。その結果、
+    --   1名の書類で親子が一致するかを確かめる標本が存在しない。
+    --   それでも1名に限って補完してよい理由は、合計＝本人の割合で算術的に
+    --   曖昧さが無く、ズレの原因である重複計上が1名では起こり得ないため。
+    --   検証したのではなく構造から言えるだけ、という区別は残しておくこと。
+    --
+    --   → 保有者1名の書類だけ補完する(LVS_RATIO_IMPUTED = 'Y')。
+    --     2名以上でNULLの52件は補完せずNULLのまま出し、LVS_GRP_CNT_NORATIO で
+    --     何グループが割合不明かを示す。LVS_LAST_DIRECTION は '割合なし'。
+    --
+    --   COALESCE を使うのは、NVL と違って第1引数が非NULLなら第2引数を評価しない
+    --   ため(NULLの書類だけスカラー副問合せが走る)。
+    --   NULLを0とみなさないこと。保有割合0%と「割合の記載が無い」は別物で、
+    --   0にすると LVS_TOTAL_PCT が実態より小さく出る。
+    --
+    -- 【取り違え注意】LARGE_VOLUME_SHAREHOLDER.EDINET_CODE / ISR_NAME は
+    --   「発行者」(= 対象銘柄の会社)であって提出者ではない(ddl/14 の列コメント)。
+    --   提出者は子テーブルの HLDR_SEQ = 1 の行(HLDR_EDINET_CODE / HLDR_NAME)。
+    --   親側のコードでグルーピングすると全書類が1グループに潰れる。
+    --
+    --   個人の提出者は HLDR_EDINET_CODE が NULL になり得るため氏名で代替する。
+    --   氏名も NULL の書類があれば、それらは1グループに混ざる(実害が出たら要見直し)。
+    SELECT code, grp_key, grp_name, sub_date, doc_id, ratio_imputed,
+           total_shs_ratio, total_shs_ratio_last, total_out_stks, large_hldg_type_code
     FROM (
-        SELECT l.code, l.sub_date, l.doc_type_code, l.total_shs_ratio,
-               l.total_shs_ratio_last, l.total_out_stks, l.doc_id,
-               ROW_NUMBER() OVER (PARTITION BY l.code
-                                  ORDER BY l.sub_date DESC, l.doc_id DESC) AS rn
+        SELECT l.code,
+               NVL(h.hldr_edinet_code, h.hldr_name)  AS grp_key,
+               h.hldr_name                           AS grp_name,
+               l.sub_date, l.doc_id,
+               l.total_out_stks, l.large_hldg_type_code,
+               COALESCE(l.total_shs_ratio,
+                        (SELECT CASE WHEN COUNT(*) = 1 THEN SUM(hh.shs_ratio) END
+                         FROM large_volume_shareholder_holder hh
+                         WHERE hh.doc_id = l.doc_id))                      AS total_shs_ratio,
+               COALESCE(l.total_shs_ratio_last,
+                        (SELECT CASE WHEN COUNT(*) = 1 THEN SUM(hh.shs_ratio_last) END
+                         FROM large_volume_shareholder_holder hh
+                         WHERE hh.doc_id = l.doc_id))                      AS total_shs_ratio_last,
+               CASE WHEN l.total_shs_ratio IS NULL
+                     AND (SELECT COUNT(*) FROM large_volume_shareholder_holder hh
+                          WHERE hh.doc_id = l.doc_id) = 1
+                    THEN 'Y' END                                           AS ratio_imputed,
+               ROW_NUMBER() OVER (
+                   PARTITION BY l.code, NVL(h.hldr_edinet_code, h.hldr_name)
+                   ORDER BY l.sub_date DESC, l.doc_id DESC)                AS rn
         FROM large_volume_shareholder l
+        JOIN large_volume_shareholder_holder h
+          ON h.doc_id = l.doc_id
+         AND h.hldr_seq = 1
         WHERE EXISTS (SELECT 1 FROM target t WHERE t.code = l.code)
     )
     WHERE rn = 1
 ),
-lvs_holder AS (
-    -- その書類の提出者名(Hldrs配列の先頭 = 提出者本人)
-    SELECT h.doc_id, h.hldr_name
-    FROM large_volume_shareholder_holder h
-    WHERE h.hldr_seq = 1
+lvs AS (
+    SELECT g.code,
+           COUNT(CASE WHEN g.total_shs_ratio >= p.lvs_min_ratio THEN 1 END) AS grp_cnt,
+           SUM(CASE WHEN g.total_shs_ratio >= p.lvs_min_ratio
+                    THEN g.total_shs_ratio END)                            AS total_ratio,
+           COUNT(*)                                                        AS grp_cnt_all,
+           MAX(g.sub_date)                                                 AS last_sub_date,
+           MAX(g.grp_name) KEEP (DENSE_RANK LAST
+                                 ORDER BY g.sub_date, g.doc_id)            AS last_grp_name,
+           MAX(g.total_shs_ratio) KEEP (DENSE_RANK LAST
+                                 ORDER BY g.sub_date, g.doc_id)            AS last_ratio,
+           MAX(g.total_shs_ratio_last) KEEP (DENSE_RANK LAST
+                                 ORDER BY g.sub_date, g.doc_id)            AS last_ratio_prev,
+           MAX(g.total_out_stks) KEEP (DENSE_RANK LAST
+                                 ORDER BY g.sub_date, g.doc_id)            AS total_out_stks,
+           MAX(g.ratio_imputed)                                            AS ratio_imputed,
+           COUNT(CASE WHEN g.total_shs_ratio IS NULL THEN 1 END)            AS grp_cnt_noratio,
+           COUNT(CASE WHEN g.total_shs_ratio >= p.lvs_min_ratio
+                       AND g.sub_date < TRUNC(SYSDATE) - p.lvs_stale_days
+                      THEN 1 END)                                          AS grp_cnt_stale
+    FROM lvs_grp g
+    CROSS JOIN params p
+    GROUP BY g.code
 )
 SELECT em.code,
        em.co_name,
        em.market_name,
+       em.sector33_name,
        -- 出来高
        TO_CHAR(px_latest.price_date, 'YYYY-MM-DD')                  AS price_date,
        px_latest.close_price,
        px_latest.volume,
        ROUND(px_latest.avg_vol_20d)                                 AS avg_vol_20d,
+       px_latest.avg_vol_n                                          AS avg_vol_n,
        ROUND(px_latest.volume / NULLIF(px_latest.avg_vol_20d, 0), 2) AS vol_vs_20d,
        NVL(px_latest.split_flag, 'N')                               AS split_flag,
        -- 信用取引残高
@@ -163,27 +301,56 @@ SELECT em.code,
        ROUND(mgn.long_vol / NULLIF(mgn.shrt_vol, 0), 2)             AS margin_ratio,
        mgn.long_vol - mgn.long_vol_prev                             AS margin_long_chg,
        mgn.shrt_vol - mgn.shrt_vol_prev                             AS margin_shrt_chg,
-       ROUND(mgn.shrt_vol / NULLIF(px_latest.avg_vol_20d, 0), 1)    AS days_to_cover,
+       ROUND(mgn.shrt_vol / NULLIF(px_latest.avg_vol_20d, 0), 2)    AS margin_shrt_dtc,
+       CASE WHEN TO_CHAR(mgn.app_date, 'MM') IN ('03', '09')
+             AND TO_NUMBER(TO_CHAR(mgn.app_date, 'DD')) >= 15
+            THEN 'CROSS' END                                        AS margin_season_warn,
        -- 空売り残高報告(0.5%以上の報告分のみ)
        TO_CHAR(sp.calc_date, 'YYYY-MM-DD')                          AS short_calc_date,
        ROUND(sp.shrt_ratio * 100, 2)                                AS short_ratio_pct,
        ROUND((sp.shrt_ratio - sp.shrt_ratio_prev) * 100, 2)         AS short_ratio_chg_pt,
        sp.reporter_count,
-       -- 大量保有報告書
-       TO_CHAR(lvs.sub_date, 'YYYY-MM-DD')                          AS lvs_sub_date,
-       lvs_holder.hldr_name                                         AS lvs_holder_name,
-       lvs.doc_type_code                                            AS lvs_doc_type,
-       ROUND(lvs.total_shs_ratio * 100, 2)                          AS lvs_ratio_pct,
-       ROUND((lvs.total_shs_ratio - lvs.total_shs_ratio_last) * 100, 2)
-                                                                    AS lvs_ratio_chg_pt,
-       lvs.total_out_stks                                           AS shares_outstanding
+       ROUND(sp.shrt_shares / NULLIF(px_latest.avg_vol_20d, 0), 2)  AS short_dtc,
+       TRUNC(SYSDATE) - sp.calc_date                                AS short_days_since,
+       CASE WHEN sp.calc_date IS NULL              THEN '報告なし'
+            WHEN sp.shrt_ratio >= p.short_min_ratio THEN '残高あり'
+            ELSE '報告終了' END                                      AS short_status,
+       -- 大量保有報告書(提出者グループごとの最新を集約)
+       NVL(lvs.grp_cnt, 0)                                          AS lvs_grp_cnt,
+       NVL(lvs.grp_cnt_all, 0)                                      AS lvs_grp_cnt_all,
+       -- 割合不明のグループ数。LVS_TOTAL_PCT はこの分だけ過小になっている
+       NVL(lvs.grp_cnt_noratio, 0)                                  AS lvs_grp_cnt_noratio,
+       -- 最終報告が1年以上前のグループ数。多いほど LVS_TOTAL_PCT は過去の姿
+       NVL(lvs.grp_cnt_stale, 0)                                    AS lvs_grp_cnt_stale,
+       NVL(lvs.ratio_imputed, 'N')                                  AS lvs_ratio_imputed,
+       ROUND(lvs.total_ratio * 100, 2)                              AS lvs_total_pct,
+       TO_CHAR(lvs.last_sub_date, 'YYYY-MM-DD')                     AS lvs_last_sub_date,
+       lvs.last_grp_name                                            AS lvs_last_holder,
+       ROUND(lvs.last_ratio * 100, 2)                               AS lvs_last_ratio_pct,
+       ROUND((lvs.last_ratio - lvs.last_ratio_prev) * 100, 2)       AS lvs_last_chg_pt,
+       -- 【NULLをELSEで飲み込まないこと】TOTAL_SHS_RATIO が NULL の書類が実在する
+       --   (2026-09-13 実データで確認)。素直にCASEを書くと NULL 同士の比較が
+       --   全て偽になり、最後の ELSE '変化なし' に落ちて「変化なし」と嘘をつく。
+       --   demand_backtest_results.md の AVG(CASE WHEN x > 0 ...) と同じ壊れ方。
+       CASE
+         WHEN lvs.last_sub_date IS NULL              THEN NULL
+         WHEN lvs.last_ratio IS NULL                 THEN '割合なし'
+         WHEN lvs.last_ratio_prev IS NULL            THEN '新規'
+         WHEN lvs.last_ratio > lvs.last_ratio_prev   THEN '買い増し'
+         WHEN lvs.last_ratio < lvs.last_ratio_prev   THEN '売り減らし'
+         ELSE '変化なし'
+       END                                                          AS lvs_last_direction,
+       -- 【その書類時点の発行済株式数】直近書類が分割前なら旧株数が返る。
+       --   SHIFTの2022年の書類は17,811,114、2026年の書類は267,500,670で15倍違う。
+       --   現在の発行済株式数が要るときは FINANCIAL_SUMMARY.SH_OUT_FY を使う(6参照)。
+       lvs.total_out_stks                                           AS lvs_out_stks_at_doc
 FROM equity_master em
+CROSS JOIN params p
 JOIN target                ON target.code    = em.code
 LEFT JOIN px_latest        ON px_latest.code = em.code
 LEFT JOIN mgn              ON mgn.code       = em.code
 LEFT JOIN sp               ON sp.code        = em.code
 LEFT JOIN lvs              ON lvs.code       = em.code
-LEFT JOIN lvs_holder       ON lvs_holder.doc_id = lvs.doc_id
 ORDER BY vol_vs_20d DESC NULLS LAST;
 
 
@@ -417,3 +584,78 @@ JOIN target ON target.code = em.code
 LEFT JOIN fs ON fs.code = em.code
 LEFT JOIN ms ON ms.code = em.code
 ORDER BY pseudo_float_pct NULLS LAST;
+
+
+--------------------------------------------------------------------------------
+-- 7. 現在の大量保有者(提出者グループごとの最新断面) ※1銘柄
+--
+-- 4 が「全書類の履歴」なのに対し、これは「いま誰が何%持っていることになっているか」。
+-- 銘柄詳細ページの見出しに使う。2 の LVS_GRP_CNT / LVS_TOTAL_PCT の内訳でもある。
+--
+-- ・5%未満に落ちた提出者も STATUS='退出' として残す。消すと売り抜けが見えなくなる。
+-- ・提出者の同定は HLDR_SEQ = 1 の HLDR_EDINET_CODE(無ければ氏名)。
+--   親テーブルの EDINET_CODE / ISR_NAME は発行者なので使えない(2 のコメント参照)。
+-- ・DAYS_SINCE が大きいグループは、報告義務が無い範囲で既に動いている可能性がある。
+--   「最後に報告した時点の値」であって現在値ではない。SHIFTのゴールドマン・サックス
+--   証券は1,514日前の5.05%のまま「保有中」に居座っていた(2026-09-13)。
+-- ・TOTAL_OUT_STKS は書類ごとに違う。分割前の書類には旧株数が入っている
+--   (SHIFT: 2022年の書類17,811,114 / 2026年の書類267,500,670)。
+--   SHARES_HELD を銘柄間や時系列で比べるときは、この列で割ってから比べること。
+--------------------------------------------------------------------------------
+WITH params AS (
+    SELECT '68570' AS code,      -- ← 見たい銘柄に変更する(5桁)
+           0.05    AS lvs_min_ratio
+    FROM dual
+),
+grp AS (
+    SELECT grp_name, sub_date, doc_id, large_hldg_type_code, docs_cnt, ratio_imputed,
+           total_shs_ratio, total_shs_ratio_last, total_shs_held, total_out_stks
+    FROM (
+        SELECT h.hldr_name                                      AS grp_name,
+               l.sub_date, l.doc_id, l.large_hldg_type_code,
+               l.total_shs_held, l.total_out_stks,
+               -- 2 と同じ補完(保有者1名の書類に限る。理由は2のコメント参照)
+               COALESCE(l.total_shs_ratio,
+                        (SELECT CASE WHEN COUNT(*) = 1 THEN SUM(hh.shs_ratio) END
+                         FROM large_volume_shareholder_holder hh
+                         WHERE hh.doc_id = l.doc_id))               AS total_shs_ratio,
+               COALESCE(l.total_shs_ratio_last,
+                        (SELECT CASE WHEN COUNT(*) = 1 THEN SUM(hh.shs_ratio_last) END
+                         FROM large_volume_shareholder_holder hh
+                         WHERE hh.doc_id = l.doc_id))               AS total_shs_ratio_last,
+               CASE WHEN l.total_shs_ratio IS NULL
+                     AND (SELECT COUNT(*) FROM large_volume_shareholder_holder hh
+                          WHERE hh.doc_id = l.doc_id) = 1
+                    THEN 'Y' END                                    AS ratio_imputed,
+               COUNT(*) OVER (PARTITION BY NVL(h.hldr_edinet_code, h.hldr_name))
+                                                                AS docs_cnt,
+               ROW_NUMBER() OVER (
+                   PARTITION BY NVL(h.hldr_edinet_code, h.hldr_name)
+                   ORDER BY l.sub_date DESC, l.doc_id DESC)      AS rn
+        FROM large_volume_shareholder l
+        JOIN large_volume_shareholder_holder h
+          ON h.doc_id = l.doc_id
+         AND h.hldr_seq = 1
+        CROSS JOIN params p
+        WHERE l.code = p.code
+    )
+    WHERE rn = 1
+)
+SELECT grp.grp_name                                             AS holder_name,
+       CASE WHEN grp.total_shs_ratio >= p.lvs_min_ratio
+            THEN '保有中' ELSE '退出' END                        AS status,
+       ROUND(grp.total_shs_ratio * 100, 2)                      AS ratio_pct,
+       ROUND(grp.total_shs_ratio_last * 100, 2)                 AS ratio_last_pct,
+       ROUND((grp.total_shs_ratio - grp.total_shs_ratio_last) * 100, 2)
+                                                                AS ratio_chg_pt,
+       grp.total_shs_held                                       AS shares_held,
+       TO_CHAR(grp.sub_date, 'YYYY-MM-DD')                      AS last_sub_date,
+       TRUNC(SYSDATE) - grp.sub_date                            AS days_since,
+       grp.docs_cnt,
+       NVL(grp.ratio_imputed, 'N')                              AS ratio_imputed,
+       grp.large_hldg_type_code,
+       grp.total_out_stks,
+       grp.doc_id
+FROM grp
+CROSS JOIN params p
+ORDER BY status, ratio_pct DESC NULLS LAST;
