@@ -47,6 +47,7 @@
 │   ├── src/                 取り込み・チャート・Webアプリ
 │   ├── scripts/             運用スクリプト・調査ツール
 │   ├── docs/PROJECT.md      このファイル
+│   ├── docs/DEMAND_SIGNAL_RUNBOOK.md  需給シグナルの運用手引き（実行順・読み方・経緯）
 │   ├── output/              chart.js の出力（gitignore）
 │   ├── ddl/                 DDL・マイグレーション
 │   ├── queries/
@@ -837,6 +838,12 @@ NVL(EXP(SUM(LN(NULLIF(adj_factor, 0))) OVER (
 | `demand_watchlist_sheet.sql` | 第二階層: ウォッチリスト銘柄の需給シート（大量保有・信用残・空売り残・出来高・疑似浮動株比率） |
 | `demand_signal_detection.sql` | 第三階層: シグナル検出（出来高急増・信用倍率1倍割れ・大量保有提出・空売り残5%超の同時点灯） |
 | `demand_signal_backtest.sql` | 需給指標の検証（イベントスタディ）。`v_demand_weekly_panel`（`ddl/19`）を使う |
+
+**第三階層を日々使うときは `docs/DEMAND_SIGNAL_RUNBOOK.md` を見る。**
+実行の順番（毎日は 01→02、週次で 04・03、四半期で較正 05〜11）、列の読み方、
+NULL や 0 が「ゼロ」を意味しない列の一覧、そして4つのシグナルをどう決めたかの経緯
+（S2 は信用倍率 → days to cover → 売残の増加率と2度作り直している）をまとめてある。
+しきい値を動かす前に、同ファイルの「判断の型として残ったもの」を読むこと。
 
 **（5） 需給3階層のSQLについて（2026-09-07）**
 
