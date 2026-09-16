@@ -4,7 +4,7 @@
 -- 監視銘柄ごとの需給データを1行にまとめ、必要に応じて時系列に展開する。
 --   ・大量保有報告書の提出状況と保有割合の推移  LARGE_VOLUME_SHAREHOLDER   (随時)
 --   ・信用買残・売残の推移                      EQUITY_MARGIN_INTEREST     (週次→日次)
---   ・空売り残高の推移                          V_EQUITY_SHORT_POSITION_SUM(随時)
+--   ・空売り残高の推移                          V_SHORT_POSITION_CARRY_IV  (随時。ddl/21)
 --   ・浮動株比率                                ※直接のデータは無い。近似で代用(6参照)
 --   ・直近の出来高と20日平均出来高の比較        EQUITY_PRICE_DAILY         (日次)
 --
@@ -34,11 +34,22 @@
 --   ウォッチ銘柄を入れ替えたときは 1 の2本目で書類の有無を確認すること。
 --
 -- 【空売り残高報告が空になるのは正常(大型株ほど起きる)】
---   V_EQUITY_SHORT_POSITION_SUM は残高割合0.5%以上の報告分だけ。時価総額が大きい
+--   空売り残高報告は残高割合0.5%以上の報告分だけ。時価総額が大きい
 --   銘柄ほど0.5%の金額が大きく、報告者が1人も出ない状態が普通にある。
 --   SHORT_RATIO_PCT が NULL なのは「空売り残高ゼロ」ではなく「0.5%以上の報告が無い」。
---   グラフでは0でプロットせず線を切ること(残高系データ共通の仕様)。
 --   ウォッチリストはプライムの大型株が中心のため、この列は欠測が多くなる。
+--
+-- 【空売り残高は「報告者ごとの最新」を持ち越して合計する(2026-09-16 修正)】
+--   以前は V_EQUITY_SHORT_POSITION_SUM の最新計算日の行を読んでいたが、あの行には
+--   **その日に報告した報告者の分しか入らない**。全銘柄で平均約37%過小だった
+--   (KLab: 旧4.06% / 持ち越し21.23%)。ddl/21 の V_SHORT_POSITION_CARRY_IV で
+--   報告者ごとに次の報告が出るまで持ち越し、基準日時点で有効な報告を合計する。
+--   ・個人の報告は含まない(個人同士を区別できないため。ddl/21 参照)
+--   ・計算日から short_stale_days(180日)を過ぎた報告は合計から外し、
+--     SHORT_STALE_CNT に件数を出す(半年動かない大口の残高も落ちるので、0でなければ過小)
+--   ・SHORT_RATIO_CHG_PT は「前回の報告との差」ではなく「short_chg_days(28日)前の
+--     持ち越し合計との差」。
+--   ・SHORT_CALC_DATE / SHORT_DAYS_SINCE は、今有効な報告のうち一番新しい計算日。
 --
 -- 【この階層の位置づけ】
 --   需給5指標の予測力は10年分で検証済みで、いずれも先行リターンの方向を
@@ -118,6 +129,8 @@ WHERE EXISTS (SELECT 1 FROM favorite_master f
 WITH params AS (
     SELECT 0.05  AS lvs_min_ratio,   -- 大量保有者として数える下限(5% = 報告義務の基準)
            0.005 AS short_min_ratio, -- 空売り残高の報告義務基準(0.5%)
+           180   AS short_stale_days, -- 空売り報告の失効日数(計算日からこれを過ぎたら合計に入れない)
+           28    AS short_chg_days,   -- 空売り残高の変化を測る日数(この日数前の持ち越し合計と比べる)
            365   AS lvs_stale_days   -- 大量保有の最終報告がこれより古いと「古い」扱い
     FROM dual
 ),
@@ -170,22 +183,35 @@ mgn AS (
     WHERE rn <= 2
     GROUP BY code
 ),
+sp_asof AS (
+    -- 空売り残高を測る基準日。今日(NOW)と short_chg_days 前(PREV)
+    SELECT 'NOW' AS k, TRUNC(SYSDATE) AS d FROM dual
+    UNION ALL
+    SELECT 'PREV', TRUNC(SYSDATE) - p.short_chg_days FROM params p
+),
+sp_live AS (
+    -- 基準日時点で有効な報告(報告者ごとに、次の報告が出るまで持ち越す)。ddl/21 参照
+    SELECT a.k, i.code, i.calc_date, i.shrt_pos_to_so, i.shrt_pos_shares,
+           CASE WHEN i.shrt_pos_to_so >= p.short_min_ratio
+                 AND i.calc_date >= a.d - p.short_stale_days THEN 'Y' ELSE 'N' END AS carried,
+           CASE WHEN i.shrt_pos_to_so >= p.short_min_ratio
+                 AND i.calc_date <  a.d - p.short_stale_days THEN 'Y' ELSE 'N' END AS stale
+    FROM v_short_position_carry_iv i
+    CROSS JOIN sp_asof a
+    CROSS JOIN params p
+    WHERE i.disc_date <= a.d
+      AND a.d < NVL(i.next_disc_date, DATE '9999-12-31')
+      AND EXISTS (SELECT 1 FROM target t WHERE t.code = i.code)
+),
 sp AS (
-    -- 最新2時点の空売り残高報告(銘柄×計算日の合算)
     SELECT code,
-           MAX(CASE WHEN rn = 1 THEN calc_date END)         AS calc_date,
-           MAX(CASE WHEN rn = 1 THEN total_shrt_ratio END)  AS shrt_ratio,
-           MAX(CASE WHEN rn = 1 THEN total_shrt_shares END) AS shrt_shares,
-           MAX(CASE WHEN rn = 1 THEN reporter_count END)    AS reporter_count,
-           MAX(CASE WHEN rn = 2 THEN total_shrt_ratio END)  AS shrt_ratio_prev
-    FROM (
-        SELECT v.code, v.calc_date, v.total_shrt_ratio, v.total_shrt_shares,
-               v.reporter_count,
-               ROW_NUMBER() OVER (PARTITION BY v.code ORDER BY v.calc_date DESC) AS rn
-        FROM v_equity_short_position_sum v
-        WHERE EXISTS (SELECT 1 FROM target t WHERE t.code = v.code)
-    )
-    WHERE rn <= 2
+           MAX(CASE WHEN k = 'NOW' THEN calc_date END)                              AS calc_date,
+           SUM(CASE WHEN k = 'NOW' AND carried = 'Y' THEN shrt_pos_to_so END)      AS shrt_ratio,
+           SUM(CASE WHEN k = 'NOW' AND carried = 'Y' THEN shrt_pos_shares END)     AS shrt_shares,
+           COUNT(CASE WHEN k = 'NOW' AND carried = 'Y' THEN 1 END)                 AS reporter_count,
+           COUNT(CASE WHEN k = 'NOW' AND stale = 'Y' THEN 1 END)                   AS stale_count,
+           NVL(SUM(CASE WHEN k = 'PREV' AND carried = 'Y' THEN shrt_pos_to_so END), 0) AS shrt_ratio_prev
+    FROM sp_live
     GROUP BY code
 ),
 lvs_grp AS (
@@ -305,15 +331,24 @@ SELECT em.code,
        CASE WHEN TO_CHAR(mgn.app_date, 'MM') IN ('03', '09')
              AND TO_NUMBER(TO_CHAR(mgn.app_date, 'DD')) >= 15
             THEN 'CROSS' END                                        AS margin_season_warn,
-       -- 空売り残高報告(0.5%以上の報告分のみ)
+       -- 空売り残高報告(個人以外・0.5%以上の報告を報告者ごとに持ち越した合計)
        TO_CHAR(sp.calc_date, 'YYYY-MM-DD')                          AS short_calc_date,
-       ROUND(sp.shrt_ratio * 100, 2)                                AS short_ratio_pct,
-       ROUND((sp.shrt_ratio - sp.shrt_ratio_prev) * 100, 2)         AS short_ratio_chg_pt,
+       CASE WHEN sp.calc_date IS NOT NULL
+            THEN ROUND(NVL(sp.shrt_ratio, 0) * 100, 2) END          AS short_ratio_pct,
+       CASE WHEN sp.calc_date IS NOT NULL
+            THEN ROUND((NVL(sp.shrt_ratio, 0) - sp.shrt_ratio_prev) * 100, 2) END
+                                                                    AS short_ratio_chg_pt,
        sp.reporter_count,
+       NVL(sp.stale_count, 0)                                       AS short_stale_cnt,
        ROUND(sp.shrt_shares / NULLIF(px_latest.avg_vol_20d, 0), 2)  AS short_dtc,
        TRUNC(SYSDATE) - sp.calc_date                                AS short_days_since,
-       CASE WHEN sp.calc_date IS NULL              THEN '報告なし'
-            WHEN sp.shrt_ratio >= p.short_min_ratio THEN '残高あり'
+       -- 報告なし   … 個人以外の報告が一度も無い
+       -- 残高あり   … 有効な0.5%以上の報告がある
+       -- 古い報告のみ … 0.5%以上の報告は残っているが全て失効扱い(実在する可能性あり)
+       -- 報告終了   … 全報告者の最新が0.5%未満(0.5%を割ったことを知らせる報告)
+       CASE WHEN sp.calc_date IS NULL   THEN '報告なし'
+            WHEN sp.reporter_count > 0  THEN '残高あり'
+            WHEN sp.stale_count > 0     THEN '古い報告のみ'
             ELSE '報告終了' END                                      AS short_status,
        -- 大量保有報告書(提出者グループごとの最新を集約)
        NVL(lvs.grp_cnt, 0)                                          AS lvs_grp_cnt,
@@ -364,7 +399,9 @@ ORDER BY vol_vs_20d DESC NULLS LAST;
 --------------------------------------------------------------------------------
 WITH params AS (
     SELECT '68570' AS code,      -- ← 見たい銘柄に変更する(5桁)
-           104     AS weeks_back -- 約2年
+           104     AS weeks_back, -- 約2年
+           0.005   AS short_min_ratio,
+           180     AS short_stale_days
     FROM dual
 ),
 wk_price AS (
@@ -396,18 +433,25 @@ wk_margin AS (
     WHERE rn = 1
 ),
 wk_short AS (
-    SELECT week_start, calc_date, total_shrt_ratio, reporter_count, total_shrt_shares
-    FROM (
-        SELECT TRUNC(v.calc_date, 'IW') AS week_start,
-               v.calc_date, v.total_shrt_ratio, v.reporter_count, v.total_shrt_shares,
-               ROW_NUMBER() OVER (PARTITION BY TRUNC(v.calc_date, 'IW')
-                                  ORDER BY v.calc_date DESC) AS rn
-        FROM v_equity_short_position_sum v
-        CROSS JOIN params
-        WHERE v.code = params.code
-          AND v.calc_date > TRUNC(SYSDATE) - params.weeks_back * 7
-    )
-    WHERE rn = 1
+    -- 各週の金曜(今週はまだ来ていないので今日)時点の持ち越し合計。2 と同じ読み方
+    SELECT w.week_start,
+           MAX(i.calc_date)                                                 AS calc_date,
+           SUM(CASE WHEN i.shrt_pos_to_so >= params.short_min_ratio
+                     AND i.calc_date >= LEAST(w.week_start + 4, TRUNC(SYSDATE)) - params.short_stale_days
+                    THEN i.shrt_pos_to_so END)                              AS total_shrt_ratio,
+           COUNT(CASE WHEN i.shrt_pos_to_so >= params.short_min_ratio
+                       AND i.calc_date >= LEAST(w.week_start + 4, TRUNC(SYSDATE)) - params.short_stale_days
+                      THEN 1 END)                                           AS reporter_count,
+           SUM(CASE WHEN i.shrt_pos_to_so >= params.short_min_ratio
+                     AND i.calc_date >= LEAST(w.week_start + 4, TRUNC(SYSDATE)) - params.short_stale_days
+                    THEN i.shrt_pos_shares END)                             AS total_shrt_shares
+    FROM wk_price w
+    CROSS JOIN params
+    JOIN v_short_position_carry_iv i
+      ON i.code = params.code
+     AND i.disc_date <= LEAST(w.week_start + 4, TRUNC(SYSDATE))
+     AND LEAST(w.week_start + 4, TRUNC(SYSDATE)) < NVL(i.next_disc_date, DATE '9999-12-31')
+    GROUP BY w.week_start
 ),
 wk_lvs AS (
     -- その週に提出された大量保有報告書の件数と、最後の保有割合
@@ -428,7 +472,9 @@ SELECT TO_CHAR(wp.week_start, 'YYYY-MM-DD')                     AS week_start,
        wm.long_vol                                              AS margin_long_vol,
        wm.shrt_vol                                              AS margin_shrt_vol,
        ROUND(wm.long_vol / NULLIF(wm.shrt_vol, 0), 2)           AS margin_ratio,
-       ROUND(ws.total_shrt_ratio * 100, 2)                      AS short_ratio_pct,
+       -- 持ち越し合計なので週ごとに連続した値になる。NULL はまだ報告が1件も無い週
+       CASE WHEN ws.calc_date IS NOT NULL
+            THEN ROUND(NVL(ws.total_shrt_ratio, 0) * 100, 2) END   AS short_ratio_pct,
        ws.reporter_count,
        ws.total_shrt_shares                                     AS short_shares,
        NVL(wl.lvs_docs, 0)                                      AS lvs_docs,

@@ -1,0 +1,214 @@
+/*
+ * 需給3階層 (/demand) の追加スタイル。style.css を読み込んだ上で重ねる。
+ *
+ * 配色は style.css と同じ検証済みパレット(Anthropicデータ可視化ガイドライン)。
+ * 系列色はスロット1〜4の順で固定して使い、循環させない。
+ *   1 blue  #2a78d6 / #3987e5
+ *   2 orange#eb6834 / #d95926
+ *   3 aqua  #1baf7a / #199e70
+ *   4 yellow#eda100 / #c98500
+ * ライトモードでは aqua と yellow がサーフェスに対して3:1を下回るため、
+ * **凡例と終点の直接ラベル、および同じ数値の表** を必ず併置する(色だけに頼らない)。
+ *
+ * ステータス色は系列とは別枠(good/warning/critical)。「疑う列」に warning を使うが、
+ * 色だけでは意味を運ばせず、必ず記号(⚠)と文言を添える。
+ */
+
+.viz-root {
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --warning: #fab219;
+  --warning-wash: rgba(250, 178, 25, 0.16);
+  --warning-ink: #6b4a00;
+  --na-ink: #898781;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --warning: #fab219;
+    --warning-wash: rgba(250, 178, 25, 0.14);
+    --warning-ink: #f0d79a;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --warning: #fab219;
+  --warning-wash: rgba(250, 178, 25, 0.14);
+  --warning-ink: #f0d79a;
+}
+
+/* ---------- 冒頭の但し書き ---------- */
+.lede {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--baseline);
+  background: var(--surface-1);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.lede strong { color: var(--text-primary); }
+
+/* ---------- 鮮度バー(常時表示) ---------- */
+.freshness {
+  margin: 12px 20px 0;
+  padding: 8px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.freshness-head {
+  font-size: 11px; color: var(--muted); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px;
+}
+.freshness-list { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.fresh-item {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12px; padding: 2px 8px; border-radius: 5px;
+  border: 1px solid var(--border);
+}
+.fresh-item .fi-name { color: var(--text-secondary); }
+.fresh-item .fi-date { font-variant-numeric: tabular-nums; }
+.fresh-item .fi-days { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
+.fresh-item.late { border-color: var(--critical); background: rgba(208, 59, 59, 0.10); }
+.fresh-item.late .fi-days { color: var(--critical); font-weight: 600; }
+.fresh-item.unknown { border-style: dashed; }
+
+/* ---------- タブ・見出し ---------- */
+.tabs .tab .tab-sub { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+.pane h2 {
+  font-size: 13px; margin: 18px 0 6px; color: var(--text-primary);
+  display: flex; align-items: baseline; gap: 10px;
+}
+.pane h2 .h2-note { font-size: 11px; font-weight: 400; color: var(--muted); }
+.pane h2:first-child { margin-top: 0; }
+
+/* ---------- 2段ヘッダーのテーブル ---------- */
+.table-wrap.tall { max-height: calc(100vh - 380px); }
+thead tr.grp th {
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted); font-weight: 600; font-size: 11px;
+  top: 0;
+}
+thead tr.col th { top: 24px; }
+th.grp-start, td.grp-start { border-left: 1px solid var(--baseline); }
+
+/* ---------- 値の見せ方 ---------- */
+/* 「無い」は 0 ではない。—(ダッシュ)で出し、理由を title に持たせる。 */
+.na { color: var(--na-ink); cursor: help; border-bottom: 1px dotted var(--na-ink); }
+.zero-report {           /* 0.00% = 0.5%を割ったことを知らせる最終報告 */
+  color: var(--text-secondary);
+}
+td.num-col small { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.strong-num { font-weight: 600; }
+
+/* 「疑う列」。点灯より目立たせる。色だけに頼らず ⚠ と文言を必ず付ける。 */
+.doubt { display: flex; flex-wrap: wrap; gap: 3px; max-width: 260px; }
+.doubt-chip {
+  font-size: 10.5px; line-height: 1.45;
+  border: 1px solid var(--warning);
+  background: var(--warning-wash);
+  color: var(--warning-ink);
+  border-radius: 4px; padding: 1px 5px;
+  font-weight: 600; cursor: help;
+}
+.doubt-none { color: var(--muted); font-size: 11px; }
+
+/* 点灯したシグナル。疑う列より控えめにする(点灯は結論ではない)。 */
+.sigs { display: flex; flex-wrap: wrap; gap: 3px; }
+.sig-chip {
+  font-size: 10.5px; line-height: 1.45;
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+  color: var(--text-secondary); background: var(--hover-wash);
+}
+/* 確認順(旧 SIGNAL_SCORE)。数が大きいほど強い、という色付けをしない。 */
+td.rank { font-variant-numeric: tabular-nums; color: var(--text-secondary); text-align: right; }
+
+/* 大量保有の直近サマリー。**省略しない。** 常に全文を折り返して出す。 */
+tr.summary-row td {
+  border-bottom: 1px solid var(--border);
+  padding-top: 0; padding-bottom: 6px;
+  white-space: normal; font-size: 11px; color: var(--text-secondary);
+  line-height: 1.6;
+}
+.summary-label { color: var(--muted); margin-right: 6px; }
+.dir { font-weight: 600; }
+.dir-buy    { color: var(--good); }
+.dir-sell   { color: var(--critical); }
+.dir-new    { color: var(--series-1); }
+.dir-exit   { color: var(--critical); }
+.dir-none   { color: var(--muted); }
+.dir-noratio{ color: var(--muted); border-bottom: 1px dotted var(--na-ink); cursor: help; }
+.formal { color: var(--muted); }
+
+/* ---------- グラフ ---------- */
+.chart-card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px 6px; margin-bottom: 10px;
+}
+.chart-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 2px;
+}
+.chart-title { font-size: 12px; font-weight: 600; }
+.chart-note { font-size: 11px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-left: auto; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-secondary); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.legend-swatch.dashed { border: 1px dashed currentColor; background: none; }
+.chart-svg { display: block; width: 100%; }
+
+.tooltip {
+  position: fixed; z-index: 60; pointer-events: none;
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--baseline); border-radius: 6px;
+  padding: 6px 8px; font-size: 11px; line-height: 1.6;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+  font-variant-numeric: tabular-nums;
+}
+.tooltip .tt-date { color: var(--muted); margin-bottom: 2px; }
+.tooltip .tt-row { display: flex; align-items: center; gap: 6px; }
+.tooltip .tt-sw { width: 8px; height: 8px; border-radius: 2px; }
+.tooltip .tt-name { color: var(--text-secondary); }
+.tooltip .tt-val { margin-left: auto; font-weight: 600; }
+
+/* ---------- 銘柄詳細 ---------- */
+tbody tr.pick { cursor: pointer; }
+tbody tr.pick.active { background: var(--sel-wash); }
+.detail { margin-top: 14px; }
+.detail-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.detail-head h3 { font-size: 14px; margin: 0; }
+.detail-head .sub { font-size: 12px; color: var(--text-secondary); }
+.detail-cols { display: flex; flex-wrap: wrap; gap: 14px; }
+.detail-col { flex: 1 1 420px; min-width: 0; }
+
+/* ---------- フッター(しきい値) ---------- */
+.calib {
+  margin: 26px 20px 0; padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--muted); line-height: 1.8;
+}
+.calib code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-secondary);
+}
+.calib .calib-grid { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 4px; }
+
+details.sub { margin-top: 10px; }
+details.sub > summary {
+  cursor: pointer; font-size: 12px; color: var(--series-1); padding: 4px 0;
+}
+details.sub[open] > summary { margin-bottom: 6px; }
+
+@media (max-width: 720px) {
+  .freshness, .calib { margin-left: 10px; margin-right: 10px; }
+  .table-wrap.tall { max-height: none; }
+}

@@ -6,6 +6,9 @@
  * 機能:
  *   1. タグと期間を指定して、分割調整済みの騰落率を降順の表で見る
  *   2. 同じ条件で、終値の折れ線グラフを縦に並べて見る(chart.js のHTML生成を再利用)
+ *   3. 需給3階層(マクロ / ウォッチリスト / シグナル)を /demand で見る
+ *      クエリは demandQuery.js。読み方の約束は docs/DEMAND_WEB.md と
+ *      docs/DEMAND_SIGNAL_RUNBOOK.md を参照。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -28,6 +31,7 @@ const express = require('express');
 const db = require('../db');
 const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
+const demandQuery = require('./demandQuery');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 
@@ -41,7 +45,12 @@ const CHART_MAX_YEARS = Number(process.env.JQB_WEB_CHART_MAX_YEARS || 3);
 const TABLE_MAX_YEARS = 10;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const CACHE_MAX_ENTRIES = 60;
+// 全銘柄シグナル(第三階層 3)は全銘柄 × 15か月の信用残を走査する。
+// 毎日流すものではないので、当たったときは長めに保持する。
+const CACHE_TTL_HEAVY_MS = 30 * 60 * 1000;
+// 騰落率一覧に加えて需給3階層の結果(銘柄詳細はウォッチ銘柄の数だけ)が入るため、
+// 騰落率の結果が押し出されないよう枠を広げてある。
+const CACHE_MAX_ENTRIES = 120;
 
 //------------------------------------------------------------------
 // 簡易キャッシュ
@@ -64,11 +73,38 @@ function cacheGet(key) {
   return hit.value;
 }
 
-function cacheSet(key, value) {
-  cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+function cacheSet(key, value, ttlMs) {
+  cache.set(key, { value, expires: Date.now() + (ttlMs || CACHE_TTL_MS) });
   while (cache.size > CACHE_MAX_ENTRIES) {
     cache.delete(cache.keys().next().value);
   }
+}
+
+//------------------------------------------------------------------
+// キャッシュ + 同時実行のまとめ
+//
+// 需給3階層には重いクエリがある(全銘柄シグナルは全銘柄×15か月を走査する)。
+// 素のキャッシュだけだと、まだ結果が返っていない間に2回押されると
+// 同じ重いクエリが2本走る。実行中の Promise を持っておいて相乗りさせる。
+//------------------------------------------------------------------
+const inFlight = new Map();
+
+async function withCache(key, ttlMs, fn) {
+  const hit = cacheGet(key);
+  if (hit) return hit;
+  if (inFlight.has(key)) return inFlight.get(key);
+
+  const promise = (async () => {
+    try {
+      const value = await fn();
+      cacheSet(key, value, ttlMs);
+      return value;
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+  inFlight.set(key, promise);
+  return promise;
 }
 
 //------------------------------------------------------------------
@@ -364,6 +400,217 @@ app.get('/chart', async (req, res, next) => {
     }
 
     res.type('html').send(html);
+  } catch (err) {
+    next(err);
+  }
+});
+
+//==================================================================
+// 需給3階層 (/demand)
+//
+// 【この画面の約束】
+//   ・SIGNAL_SCORE は「買いシグナル」ではない。「先に中身を見る順番」でしかない。
+//     需給5指標の予測力は10年分で検証済みで、いずれも先行リターンの方向を
+//     予測できなかった。さらに手元のデータは上昇相場10年分しかなく、
+//     上昇依存の手法は反証できない。**煽らないこと。**
+//   ・NULL と 0 は別物。表示層で潰すと、この3階層の意味がまるごと消える。
+//     どの列で何を意味するかは docs/DEMAND_SIGNAL_RUNBOOK.md 4章。
+//   ・較正クエリ(05〜11)はここに出さない。全期間の分位を使っていて
+//     先読みバイアスを含むため、日々の判断に混ぜない。
+//     画面に出すのは「最後に較正した日」と「いま使っているしきい値」だけ。
+//==================================================================
+
+const DEMAND_MAX_WEEKS = 520;   // 10年。株価の取込範囲がローリング10年なので、これ以上は無意味
+const DEMAND_MIN_WEEKS = 4;
+
+/** 需給用のメタ情報(しきい値・SECTION一覧・ウォッチリスト) */
+async function getDemandMeta() {
+  return withCache('demand:meta', CACHE_TTL_MS, () =>
+    db.withConnection(async (conn) => {
+      const [sections, watchlist] = await Promise.all([
+        demandQuery.fetchSections(conn),
+        demandQuery.fetchWatchlist(conn),
+      ]);
+      return { sections, watchlist: watchlist.codes, lvsDocs: watchlist.lvsDocs };
+    })
+  );
+}
+
+function parseWeeks(value, fallback) {
+  return parseInt0(value, '週数', DEMAND_MIN_WEEKS, DEMAND_MAX_WEEKS, fallback);
+}
+
+//---------------------------------------------------------- 画面
+// /demand と /demand/ の両方を public/demand.html に向ける。
+// express.static は /demand.html しか拾わないため。
+app.get(['/demand', '/demand/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'demand.html'));
+});
+
+//---------------------------------------------------------- メタ情報
+app.get('/api/demand/meta', async (req, res, next) => {
+  try {
+    const meta = await getDemandMeta();
+    res.json({
+      params: demandQuery.PARAMS,
+      calibratedAt: demandQuery.CALIBRATED_AT,
+      sections: meta.sections,
+      watchlist: meta.watchlist,
+      lvsDocs: meta.lvsDocs,
+      limits: { maxWeeks: DEMAND_MAX_WEEKS, minWeeks: DEMAND_MIN_WEEKS },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//---------------------------------------------------------- 鮮度
+//
+// **シグナルより先に、常に見える位置に置くこと。**
+// シグナルは最新値で判定するので、どれか1つでも取込が止まっていると静かに誤判定する。
+app.get('/api/demand/freshness', async (req, res, next) => {
+  try {
+    const rows = await withCache('demand:freshness', CACHE_TTL_MS, () =>
+      db.withConnection((conn) => demandQuery.fetchFreshness(conn))
+    );
+    res.json({ rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//---------------------------------------------------------- 第一階層
+app.get('/api/demand/macro', async (req, res, next) => {
+  try {
+    const meta = await getDemandMeta();
+    const known = new Map(meta.sections.map((s) => [s.section, s]));
+
+    const section = req.query.section || 'TokyoNagoya';
+    if (!known.has(section)) {
+      throw new BadRequest(
+        `存在しない SECTION です: ${section}(候補: ${Array.from(known.keys()).join(', ')})`
+      );
+    }
+    const weeks = parseWeeks(req.query.weeks, 52);
+
+    // 【黙ってNULLが並ぶのを防ぐ】
+    //   2022年4月の市場区分再編で TSE1st 等は終了し、TSEPrime 等はそこから始まる。
+    //   終了した系列や短い系列を選んで長く遡ると、エラーにならずに投資部門別の列だけが
+    //   空になる。これが一番危ない失敗の仕方なので、期間が系列をはみ出すときは警告を返す。
+    const notice = [];
+    const info = known.get(section);
+    const spanWeeks = info.fromDate
+      ? Math.floor((Date.parse(info.toDate) - Date.parse(info.fromDate)) / (7 * 86400000)) + 1
+      : 0;
+    if (weeks > spanWeeks) {
+      notice.push(
+        `${section} のデータは ${info.fromDate} 〜 ${info.toDate}(約${spanWeeks}週)です。` +
+          `指定した${weeks}週のうち、それより前の週は投資部門別の列が空になります` +
+          `(取込漏れではありません)。`
+      );
+    }
+    const staleDays = Math.floor((Date.now() - Date.parse(info.toDate)) / 86400000);
+    if (staleDays > 60) {
+      notice.push(
+        `${section} は ${info.toDate} で系列が終わっています` +
+          `(2022年4月の市場区分再編で終了した系列の可能性があります)。` +
+          `再編をまたいで連続しているのは TokyoNagoya です。`
+      );
+    }
+
+    const key = JSON.stringify(['demand:macro', section, weeks]);
+    const rows = await withCache(key, CACHE_TTL_MS, () =>
+      db.withConnection((conn) => demandQuery.fetchMacro(conn, { section, weeksBack: weeks }))
+    );
+    res.json({ params: { section, weeks }, sectionInfo: info, notice, count: rows.length, rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//---------------------------------------------------------- 第二階層
+app.get('/api/demand/watchlist', async (req, res, next) => {
+  try {
+    const [rows, meta] = await Promise.all([
+      withCache('demand:watchlist', CACHE_TTL_MS, () =>
+        db.withConnection((conn) => demandQuery.fetchWatchlistSheet(conn))
+      ),
+      getDemandMeta(),
+    ]);
+    res.json({ count: rows.length, rows, lvsDocs: meta.lvsDocs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 疑似浮動株比率。**JPXの公式な浮動株比率ではない。**
+// 絶対値は信用せず、銘柄間の相対比較と経年の変化方向にだけ使う。
+app.get('/api/demand/pseudo-float', async (req, res, next) => {
+  try {
+    const rows = await withCache('demand:pseudoFloat', CACHE_TTL_MS, () =>
+      db.withConnection((conn) => demandQuery.fetchPseudoFloat(conn))
+    );
+    res.json({ count: rows.length, rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 銘柄詳細(時系列・現在の大量保有者・提出履歴)
+app.get('/api/demand/detail', async (req, res, next) => {
+  try {
+    if (!req.query.code) throw new BadRequest('銘柄コードを指定してください');
+    const code = normalizeCode(req.query.code);
+    const weeks = parseWeeks(req.query.weeks, 104);
+
+    const key = JSON.stringify(['demand:detail', code, weeks]);
+    const data = await withCache(key, CACHE_TTL_MS, () =>
+      db.withConnection(async (conn) => {
+        const [timeseries, holders, history] = await Promise.all([
+          demandQuery.fetchCodeTimeseries(conn, code, weeks),
+          demandQuery.fetchCodeHolders(conn, code),
+          demandQuery.fetchCodeLvsHistory(conn, code, 200),
+        ]);
+        return { timeseries, holders, history };
+      })
+    );
+    res.json({ params: { code, weeks }, ...data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//---------------------------------------------------------- 第三階層
+app.get('/api/demand/signals', async (req, res, next) => {
+  try {
+    const rows = await withCache('demand:signals', CACHE_TTL_MS, () =>
+      db.withConnection((conn) => demandQuery.fetchSignals(conn))
+    );
+    res.json({ scope: 'watchlist', count: rows.length, rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 全銘柄版。**重い**(全銘柄 × 15か月の信用残を走査する)。
+// 画面から明示的に押されたときだけ実行する。毎日流す必要は無い。
+app.get('/api/demand/signals/all', async (req, res, next) => {
+  try {
+    const rows = await withCache('demand:signalsAll', CACHE_TTL_HEAVY_MS, () =>
+      db.withConnection((conn) => demandQuery.fetchSignalsAll(conn))
+    );
+    res.json({ scope: 'all', count: rows.length, rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/demand/supplementary', async (req, res, next) => {
+  try {
+    const rows = await withCache('demand:supplementary', CACHE_TTL_MS, () =>
+      db.withConnection((conn) => demandQuery.fetchSupplementary(conn))
+    );
+    res.json({ count: rows.length, rows });
   } catch (err) {
     next(err);
   }

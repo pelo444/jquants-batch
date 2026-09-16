@@ -48,6 +48,7 @@
 │   ├── scripts/             運用スクリプト・調査ツール
 │   ├── docs/PROJECT.md      このファイル
 │   ├── docs/DEMAND_SIGNAL_RUNBOOK.md  需給シグナルの運用手引き（実行順・読み方・経緯）
+│   ├── docs/DEMAND_WEB.md   需給3階層のWeb画面の仕様（表示層の約束・API・既知の制限）
 │   ├── output/              chart.js の出力（gitignore）
 │   ├── ddl/                 DDL・マイグレーション
 │   ├── queries/
@@ -77,7 +78,9 @@ jquants-batch/ddl/ の中身:
 ├── 16_edinet_cross_shareholdings.sql        政策保有株式（EDINET）
 ├── 17_arbitrage_balance.sql        裁定取引残高（JPXから手動取込。J-Quants非提供）
 ├── 18_grant_claude_readonly_phase8_17.sql   CLAUDE_RO への権限追加（Phase 8〜17）
-└── 19_demand_weekly_panel.sql      需給指標の週次パネル（検証用ビュー）
+├── 19_demand_weekly_panel.sql      需給指標の週次パネル（検証用ビュー）
+├── 20_xsection_weekly_panel.sql    銘柄×週の横断面パネル（検証用スナップショット表）
+└── 21_short_position_carry.sql     空売り残高の報告者ごとの有効期間ビュー（持ち越し合計の土台）
 ```
 
 **本ファイル中の `ddl/...` `queries/sql/...` という表記は、すべて
@@ -836,8 +839,9 @@ NVL(EXP(SUM(LN(NULLIF(adj_factor, 0))) OVER (
 | `favorite_master_set_watching_by_tag.sql` | タグ（既定 `sheres_held`）から `favorite_master.is_watching` を一括登録。第二階層の対象銘柄を作る。GD_JQUANTS で実行 |
 | `demand_macro_dashboard.sql` | 第一階層: マクロ需給ダッシュボード（投資部門別・裁定残・信用倍率・空売り比率を週次で横並べ） |
 | `demand_watchlist_sheet.sql` | 第二階層: ウォッチリスト銘柄の需給シート（大量保有・信用残・空売り残・出来高・疑似浮動株比率） |
-| `demand_signal_detection.sql` | 第三階層: シグナル検出（出来高急増・信用倍率1倍割れ・大量保有提出・空売り残5%超の同時点灯） |
+| `demand_signal_detection.sql` | 第三階層: シグナル検出（出来高急増・売残の増加・大量保有提出・空売り残高の増加の同時点灯） |
 | `demand_signal_backtest.sql` | 需給指標の検証（イベントスタディ）。`v_demand_weekly_panel`（`ddl/19`）を使う |
+| `xsection_short_backtest.sql` | 空売りの横断面検証（銘柄間の優劣）。`xs_weekly_panel`（`ddl/20`）を使う。9章(7) |
 
 **第三階層を日々使うときは `docs/DEMAND_SIGNAL_RUNBOOK.md` を見る。**
 実行の順番（毎日は 01→02、週次で 04・03、四半期で較正 05〜11）、列の読み方、
@@ -906,6 +910,41 @@ TOPIXリターンはどうだったか」を10年分で確かめるもの。土�
 
 判断に使うなら 4 を見ること。差が出なかった場合、それが最も価値のある結果になる。
 
+**（7） 空売りの横断面検証について（2026-09-15 作成・未実行）**
+
+(6) は「TOPIX が上がるか」という**時系列**の問いで、5指標とも不合格だった。
+(7) は「空売りが多い銘柄は、同業・同規模の銘柄より弱いか」という**横断面**の問い。
+米国で繰り返し確認されているのはこちらで、時系列の不合格は横断面の否定にならない。
+
+- 土台は `ddl/20` の `xs_weekly_panel`（銘柄×週 約200万行）。**ビューではなく表**で、
+  日次バッチでは更新されない。検証をやり直す前に作り直す（同ファイル 3）。
+- 指標は3つ: SI（0.5%以上の空売り報告を**機関の**報告者ごとに持ち越した合計。報告者名は
+  `UPPER(TO_SINGLE_BYTE())` でそろえる。**個人の報告は使わない**: 名前でも住所でも区別できず、
+  前回報告の日付・割合でつなぐ方法も13%がつながらなかった（ddl/20 冒頭に内訳）/ MSR（信用売残÷発行済株式数）/
+  DTC（信用売残÷4週平均出来高）。SI の「報告なし」は5分位と別の群にする（0ではなく見えない）。
+- 比較対象は**業種内・規模内の相対リターン**（`EXR_IS_*` = 同じ週・17業種・時価総額5分位の
+  等ウェイト平均との差）。市場全体の上昇分を引くため。
+- 時点整合: 空売り報告は公表日、信用残は前週申込分、財務情報は開示日で揃える。
+  週内の横断面順位（5分位・サイズ・PBR）はその週に計算できるので先読みにならない。
+- 上場廃止銘柄は落とさず、最後の終値までのリターンを入れる（生存者バイアス対策）。
+- 独立観測は「重ならない週」の数（13週先で約38）。t 値は週ごとのスプレッドから出す。
+- **合格の条件（単調性 / t値 / 年別の塊 / 業種内切り直し / PBR・モメンタム層）を
+  SQL 冒頭に先に書いてある。** 結果を見てから条件を足さないこと。
+- `claude-query.js` 用の単文は `queries/output/xsection_*.sql`（pre → ddl/20 → post → 01〜09 の順）。
+
+**副産物: `v_equity_short_position_sum` の読み方の問題（2026-09-16 確認・修正済み）**。
+このビューは銘柄×**計算日**の合計なので、その日に報告した報告者の分しか入らない。
+第二階層・第三階層(S4)・Webアプリは最新計算日の行を「最新の空売り残高」として読んでいた。
+**「銘柄の空売り残高」を見るときは `v_equity_short_position_sum` の最新行を使わないこと。**
+`ddl/21` の `v_short_position_carry_iv`（報告者ごとの有効期間）で基準日時点の有効な報告を合計する。
+3つとも持ち越し合計に揃え、S4 は水準(2%超)から増加幅(28日で+1.5pt)に作り替えた
+（水準は銘柄間の差が大きすぎて、点灯が特定銘柄に固定されたため。
+`demand_signal_detection.sql` 冒頭の 2026-09-16 の節）。
+初版の測定(2026-09-16)では2,328銘柄中1,552銘柄が0.1pt以上ずれ、ビューが平均で約4割過小だった
+(KLab: ビュー4.06% / 持ち越し22.81%、11報告者は全て別機関)。
+**空売り報告の報告者を名前で同定するときの落とし穴**: 同じ報告者が全角/半角・大文字/小文字違いで
+出てくる(ＳＭＢＣ日興証券 4,063件ほか7組)。`SS_NAME='個人'` は20,111件・住所も空欄で区別不能。
+
 ---
 
 ## 10. ツール
@@ -926,18 +965,25 @@ node src/chart.js --list-tags
 
 ### 10.2 Web アプリ（`src/web/`）
 
-OCI VM 上で稼働する Express アプリ。機能は 2 つ。
+OCI VM 上で稼働する Express アプリ。機能は 3 つ。
 
 1. タグ + 期間 → **騰落率順の一覧テーブル**
 2. タグ + 期間 → **終値の折れ線グラフ**
+3. **需給3階層**（`/demand`）→ マクロ / ウォッチリスト / シグナルを1ページのタブで表示
 
 ```bash
 JQB_WEB_PORT=8080 npm run web
 ```
 
 - 既定ポート 3000。systemd ユニットは `src/web/jquants-web.service`
-- API: `/api/meta` `/api/performance` `/chart` `/healthz`
-- フロントは依存ライブラリなし（`public/` の素の HTML/CSS/JS）
+- API: `/api/meta` `/api/performance` `/chart` `/healthz` `/api/demand/*`
+- フロントは依存ライブラリなし（`public/` の素の HTML/CSS/JS）。グラフも自前のSVG
+- 需給3階層のクエリは `src/web/demandQuery.js`（騰落率の `webQuery.js` とは別ファイル）。
+  **しきい値は `demandQuery.js` の `PARAMS` が唯一の定義場所**で、
+  `queries/sql/demand_*.sql` の `params` CTE とのずれは
+  `node scripts/check-demand-params.js` で検出する
+- 画面としての約束（NULLと0の扱い・「確認順」を煽らない・較正クエリを出さない理由）は
+  **`docs/DEMAND_WEB.md`**。何をどう読むかは `docs/DEMAND_SIGNAL_RUNBOOK.md`
 
 **認証は未実装**。OCI VM 上で稼働中の既存の認証サービス経由でアクセスさせる方針だが、**次フェーズ**。
 
@@ -967,6 +1013,22 @@ node scripts/claude-query.js --json "SELECT ..."
 - `LOAD_PROGRESS` と `*_STG`(ステージング)は分析に不要なので付与対象から外した。
 - 初期セットアップ手順は `ddl/10_create_claude_readonly_user.sql` の冒頭コメント、
   `.env` の雛形は `jquants-batch/claude-readonly-env.example.txt` を参照。
+
+**MCP サーバー `scripts/claude-ro-mcp.js`（2026-09-16）**。Cowork のスレッドから Claude が
+直接 SELECT するための入口。Cowork のシェルは HTTP(S) プロキシしか通らず ATP に SQL*Net で
+繋げない（NJS-530）が、Claude Desktop にローカル MCP サーバーとして登録すると Mac 自身の
+ネットワークで動くので繋がる。ツールは `run_select` / `list_objects` / `describe_object`。
+
+- SELECT 判定と接続は **`scripts/lib/claudeRoQuery.js` に集約**し、`claude-query.js` と共有する
+  （入口ごとに判定を書き写すと片方だけ直して食い違うため）
+- 依存ライブラリなし（MCP の stdio は1行1メッセージの JSON-RPC なので自前実装）。
+  **stdout にログを書かないこと**（プロトコルが壊れる。ログは stderr）
+- NULL は `(null)` と明示して返す（NULL と 0 の取り違えを防ぐ）
+- 上限は既定 500 行 / 120 秒 / 60,000 文字（`CLAUDE_MCP_*` 環境変数で変更）
+- 登録は `~/Library/Application Support/Claude/claude_desktop_config.json` の `mcpServers` に
+  `"jquants-db": {"command": "<node の絶対パス>", "args": ["<リポジトリ>/scripts/claude-ro-mcp.js"]}`。
+  Desktop は GUI アプリでシェルの PATH を引き継がないので、**node は絶対パス**で書く
+- CTAS・GRANT のような書き込みは当然できない（ddl はこれまでどおり GD_JQUANTS で手元実行）
 
 **`ORA-00942: table or view does not exist` が出たら、まず権限を疑う（2026-09-09）。**
 `ddl/10` が対象にしているのは Phase 1〜7 までのオブジェクトだけで、その後に追加した
@@ -1012,8 +1074,13 @@ GD_JQUANTS で同じ SQL が通るならこれ。新しいテーブルを足し�
 - [ ] **裁定取引残高の定期取込の運用**。週1回、
       `--latest` → 変換 → ロード の3コマンド。自動化するなら cron に載せられるが、
       公表が毎週第3営業日で祝日にずれるため、日次で回して差分ゼロなら何もしない形が無難
-- [ ] **需給3階層のWebアプリ化**。SQL は `queries/sql/demand_*.sql` に用意済み。
-      `src/web/` に `/demand` を足し、`webQuery.js` にクエリを移す想定
+- [x] **需給3階層のWebアプリ化**（2026-09-15 実装）。`src/web/` に `/demand` を追加。
+      3階層を1ページのタブにし、取込の鮮度バーをタブの外に常時表示している。
+      クエリの移し先は `webQuery.js` ではなく **`demandQuery.js` を新設**した
+      （読むテーブルも列の意味も騰落率一覧と共有せず、同じファイルに置くと
+      しきい値 `PARAMS` の作用範囲が曖昧になるため）。
+      較正クエリ 05〜11 は画面に出していない（全期間の分位で先読みバイアスを含むため）。
+      仕様は `docs/DEMAND_WEB.md`。**DBに繋いだ動作確認は未実施**
 - [x] **大量保有報告書の取込件数の妥当性確認**（2026-09-13 完了）。DB の実測は
       **4,215銘柄 / 65,311件 / 2021-07-01〜2026-09-11** で、欠損は無かった。
       4.1 節の「処理11日/624件」は既知バグ3件を直した直後の初回投入の数字であり、
@@ -1022,6 +1089,11 @@ GD_JQUANTS で同じ SQL が通るならこれ。新しいテーブルを足し�
       なお「ウォッチ銘柄で書類があるのは21銘柄」と少ないのは取込漏れではなく、
       提供開始が 2021-07-01 のため。それ以前から保有し続けていて以降1度も
       変更報告書を出していない大量保有者は、このテーブルには現れない
+- [ ] **空売りの横断面検証の実行**（9章(7)）。ddl/20 の作成 → `xsection_short_backtest.sql`。
+      大量保有報告書の提出日を0日目としたイベントスタディは、この結果を見てから着手する
+- [x] **`v_equity_short_position_sum` の最新計算日読みの修正**（2026-09-16）。平均約37%過小を確認し、
+      第二階層・第三階層(S4)・`demandQuery.js` を `ddl/21` の持ち越し合計に揃えた。S4 は増加幅に作り替え。
+      **`ddl/21` の適用（GD_JQUANTS）と CLAUDE_RO の GRANT が済むまで、3つとも ORA-00942 で動かない**
 - [ ] **Web アプリの認証**（既存の OCI 認証サービス経由）
 - [ ] タグ付けの継続（`trend_analysis/` のメモをもとに自分の観点で作り上げる）
 - [ ] 銘柄数が増えたら `130` / `140` の細分（8.3 参照）

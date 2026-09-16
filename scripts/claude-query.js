@@ -25,30 +25,14 @@
  *   ・クエリタイムアウト(既定30秒)を設定する
  */
 
-const path = require('path');
 const fs = require('fs');
-const oracledb = require('oracledb');
+const { runReadOnlyQuery } = require('./lib/claudeRoQuery');
 
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.claude-readonly') });
+// SELECT 以外を弾く判定・接続は scripts/lib/claudeRoQuery.js に集約した
+// (MCPサーバー scripts/claude-ro-mcp.js と共有するため。2026-09-16)。
 
 const MAX_ROWS = Number(process.env.CLAUDE_QUERY_MAX_ROWS || 1000);
 const TIMEOUT_MS = Number(process.env.CLAUDE_QUERY_TIMEOUT_MS || 30000);
-
-// 大文字小文字を区別せず、単語境界でチェックする(雑な文字列に対する簡易フィルタ)
-const FORBIDDEN_KEYWORDS = [
-  'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'DROP', 'ALTER', 'CREATE',
-  'TRUNCATE', 'GRANT', 'REVOKE', 'EXECUTE', 'CALL', 'COMMIT', 'ROLLBACK',
-];
-
-function requireEnv(name) {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(
-      `環境変数 ${name} が設定されていません。.env.claude-readonly を確認してください。`
-    );
-  }
-  return value;
-}
 
 function parseArgs(argv) {
   const args = { json: false, file: null, sql: null };
@@ -69,30 +53,6 @@ function parseArgs(argv) {
     args.sql = rest.join(' ');
   }
   return args;
-}
-
-/**
- * SELECT/WITH以外を弾く簡易バリデーション。
- * あくまでアプリ側の多層防御であり、本当の防御線はDB側のSELECT専用権限。
- */
-function assertReadOnly(sqlText) {
-  const trimmed = sqlText.trim().replace(/;+\s*$/, '');
-  if (!trimmed) {
-    throw new Error('SQLが空です。');
-  }
-  if (trimmed.includes(';')) {
-    throw new Error('複数文(セミコロン区切り)は実行できません。1文だけ渡してください。');
-  }
-  if (!/^\s*(SELECT|WITH)\b/i.test(trimmed)) {
-    throw new Error('SELECT または WITH で始まるクエリのみ実行できます。');
-  }
-  for (const kw of FORBIDDEN_KEYWORDS) {
-    const re = new RegExp(`\\b${kw}\\b`, 'i');
-    if (re.test(trimmed)) {
-      throw new Error(`禁止されたキーワードが含まれています: ${kw}`);
-    }
-  }
-  return trimmed;
 }
 
 function printTable(rows, metaData) {
@@ -116,46 +76,19 @@ function printTable(rows, metaData) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const sql = assertReadOnly(args.sql);
+  const result = await runReadOnlyQuery(args.sql, { maxRows: MAX_ROWS, timeoutMs: TIMEOUT_MS });
 
-  const user = requireEnv('CLAUDE_DB_USER'); // claude_ro
-  const password = requireEnv('CLAUDE_DB_PASSWORD');
-  const connectString = requireEnv('CLAUDE_DB_CONNECT_STRING');
-  const walletLocation = requireEnv('CLAUDE_DB_WALLET_LOCATION');
-  const walletPassword = requireEnv('CLAUDE_DB_WALLET_PASSWORD');
+  if (result.truncated) {
+    console.error(`警告: 結果が ${MAX_ROWS} 行に切り詰められています。WHERE句や集計で絞り込んでください。`);
+  }
 
-  const connection = await oracledb.getConnection({
-    user,
-    password,
-    connectString,
-    configDir: walletLocation,
-    walletLocation,
-    walletPassword,
-  });
-
-  connection.callTimeout = TIMEOUT_MS;
-
-  try {
-    const result = await connection.execute(sql, [], {
-      outFormat: oracledb.OUT_FORMAT_ARRAY,
-      maxRows: MAX_ROWS,
-    });
-
-    if (result.rows.length >= MAX_ROWS) {
-      console.error(`警告: 結果が ${MAX_ROWS} 行に切り詰められています。WHERE句や集計で絞り込んでください。`);
-    }
-
-    if (args.json) {
-      const columns = result.metaData.map((m) => m.name);
-      const objects = result.rows.map((row) =>
-        Object.fromEntries(row.map((v, i) => [columns[i], v]))
-      );
-      console.log(JSON.stringify(objects, null, 2));
-    } else {
-      printTable(result.rows, result.metaData);
-    }
-  } finally {
-    await connection.close();
+  if (args.json) {
+    const objects = result.rows.map((row) =>
+      Object.fromEntries(row.map((v, i) => [result.columns[i], v]))
+    );
+    console.log(JSON.stringify(objects, null, 2));
+  } else {
+    printTable(result.rows, result.columns.map((name) => ({ name })));
   }
 }
 

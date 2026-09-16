@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>需給3階層</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/demand.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12L6 7l3 3 5-7' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>需給3階層</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/">騰落率一覧</a>
+    <button class="btn" id="themeBtn" type="button">ダーク</button>
+  </header>
+
+  <!-- ============ 鮮度: どのタブでも常に見える位置に置く ============
+       シグナルは最新値で判定するので、どれか1つでも取込が止まっていると
+       静かに誤判定する。「まず1を見る」を画面の構造で強制する。 -->
+  <section class="freshness" id="freshness">
+    <div class="freshness-head">
+      <strong>取込の鮮度</strong>
+      <span>シグナルは最新値で判定します。取込が止まっていると静かに誤判定します。</span>
+      <span class="spacer"></span>
+      <button class="link" id="reloadBtn" type="button">再読み込み</button>
+    </div>
+    <div class="freshness-list" id="freshnessList">
+      <span class="chart-note">読み込み中…</span>
+    </div>
+  </section>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-tab="signal" aria-selected="true" type="button">
+      シグナル<span class="tab-sub">第三階層</span>
+    </button>
+    <button class="tab" data-tab="watchlist" aria-selected="false" type="button">
+      ウォッチリスト<span class="tab-sub">第二階層</span>
+    </button>
+    <button class="tab" data-tab="macro" aria-selected="false" type="button">
+      マクロ<span class="tab-sub">第一階層</span>
+    </button>
+  </nav>
+
+  <!-- ==================== 第三階層 ==================== -->
+  <section class="pane" id="paneSignal">
+    <p class="lede">
+      <strong>「確認順」は買いシグナルではありません。先に中身を見る順番です。</strong>
+      需給5指標の予測力は10年分で検証済みで、いずれも先行リターンの方向を予測できませんでした。
+      さらに手元のデータは上昇相場10年分しかなく、上昇に依存する手法は反証できません。
+      点灯は「調べる理由」であって「買う理由」ではありません。<br>
+      読む順番は <strong>①疑う列 → ②点灯したシグナルの材料 → ③大量保有の向き</strong>。
+      4つとも「点灯したこと」より「なぜ点灯したか」のほうに情報があります。
+    </p>
+
+    <h2>ウォッチリストの点灯 <span class="h2-note" id="signalMeta"></span></h2>
+    <div class="result-bar">
+      <span class="result-count" id="signalCount"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="signalCsvBtn" type="button">CSV</button>
+    </div>
+    <div class="table-wrap tall">
+      <table id="signalTable"><thead></thead><tbody></tbody></table>
+    </div>
+    <p class="note" id="signalNote"></p>
+
+    <details class="sub" id="suppDetails">
+      <summary>補助シグナル(days to cover・日々公表銘柄・空売り報告者数の増減) — 週1回で足ります</summary>
+      <p class="chart-note">
+        4つの本則が「今まさに起きている変化」を捉えるのに対し、こちらは
+        「踏み上げの燃料がどれだけ溜まっているか」。
+        3月・9月のつなぎ売りで売残が膨らむ週は days to cover も一緒に跳ねますが、
+        燃料が溜まったわけではありません。
+      </p>
+      <div class="table-wrap">
+        <table id="suppTable"><thead></thead><tbody></tbody></table>
+      </div>
+    </details>
+
+    <details class="sub" id="allDetails">
+      <summary>ウォッチリストの外から探す(2つ以上の同時点灯・上位100件)</summary>
+      <p class="chart-note">
+        全銘柄 × 15か月の信用残を走査するので<strong>重いクエリです</strong>。毎日流す必要はありません。
+        結果は30分キャッシュします。<br>
+        この版では大量保有の全期間スナップショット(保有グループ数・合計%)を作りません
+        (絞り込みの1本目としては重いため)。点灯した銘柄の「いま誰が何%持っているか」は
+        ウォッチリストタブの銘柄詳細で見てください。
+      </p>
+      <div class="result-bar">
+        <button class="btn primary" id="allRunBtn" type="button">実行する</button>
+        <span class="status" id="allStatus"></span>
+        <span class="spacer"></span>
+        <button class="btn" id="allCsvBtn" type="button">CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table id="allTable"><thead></thead><tbody></tbody></table>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 第二階層 ==================== -->
+  <section class="pane" id="paneWatchlist" hidden>
+    <p class="lede">
+      いま何が起きているかの描写と、注目銘柄を絞り込むフィルタとして使う一枚ものです。
+      単独の売買判断の根拠にはしません。<br>
+      <strong>空欄(—)は「ゼロ」ではありません。</strong>
+      空売り残高は0.5%以上の報告分だけ、信用残は営業日2日以下の週はJPXが公表しません。
+      大量保有の取込開始は2021-07-01で、それ以前から保有し続けている株主は現れません。
+      各セルの — にカーソルを当てると理由が出ます。
+    </p>
+
+    <h2>需給シート <span class="h2-note" id="sheetMeta"></span></h2>
+    <div class="result-bar">
+      <span class="result-count" id="sheetCount"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="sheetCsvBtn" type="button">CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table id="sheetTable"><thead></thead><tbody></tbody></table>
+    </div>
+    <p class="note">行をクリックすると、その銘柄の需給の推移と現在の大量保有者を下に表示します。</p>
+
+    <div class="detail" id="detail" hidden>
+      <div class="detail-head">
+        <h3 id="detailTitle"></h3>
+        <span class="sub" id="detailSub"></span>
+        <span class="spacer"></span>
+        <span class="ctl">
+          <label class="opt">期間
+            <select id="detailWeeks" class="btn">
+              <option value="52">1年</option>
+              <option value="104" selected>2年</option>
+              <option value="156">3年</option>
+              <option value="260">5年</option>
+            </select>
+          </label>
+          <button class="link" id="detailClose" type="button">閉じる</button>
+        </span>
+      </div>
+      <div class="detail-cols">
+        <div class="detail-col" id="detailCharts"></div>
+        <div class="detail-col">
+          <h2>現在の大量保有者 <span class="h2-note">提出者グループごとの最新断面</span></h2>
+          <p class="chart-note">
+            「最後に報告した時点の値」であって現在値ではありません。5%を割ると報告義務が
+            切れて更新されないため、<strong>経過日数が大きいグループほど実態と乖離します</strong>。
+            5%未満に落ちたグループも「退出」として残しています(消すと売り抜けが見えなくなるため)。
+          </p>
+          <div class="table-wrap">
+            <table id="holderTable"><thead></thead><tbody></tbody></table>
+          </div>
+          <details class="sub" id="historyDetails">
+            <summary>大量保有報告書の提出履歴(直近200行)</summary>
+            <p class="chart-note">
+              前回割合は変更報告書にしか入りません。新規の大量保有報告書では空欄になります
+              (欠損ではありません)。発行済株式数は<strong>その書類時点</strong>の値で、
+              分割前の書類には旧株数が入っています。
+            </p>
+            <div class="table-wrap">
+              <table id="historyTable"><thead></thead><tbody></tbody></table>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <details class="sub" id="floatDetails">
+      <summary>疑似浮動株比率(近似。JPXの公式な浮動株比率ではありません)</summary>
+      <p class="chart-note">
+        J-Quants は浮動株比率も浮動株数も配信していないため、
+        <code>(1 − 自己株式比率) × (1 − 大株主上位10名の保有割合)</code> で代用しています。
+        上位10名に信託口が含まれるぶん<strong>過小</strong>に、上位10名より下の持ち合いを
+        拾えないぶん<strong>過大</strong>に、逆方向へ振れます。
+        <strong>絶対値は信用せず、銘柄間の相対比較と経年の変化方向にだけ使ってください。</strong>
+        更新は有価証券報告書ベースで年1回です。
+      </p>
+      <div class="table-wrap">
+        <table id="floatTable"><thead></thead><tbody></tbody></table>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 第一階層 ==================== -->
+  <section class="pane" id="paneMacro" hidden>
+    <p class="lede">
+      市場全体の需給環境を週次で並べます。<strong>「増えたら強気」とは限りません。</strong>
+      海外投資家ネットはプラスが追い風、裁定買残ネットの増加は将来の解消売り圧力の蓄積で
+      両義的、信用倍率は低いほど売り長で踏み上げ余地が大きい(ただし3月・9月は
+      つなぎ売りで必ず下がる)、空売り比率は高いほど売り圧力が強い一方で
+      極端な高水準は反転の目印にもなります。
+    </p>
+
+    <div class="result-bar">
+      <span class="ctl">
+        <label class="opt">投資部門別の区分
+          <select id="macroSection" class="btn"></select>
+        </label>
+      </span>
+      <span class="ctl">
+        <label class="opt">期間
+          <select id="macroWeeks" class="btn">
+            <option value="26">半年</option>
+            <option value="52" selected>1年</option>
+            <option value="104">2年</option>
+            <option value="156">3年</option>
+            <option value="260">5年</option>
+          </select>
+        </label>
+      </span>
+      <span class="status" id="macroStatus"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="macroCsvBtn" type="button">CSV</button>
+    </div>
+    <p class="note" id="macroNotice" hidden></p>
+
+    <div id="macroCharts"></div>
+
+    <h2>週次の一覧 <span class="h2-note">新しい週が上</span></h2>
+    <div class="table-wrap">
+      <table id="macroTable"><thead></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <footer class="calib" id="calib"></footer>
+
+</div>
+<script src="/demandChart.js"></script>
+<script src="/demand.js"></script>
+</body>
+</html>
