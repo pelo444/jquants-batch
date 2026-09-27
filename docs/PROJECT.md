@@ -837,6 +837,7 @@ NVL(EXP(SUM(LN(NULLIF(adj_factor, 0))) OVER (
 | `short_selling_overview.sql` | 空売りの概観（days to cover を含む8本） |
 | `tag_insert_*.sql` | タグ付与の投入 SQL（100/200/300番台） |
 | `favorite_master_set_watching_by_tag.sql` | タグ（既定 `sheres_held`）から `favorite_master.is_watching` を一括登録。第二階層の対象銘柄を作る。GD_JQUANTS で実行 |
+| `favorite_master_upsert_manual.sql` | `favorite_master` にコードを直接指定して登録（4桁可、MERGE で既存メモを保持）。GD_JQUANTS で実行 |
 | `demand_macro_dashboard.sql` | 第一階層: マクロ需給ダッシュボード（投資部門別・裁定残・信用倍率・空売り比率を週次で横並べ） |
 | `demand_watchlist_sheet.sql` | 第二階層: ウォッチリスト銘柄の需給シート（大量保有・信用残・空売り残・出来高・疑似浮動株比率） |
 | `demand_signal_detection.sql` | 第三階層: シグナル検出（出来高急増・売残の増加・大量保有提出・空売り残高の増加の同時点灯） |
