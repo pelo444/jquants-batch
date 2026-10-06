@@ -165,7 +165,7 @@ px_latest AS (
     FROM px WHERE rn = 1
 ),
 mgn AS (
-    -- 最新2時点の信用残。前週比(または前日比)を出すため2行取る
+    -- 最新2時点の信用残。前週比を出すため、最新の申込日と前週の最終申込日の2行を取る
     SELECT code,
            MAX(CASE WHEN rn = 1 THEN app_date END)  AS app_date,
            MAX(CASE WHEN rn = 1 THEN long_vol END)  AS long_vol,
@@ -174,11 +174,20 @@ mgn AS (
            MAX(CASE WHEN rn = 2 THEN long_vol END)  AS long_vol_prev,
            MAX(CASE WHEN rn = 2 THEN shrt_vol END)  AS shrt_vol_prev
     FROM (
-        SELECT m.code, m.app_date, m.long_vol, m.shrt_vol,
-               ROW_NUMBER() OVER (PARTITION BY m.code ORDER BY m.app_date DESC) AS rn
-        FROM equity_margin_interest m
-        WHERE EXISTS (SELECT 1 FROM target t WHERE t.code = m.code)
-          AND m.app_date >= ADD_MONTHS(TRUNC(SYSDATE), -6)
+        -- rn=1 が最新の申込日、rn=2 が「前週の最終申込日」。
+        -- 2026/9/25申込分から日次になったので、週ごとに最終行へ畳んでから順位を付ける
+        -- (畳まないと rn=2 が前日になり、前週比ではなく前日比になる)
+        SELECT code, app_date, long_vol, shrt_vol,
+               ROW_NUMBER() OVER (PARTITION BY code ORDER BY app_date DESC) AS rn
+        FROM (
+            SELECT m.code, m.app_date, m.long_vol, m.shrt_vol,
+                   ROW_NUMBER() OVER (PARTITION BY m.code, TRUNC(m.app_date, 'IW')
+                                      ORDER BY m.app_date DESC) AS wrn
+            FROM equity_margin_interest m
+            WHERE EXISTS (SELECT 1 FROM target t WHERE t.code = m.code)
+              AND m.app_date >= ADD_MONTHS(TRUNC(SYSDATE), -6)
+        )
+        WHERE wrn = 1
     )
     WHERE rn <= 2
     GROUP BY code

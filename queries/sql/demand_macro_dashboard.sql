@@ -232,6 +232,17 @@ mgn AS (
     WHERE m.app_date > TRUNC(SYSDATE) - params.weeks_back * 7
       AND p.close_price IS NOT NULL
     GROUP BY m.app_date
+),
+mgn_wk AS (
+    -- 2026/9/25申込分から日次。週次表に戻すため、週の最終申込日の行だけを残す。
+    -- (LAG は畳んだ後で取るので、wow は本当に前週比になる。日次で見たいときはこの絞り込みを外し、
+    --  列名を dod として読むこと)
+    SELECT app_date, long_val, shrt_val, long_vol, shrt_vol, codes_cnt
+    FROM (
+        SELECT g.*, MAX(g.app_date) OVER (PARTITION BY TRUNC(g.app_date, 'IW')) AS wk_last
+        FROM mgn g
+    )
+    WHERE app_date = wk_last
 )
 SELECT TO_CHAR(app_date, 'YYYY-MM-DD')                       AS app_date,
        ROUND(long_val / 100000000, 0)                        AS long_oku,
@@ -243,7 +254,7 @@ SELECT TO_CHAR(app_date, 'YYYY-MM-DD')                       AS app_date,
        ROUND((shrt_val - LAG(shrt_val) OVER (ORDER BY app_date))
              / 100000000, 0)                                 AS shrt_wow_oku,
        codes_cnt
-FROM mgn
+FROM mgn_wk
 ORDER BY app_date DESC;
 
 
@@ -367,16 +378,27 @@ mgn AS (
            SUM(m.long_vol * p.close_price)      AS long_val,
            SUM(m.shrt_vol * p.close_price)      AS shrt_val,
            COUNT(*)                             AS codes_cnt
-    FROM equity_margin_interest m
-    CROSS JOIN params
+    -- 2026/9/25申込分から日次。銘柄ごとに週の最終申込日の1行へ畳んでから合計する
+    -- (畳まないと週の日数倍に水増しされる)
+    FROM (
+        SELECT code, app_date, long_vol, shrt_vol
+        FROM (
+            SELECT m0.code, m0.app_date, m0.long_vol, m0.shrt_vol,
+                   ROW_NUMBER() OVER (PARTITION BY m0.code, TRUNC(m0.app_date, 'IW')
+                                      ORDER BY m0.app_date DESC) AS rn
+            FROM equity_margin_interest m0
+            CROSS JOIN params
+            WHERE m0.app_date > TRUNC(SYSDATE) - params.weeks_back * 7
+        )
+        WHERE rn = 1
+    ) m
     JOIN equity_master em
       ON em.code = m.code
      AND em.market_name IN ('プライム', 'スタンダード', 'グロース')
     JOIN equity_price_daily p
       ON p.code = m.code
      AND p.price_date = m.app_date
-    WHERE m.app_date > TRUNC(SYSDATE) - params.weeks_back * 7
-      AND p.close_price IS NOT NULL
+    WHERE p.close_price IS NOT NULL
     GROUP BY TRUNC(m.app_date, 'IW')
 ),
 ssr AS (

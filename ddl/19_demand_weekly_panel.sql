@@ -83,7 +83,18 @@ mgn AS (
            SUM(m.long_vol * p.close_price)     AS long_val,
            SUM(m.shrt_vol * p.close_price)     AS shrt_val,
            COUNT(*)                            AS codes_cnt
-    FROM equity_margin_interest m
+    -- 2026/9/25申込分から信用残は日次になった。週に複数行あると SUM が日数倍に
+    -- 膨らむため、銘柄ごとに週の最終申込日の1行だけを使う(週次のままなら従来と同じ)。
+    FROM (
+        SELECT code, app_date, long_vol, shrt_vol
+        FROM (
+            SELECT m0.code, m0.app_date, m0.long_vol, m0.shrt_vol,
+                   ROW_NUMBER() OVER (PARTITION BY m0.code, TRUNC(m0.app_date, 'IW')
+                                      ORDER BY m0.app_date DESC) AS rn
+            FROM equity_margin_interest m0
+        )
+        WHERE rn = 1
+    ) m
     JOIN equity_master em
       ON em.code = m.code
      AND em.market_name IN ('プライム', 'スタンダード', 'グロース')
