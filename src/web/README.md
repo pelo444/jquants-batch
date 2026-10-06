@@ -16,6 +16,9 @@ CLIの `chart.js` と同じモジュール（`db.js` / `chartQuery.js` / `chartH
    - 銘柄行をクリックすると需給の推移グラフと現在の大量保有者を表示
    - **画面としての約束（NULLと0の扱い・確認順を煽らない等）は `docs/DEMAND_WEB.md`**、
      何をどう読むかは `docs/DEMAND_SIGNAL_RUNBOOK.md`
+4. **売買記録**（`/journal`） — 楽天証券の約定CSVの取込、保有と実現損益、判断・振り返り、メモと写真、口座の評価額
+   - 判断は追記のみ（訂正は新しい記録）。保有は約定から毎回計算する
+   - **初回は `ddl/26_trading_journal.sql` を適用してから**。手順と約束は `docs/JOURNAL.md`
 
 ## 起動
 

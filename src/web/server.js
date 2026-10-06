@@ -9,6 +9,9 @@
  *   3. 需給3階層(マクロ / ウォッチリスト / シグナル)を /demand で見る
  *      クエリは demandQuery.js。読み方の約束は docs/DEMAND_WEB.md と
  *      docs/DEMAND_SIGNAL_RUNBOOK.md を参照。
+ *   4. 自分の売買・判断・メモの記録を /journal で付ける
+ *      ルーティングは journalRoutes.js。約束と運用は docs/JOURNAL.md。
+ *      個人の財務情報なので、127.0.0.1 以外で待ち受けるなら認証を先に入れること。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -32,6 +35,7 @@ const db = require('../db');
 const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
+const journalRoutes = require('./journalRoutes');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 
@@ -615,6 +619,12 @@ app.get('/api/demand/supplementary', async (req, res, next) => {
     next(err);
   }
 });
+
+//==================================================================
+// 売買記録 (/journal)
+//   判断は追記のみ・保有は約定から計算・写真は画面側で縮小、の約束は journalRoutes.js 冒頭。
+//==================================================================
+app.use(journalRoutes({ db }));
 
 //---------------------------------------------------------- エラー処理
 app.use((req, res) => {

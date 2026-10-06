@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>売買記録</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/journal.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='2' width='10' height='12' rx='1.5' fill='none' stroke='%232a78d6' stroke-width='1.6'/%3E%3Cpath d='M5.5 6h5M5.5 9h5' stroke='%232a78d6' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>売買記録</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/demand">需給3階層</a>
+    <button class="btn" id="themeBtn" type="button">ダーク</button>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-tab="positions" aria-selected="true" type="button">保有</button>
+    <button class="tab" data-tab="decisions" aria-selected="false" type="button">判断</button>
+    <button class="tab" data-tab="notes" aria-selected="false" type="button">メモ</button>
+    <button class="tab" data-tab="import" aria-selected="false" type="button">約定の取込</button>
+    <button class="tab" data-tab="account" aria-selected="false" type="button">口座</button>
+  </nav>
+
+  <div class="flash" id="flash" role="status" hidden></div>
+
+  <!-- ==================== 保有 ==================== -->
+  <section class="pane" id="panePositions">
+    <p class="lede">
+      保有は取り込んだ約定から計算しています(取得単価は移動平均、口座区分ごと)。
+      証券会社の画面と月1回ほど突き合わせてください。ずれていたら、CSVの期間が足りないか、取込漏れです。
+    </p>
+    <div class="summary" id="posSummary"></div>
+    <div id="posWarnings"></div>
+    <div class="table-wrap"><table id="posTable"></table></div>
+
+    <h2>実現損益(年・口座別) <span class="h2-note">売った約定ごとの損益の合計。信用は決済損益</span></h2>
+    <div class="table-wrap short"><table id="realizedTable"></table></div>
+
+    <h2>約定の一覧 <span class="h2-note" id="tradesNote"></span></h2>
+    <div class="table-wrap"><table id="tradesTable"></table></div>
+  </section>
+
+  <!-- ==================== 判断 ==================== -->
+  <section class="pane" id="paneDecisions" hidden>
+    <p class="lede">
+      <strong>売買のその時に書きます。保存した判断は編集できません。</strong>
+      結果を見てから理由を書き直すと、記録が自分に都合よく変わってしまうためです。
+      間違いは「訂正する」で新しい記録として残します(元の記録も残ります)。
+      <strong>買わなかった判断(見送り)も書いてください。</strong>見送った銘柄と比べないと、選んだことの良し悪しが分かりません。
+    </p>
+
+    <form class="card form" id="decisionForm" autocomplete="off">
+      <div class="supersede" id="supersedeBanner" hidden></div>
+      <div class="grid">
+        <label><span class="lbl">判断した日<span class="req">必須</span></span><input type="date" name="decisionDate" required></label>
+        <label><span class="lbl">銘柄コード<span class="req">必須</span></span>
+          <input type="text" name="code" class="code-input" placeholder="6861" required>
+          <span class="lookup" data-lookup-for="code"></span>
+        </label>
+        <label><span class="lbl">行動<span class="req">必須</span></span><select name="action" required></select></label>
+        <label><span class="lbl">理由の分類<span class="req">必須</span></span><select name="reasonCat" required></select></label>
+        <label>情報源<select name="ideaSource"></select></label>
+      </div>
+      <label class="wide"><span class="lbl">理由<span class="req">必須</span></span>
+        <textarea name="reasonText" rows="3" required placeholder="なぜ今この判断をするのか"></textarea></label>
+      <label class="wide">何が起きたら間違いと認めるか
+        <textarea name="invalidation" rows="2" placeholder="例: 次の決算で受注が前年割れなら売る / 7万円を割ったら考え直す"></textarea></label>
+      <div class="grid">
+        <label>想定リターン<span class="unit-wrap"><input type="number" name="expectRetPct" step="0.1" class="num"> %</span></label>
+        <label>想定期間<span class="unit-wrap"><input type="number" name="horizonWeeks" step="1" min="0" class="num"> 週</span></label>
+        <label>予定の損切り<span class="unit-wrap"><input type="number" name="plannedStopPct" step="0.1" min="0" class="num"> % 下</span></label>
+        <label>確信度
+          <span class="radios" id="confRadios"></span></label>
+      </div>
+      <label class="wide">サイズの考え<input type="text" name="sizeNote" placeholder="例: 資金の5%。ボラが高いので通常の半分"></label>
+      <div class="wide">
+        <span class="field-label">判断時の状態</span>
+        <span class="chips" id="emotionChips"></span>
+      </div>
+      <div class="submit-row">
+        <button class="btn primary" type="submit">判断を記録する</button>
+        <span class="status" id="decisionStatus"></span>
+      </div>
+    </form>
+
+    <h2>記録した判断
+      <span class="h2-note">判断前の値動きと、その後20/60営業日の対TOPIXの差は株価から自動で付きます(分割調整済み・業種規模は未調整)</span>
+    </h2>
+    <div class="filter-row">
+      <input type="text" id="decisionFilter" class="code-input" placeholder="銘柄で絞る">
+      <button class="btn" id="decisionFilterBtn" type="button">絞る</button>
+      <button class="link" id="decisionFilterClear" type="button">解除</button>
+      <span class="status" id="decisionListStatus"></span>
+    </div>
+    <div id="decisionList"></div>
+  </section>
+
+  <!-- ==================== メモ ==================== -->
+  <section class="pane" id="paneNotes" hidden>
+    <form class="card form" id="noteForm" autocomplete="off">
+      <div class="supersede" id="noteEditBanner" hidden></div>
+      <div class="grid">
+        <label><span class="lbl">日付<span class="req">必須</span></span><input type="date" name="noteDate" required></label>
+        <label>関連銘柄<input type="text" name="codes" placeholder="6861, 7203"></label>
+        <label>情報源<select name="ideaSource"></select></label>
+      </div>
+      <label class="wide">本文<textarea name="body" rows="4" placeholder="見聞きしたこと、思いついたこと"></textarea></label>
+      <div class="wide">
+        <span class="field-label">手書きメモの写真</span>
+        <input type="file" id="noteImages" accept="image/jpeg,image/png,image/heic,image/heif,image/*" multiple>
+        <span class="unit">長辺1600pxのJPEGに縮めてから保存します(位置情報などは落ちます)。HEICが読めない場合は Safari で開いてください。</span>
+        <div class="thumbs" id="noteThumbs"></div>
+      </div>
+      <div class="submit-row">
+        <button class="btn primary" type="submit" id="noteSubmit">メモを保存</button>
+        <button class="link" type="button" id="noteCancel" hidden>編集をやめる</button>
+        <span class="status" id="noteStatus"></span>
+      </div>
+    </form>
+
+    <div class="card transcribe">
+      <strong>文字起こし</strong>
+      <span class="unit">まだ文字起こしの無い写真を作業フォルダに書き出し、Claude が読んで <code>transcriptions.json</code> を作ったら取り込みます。空の写真だけを埋めます(画面で直したものは上書きしません)。</span>
+      <div class="filter-row">
+        <button class="btn" id="exportImagesBtn" type="button">未文字起こしの写真を書き出す</button>
+        <button class="btn" id="importTransBtn" type="button">transcriptions.json を取り込む</button>
+        <span class="status" id="transStatus"></span>
+      </div>
+      <div class="unit">作業フォルダ: <code id="workDir"></code></div>
+    </div>
+
+    <h2>メモ</h2>
+    <div class="filter-row">
+      <input type="text" id="noteQ" placeholder="本文を検索">
+      <input type="text" id="noteCode" class="code-input" placeholder="銘柄で絞る">
+      <button class="btn" id="noteSearchBtn" type="button">検索</button>
+      <button class="link" id="noteSearchClear" type="button">解除</button>
+      <span class="status" id="noteListStatus"></span>
+    </div>
+    <div id="noteList"></div>
+  </section>
+
+  <!-- ==================== 取込 ==================== -->
+  <section class="pane" id="paneImport" hidden>
+    <p class="lede">
+      楽天証券の「取引履歴 → 国内株式」で期間を指定してCSVをダウンロードし、ここで選びます。
+      まずプレビューを表示し、内容を確かめてから取り込みます。期間が重なるCSVを入れても、同じ約定は二重に入りません。
+    </p>
+    <div class="card">
+      <input type="file" id="csvFile" accept=".csv,text/csv">
+      <span class="status" id="importStatus"></span>
+      <div id="importPreview"></div>
+    </div>
+    <h2>取込の履歴</h2>
+    <div class="table-wrap short"><table id="importHistory"></table></div>
+  </section>
+
+  <!-- ==================== 口座 ==================== -->
+  <section class="pane" id="paneAccount" hidden>
+    <p class="lede">
+      週1回ほど、口座全体の現金と株式の評価額を残します。結果を最も左右するのは「相場にどれだけ居たか」(投資比率)で、
+      銘柄選びの差より桁が大きいためです。入出金も書くと、運用の成績と入出金を分けて見られます。
+    </p>
+    <form class="card form" id="snapForm" autocomplete="off">
+      <div class="grid">
+        <label><span class="lbl">日付<span class="req">必須</span></span><input type="date" name="snapDate" required></label>
+        <label>現金<span class="unit-wrap"><input type="number" name="cash" min="0" step="1" class="num wide-num"> 円</span></label>
+        <label>株式評価額<span class="unit-wrap"><input type="number" name="stock" min="0" step="1" class="num wide-num"> 円</span>
+          <button class="link" type="button" id="fillStockBtn">保有から入れる</button></label>
+        <label>入金<span class="unit-wrap"><input type="number" name="deposit" min="0" step="1" class="num wide-num"> 円</span></label>
+        <label>出金<span class="unit-wrap"><input type="number" name="withdrawal" min="0" step="1" class="num wide-num"> 円</span></label>
+      </div>
+      <label class="wide">メモ<input type="text" name="note"></label>
+      <div class="submit-row">
+        <button class="btn primary" type="submit">記録する</button>
+        <span class="unit">同じ日付は上書きします</span>
+        <span class="status" id="snapStatus"></span>
+      </div>
+    </form>
+    <div class="table-wrap"><table id="snapTable"></table></div>
+  </section>
+
+</div>
+<script src="/journal.js"></script>
+</body>
+</html>
