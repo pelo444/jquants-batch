@@ -83,7 +83,7 @@ CREATE TABLE jnl_trade (
     CONSTRAINT jnl_trade_dedup_uk UNIQUE (dedup_key),
     CONSTRAINT jnl_trade_side_ck CHECK (side IN ('B', 'S')),
     CONSTRAINT jnl_trade_kind_ck CHECK (position_kind IN ('CASH', 'MLONG', 'MSHORT')),
-    CONSTRAINT jnl_trade_effect_ck CHECK (position_effect IN ('OPEN', 'CLOSE', 'CONVERT')),
+    CONSTRAINT jnl_trade_effect_ck CHECK (position_effect IN ('OPEN', 'CLOSE', 'CONVERT', 'DEPOSIT', 'WITHDRAW')),
     CONSTRAINT jnl_trade_raw_ck CHECK (raw_json IS JSON)
 );
 
@@ -94,7 +94,7 @@ COMMENT ON COLUMN jnl_trade.dedup_key IS '行の内容のハッシュ + ファ�
 COMMENT ON COLUMN jnl_trade.code IS '5桁コード(4桁は末尾に0を付けてJ-Quantsと揃える)';
 COMMENT ON COLUMN jnl_trade.side IS 'B=買(買付・買建・買埋・現引)、S=売(売付・売建・売埋・現渡)';
 COMMENT ON COLUMN jnl_trade.position_kind IS 'CASH=現物、MLONG=信用買建玉、MSHORT=信用売建玉。現引・現渡は信用側の行として記録する';
-COMMENT ON COLUMN jnl_trade.position_effect IS 'OPEN=増える(現物の買い・信用新規)、CLOSE=減る(現物の売り・信用返済)、CONVERT=現引/現渡(信用の建玉が閉じて現物が増減する)';
+COMMENT ON COLUMN jnl_trade.position_effect IS 'OPEN=増える(現物の買い・信用新規)、CLOSE=減る(現物の売り・信用返済)、CONVERT=現引/現渡(信用の建玉が閉じて現物が増減する)、DEPOSIT/WITHDRAW=入庫/出庫。楽天は株式分割で増えた株も入庫で記録する(保有計算でDBの分割日と突き合わせ、分割なら取得費0として扱う)';
 COMMENT ON COLUMN jnl_trade.settle_amount IS 'CSVの受渡金額(円)。現物は手数料・税込みの受渡額、信用返済は決済損益。符号はCSVのまま';
 COMMENT ON COLUMN jnl_trade.raw_json IS 'CSVの1行をそのままJSONで保存(列名→値)。解釈を後で直せるように';
 

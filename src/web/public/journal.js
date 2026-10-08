@@ -20,7 +20,10 @@
     },
     verdict: { RIGHT: '当たっていた', PARTLY: '一部当たった', WRONG: '外れた', UNKNOWN: 'まだ分からない' },
     kind: { CASH: '現物', MLONG: '信用買', MSHORT: '信用売' },
-    effect: { OPEN: '新規', CLOSE: '決済', CONVERT: '現引/現渡' }
+    effect: { OPEN: '新規', CLOSE: '決済', CONVERT: '現引/現渡', DEPOSIT: '入庫', WITHDRAW: '出庫' },
+    assignee: { SELF: '自分', CLAUDE: 'Claude' },
+    qstatus: { OPEN: '未着手', DOING: '調査中', DONE: '答えあり', DROPPED: '見送り' },
+    priority: { 1: '高', 2: '中', 3: '低' }
   };
   var EMOTIONS = ['冷静', '自信', '迷い', '焦り', '取り残される不安', '恐怖', '興奮'];
 
@@ -29,6 +32,10 @@
   var pendingImages = [];       // メモに添付する写真(縮小済み)
   var editingNoteId = null;
   var importBuffer = null;      // 取込プレビュー中のCSV
+  var pendingQ = { decision: [], note: [] };   // 判断・メモと一緒に保存する「調べたいこと」
+  var qLinks = [];              // 判断・メモに付いた問い(カードの件数表示用)
+  var qLinkCtx = null;          // 調べたいことフォームの紐付け先 {decisionId|noteId, codes, label}
+  var qFilterCtx = null;        // 一覧の絞り込み {decisionId|noteId, label}
 
   //------------------------------------------------------------------ 共通
   function esc(s) {
@@ -100,11 +107,11 @@
     document.querySelectorAll('#tabs .tab').forEach(function (b) {
       b.setAttribute('aria-selected', b.dataset.tab === name ? 'true' : 'false');
     });
-    var panes = { positions: 'panePositions', decisions: 'paneDecisions', notes: 'paneNotes', import: 'paneImport', account: 'paneAccount' };
+    var panes = { positions: 'panePositions', decisions: 'paneDecisions', notes: 'paneNotes', questions: 'paneQuestions', import: 'paneImport', account: 'paneAccount' };
     Object.keys(panes).forEach(function (k) { $(panes[k]).hidden = k !== name; });
     if (!loaded[name]) {
       loaded[name] = true;
-      ({ positions: loadPositions, decisions: loadDecisions, notes: loadNotes, import: loadImports, account: loadSnapshots })[name]();
+      ({ positions: loadPositions, decisions: loadDecisions, notes: loadNotes, questions: loadQuestions, import: loadImports, account: loadSnapshots })[name]();
     }
     try { history.replaceState(null, '', '#' + name); } catch (e) { /* noop */ }
   }
@@ -254,11 +261,15 @@
     d.emotion = Array.prototype.map.call(document.querySelectorAll('#emotionChips [aria-pressed="true"]'),
       function (b) { return b.dataset.emotion; });
     d.supersedesId = supersedesId;
+    d.questions = pendingQ.decision.slice();
     setStatus('decisionStatus', '保存中…');
     try {
       var r = await api('POST', '/api/journal/decisions', d);
       setStatus('decisionStatus', '');
-      flash('判断 #' + r.decisionId + ' を記録しました');
+      flash('判断 #' + r.decisionId + ' を記録しました' + (r.questionIds.length ? '(調べたいこと ' + r.questionIds.length + '件)' : ''));
+      pendingQ.decision = [];
+      renderPendingQ('decision');
+      if (r.questionIds.length) refreshQuestionMeta();
       f.reset();
       f.elements.decisionDate.value = meta.today;
       f.querySelector('[data-lookup-for="code"]').textContent = '';
@@ -330,7 +341,9 @@
             esc(v.outcomeNote || '') + (v.lesson ? '<br><span class="pending">教訓: </span>' + esc(v.lesson) : '') + '</div>';
         }).join('') + '</div>' : '') +
         '<div class="dactions"><button class="link" type="button" data-review="' + d.decisionId + '">振り返りを書く</button>' +
-        '<button class="link" type="button" data-supersede="' + d.decisionId + '">訂正する</button></div>' +
+        '<button class="link" type="button" data-supersede="' + d.decisionId + '">訂正する</button>' +
+        '<button class="link" type="button" data-q-add="decision:' + d.decisionId + ':' + esc(d.code) + '">調べたいことを追加</button>' +
+        qLinkHtml('decision', d.decisionId) + '</div>' +
         '<div class="review-slot"></div></div>';
     }).join('');
   }
@@ -406,6 +419,8 @@
     f.elements.noteDate.value = meta.today;
     pendingImages = [];
     renderThumbs();
+    pendingQ.note = [];
+    renderPendingQ('note');
     editingNoteId = null;
     $('noteEditBanner').hidden = true;
     $('noteCancel').hidden = true;
@@ -478,15 +493,19 @@
     d.images = pendingImages.map(function (p) {
       return { fileName: p.fileName, dataBase64: p.dataBase64, width: p.width, height: p.height };
     });
+    d.questions = pendingQ.note.slice();
     setStatus('noteStatus', '保存中…');
     try {
       if (editingNoteId) {
-        await api('PUT', '/api/journal/notes/' + editingNoteId, d);
-        flash('メモ #' + editingNoteId + ' を更新しました');
+        var u = await api('PUT', '/api/journal/notes/' + editingNoteId, d);
+        flash('メモ #' + editingNoteId + ' を更新しました' + (u.questionIds.length ? '(調べたいこと ' + u.questionIds.length + '件)' : ''));
       } else {
         var r = await api('POST', '/api/journal/notes', d);
-        flash('メモ #' + r.noteId + ' を保存しました');
+        flash('メモ #' + r.noteId + ' を保存しました' + (r.questionIds.length ? '(調べたいこと ' + r.questionIds.length + '件)' : ''));
       }
+      if (d.questions.length) refreshQuestionMeta();
+      pendingQ.note = [];
+      renderPendingQ('note');
       setStatus('noteStatus', '');
       resetNoteForm();
       loadNotes();
@@ -523,7 +542,9 @@
         '<span class="id">#' + n.noteId + '</span>' +
         (n.codes.length ? '<span>' + n.codes.map(function (c) { return esc(short(c)); }).join(', ') + '</span>' : '') +
         (n.ideaSource ? '<span>' + esc(LABELS.source[n.ideaSource]) + '</span>' : '') +
-        '<span class="spacer"></span><button class="link" type="button" data-edit-note="' + n.noteId + '">編集</button>' +
+        qLinkHtml('note', n.noteId) +
+        '<span class="spacer"></span><button class="link" type="button" data-q-add="note:' + n.noteId + ':' + esc(n.codes.join(',')) + '">調べたいことを追加</button>' +
+        '<button class="link" type="button" data-edit-note="' + n.noteId + '">編集</button>' +
         '<button class="link" type="button" data-del-note="' + n.noteId + '">削除</button></div>' +
         (n.body ? '<div class="nbody">' + esc(n.body) + '</div>' : '') +
         (n.images.length ? '<div class="nimgs">' + n.images.map(function (im) {
@@ -555,6 +576,197 @@
     $('noteCancel').hidden = false;
     $('noteSubmit').textContent = 'メモを更新';
     f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  //================================================================== 調べたいこと
+  function qLinkHtml(kind, id) {
+    var list = qLinks.filter(function (x) { return kind === 'decision' ? x.decisionId === id : x.noteId === id; });
+    if (!list.length) return '';
+    var open = list.filter(function (x) { return x.open; }).length;
+    return '<button class="link" type="button" data-q-filter="' + kind + ':' + id + '">調べたいこと ' + list.length + '件' +
+      (open ? '(未完了 ' + open + ')' : '') + '</button>';
+  }
+
+  async function refreshQuestionMeta() {
+    try {
+      var r = await Promise.all([api('GET', '/api/journal/questions/links'), api('GET', '/api/journal/questions?scope=open')]);
+      qLinks = r[0].rows;
+      var badge = $('qBadge');
+      badge.textContent = r[1].count;
+      badge.hidden = r[1].count === 0;
+      if (decisionCache.length) renderDecisions(decisionCache);
+      if (noteCache.length) renderNotes(noteCache);
+    } catch (e) {
+      // 表がまだ無い(ddl/27 未適用)ときも他の画面は動かす
+      $('qBadge').hidden = true;
+    }
+  }
+
+  function addPendingQ(kind) {
+    var box = document.querySelector('[data-qinline="' + kind + '"]');
+    var text = box.querySelector('.qinline-text');
+    var v = text.value.trim();
+    if (!v) { text.focus(); return; }
+    pendingQ[kind].push({ question: v, assignee: box.querySelector('.qinline-assignee').value });
+    text.value = '';
+    renderPendingQ(kind);
+    text.focus();
+  }
+
+  function renderPendingQ(kind) {
+    var el = document.querySelector('[data-qinline-list="' + kind + '"]');
+    el.innerHTML = pendingQ[kind].map(function (q, i) {
+      return '<div class="qpending"><span class="qwho ' + q.assignee + '">' + esc(LABELS.assignee[q.assignee]) + '</span>' +
+        '<span>' + esc(q.question) + '</span><span class="spacer"></span>' +
+        '<button class="link" type="button" data-qinline-del="' + kind + ':' + i + '">外す</button></div>';
+    }).join('');
+  }
+
+  function initQuestions() {
+    document.querySelectorAll('.qinline-text').forEach(function (inp) {
+      inp.addEventListener('keydown', function (ev) {
+        // 日本語変換の確定の Enter で送信しない
+        if (ev.key === 'Enter' && !ev.isComposing) {
+          ev.preventDefault();
+          addPendingQ(inp.closest('[data-qinline]').dataset.qinline);
+        }
+      });
+    });
+    var f = $('questionForm');
+    f.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var d = formData(f);
+      if (qLinkCtx) {
+        if (qLinkCtx.decisionId) d.decisionId = qLinkCtx.decisionId;
+        if (qLinkCtx.noteId) d.noteId = qLinkCtx.noteId;
+      }
+      setStatus('questionStatus', '保存中…');
+      try {
+        var r = await api('POST', '/api/journal/questions', d);
+        setStatus('questionStatus', '');
+        flash('調べたいこと #' + r.questionId + ' を書き留めました');
+        f.reset();
+        setQLinkCtx(null);
+        loadQuestions();
+        refreshQuestionMeta();
+      } catch (e) {
+        setStatus('questionStatus', e.message, true);
+      }
+    });
+    $('qScope').onchange = loadQuestions;
+    $('qAssignee').onchange = loadQuestions;
+    $('importAnswersBtn').onclick = async function () {
+      setStatus('answersStatus', '取込中…');
+      try {
+        var r = await api('POST', '/api/journal/questions/import-answers');
+        setStatus('answersStatus', r.updated + '件に答えを入れました' +
+          (r.skipped.length ? '(飛ばした問い: #' + r.skipped.join(', #') + '。既に答えがあるか、問いが無い)' : ''));
+        loadQuestions();
+        refreshQuestionMeta();
+      } catch (e) { setStatus('answersStatus', e.message, true); }
+    };
+  }
+
+  function setQLinkCtx(ctx) {
+    qLinkCtx = ctx;
+    var b = $('questionLinkBanner');
+    if (!ctx) { b.hidden = true; return; }
+    b.hidden = false;
+    b.innerHTML = esc(ctx.label) + ' から出た問いとして書き留めます。 <button class="link" type="button" id="qLinkCancel">紐付けをやめる</button>';
+    $('qLinkCancel').onclick = function () { setQLinkCtx(null); };
+  }
+
+  function setQFilter(ctx) {
+    qFilterCtx = ctx;
+    var b = $('qFilterBanner');
+    if (!ctx) { b.hidden = true; } else {
+      b.hidden = false;
+      b.innerHTML = esc(ctx.label) + ' の問いだけ表示 <button class="link" type="button" id="qFilterClear">解除</button>';
+      $('qFilterClear').onclick = function () { setQFilter(null); loadQuestions(); };
+    }
+  }
+
+  var questionCache = [];
+  async function loadQuestions() {
+    var scope = qFilterCtx ? 'all' : $('qScope').value;
+    var a = $('qAssignee').value;
+    setStatus('questionListStatus', '読み込み中…');
+    try {
+      var r = await api('GET', '/api/journal/questions?scope=' + scope + (a ? '&assignee=' + a : ''));
+      var rows = r.rows;
+      if (qFilterCtx) {
+        rows = rows.filter(function (q) {
+          return qFilterCtx.decisionId ? q.decisionId === qFilterCtx.decisionId : q.noteId === qFilterCtx.noteId;
+        });
+      }
+      questionCache = rows;
+      setStatus('questionListStatus', rows.length + '件');
+      renderQuestions(rows);
+    } catch (e) {
+      setStatus('questionListStatus', e.message, true);
+      $('questionList').innerHTML = '';
+    }
+  }
+
+  function renderQuestions(rows) {
+    if (!rows.length) {
+      $('questionList').innerHTML = '<p class="empty">該当する調べたいことはありません。</p>';
+      return;
+    }
+    $('questionList').innerHTML = rows.map(function (q) {
+      var closed = q.status === 'DONE' || q.status === 'DROPPED';
+      var links = [];
+      if (q.decisionId) links.push('判断 #' + q.decisionId);
+      if (q.noteId) links.push('メモ #' + q.noteId);
+      return '<div class="qcard' + (closed ? ' closed' : '') + '" data-qid="' + q.questionId + '">' +
+        '<div class="qhead"><span class="id">#' + q.questionId + '</span><span>' + esc(q.askedDate) + '</span>' +
+        '<span class="qstatus ' + q.status + '">' + esc(LABELS.qstatus[q.status]) + '</span>' +
+        '<span class="qwho ' + q.assignee + '">' + esc(LABELS.assignee[q.assignee]) + '</span>' +
+        '<span>優先度 ' + esc(LABELS.priority[q.priority]) + '</span>' +
+        (q.codes.length ? '<span>' + q.codes.map(function (c) { return esc(short(c)); }).join(', ') + '</span>' : '') +
+        (links.length ? '<span>' + links.join(' ・ ') + ' から</span>' : '') + '</div>' +
+        '<div class="qtext">' + esc(q.question) + '</div>' +
+        (q.background ? '<div class="qbg">' + esc(q.background) + '</div>' : '') +
+        (q.answer ? '<div class="qanswer">' + esc(q.answer) +
+          '<span class="qmeta">' + esc(LABELS.assignee[q.answeredBy] || '') + ' ・ ' +
+          (q.answeredAt ? esc(new Date(q.answeredAt).toLocaleString('ja-JP')) : '') +
+          (q.answerRef ? ' ・ 出典: ' + linkify(q.answerRef) : '') + '</span></div>' : '') +
+        '<div class="qactions">' +
+        '<label>状態 <select data-q-status="' + q.questionId + '">' + meta.questionStatuses.map(function (st) {
+          return '<option value="' + st + '"' + (st === q.status ? ' selected' : '') + '>' + esc(LABELS.qstatus[st]) + '</option>';
+        }).join('') + '</select></label>' +
+        '<button class="link" type="button" data-q-assign="' + q.questionId + ':' + (q.assignee === 'SELF' ? 'CLAUDE' : 'SELF') + '">' +
+        (q.assignee === 'SELF' ? 'Claude に頼む' : '自分で調べる') + '</button>' +
+        '<button class="link" type="button" data-q-answer="' + q.questionId + '">' + (q.answer ? '答えを直す' : '答えを書く') + '</button>' +
+        '</div><div class="q-answer-slot"></div></div>';
+    }).join('');
+  }
+
+  function linkify(ref) {
+    var s = String(ref);
+    if (/^https?:\/\//.test(s)) return '<a href="' + esc(s) + '" target="_blank" rel="noopener">' + esc(s) + '</a>';
+    return esc(s);
+  }
+
+  function openAnswerForm(card, id) {
+    var slot = card.querySelector('.q-answer-slot');
+    if (slot.innerHTML) { slot.innerHTML = ''; return; }
+    var q = questionCache.filter(function (x) { return x.questionId === id; })[0] || {};
+    slot.innerHTML = '<form class="review-form card"><label class="field-label">答え<textarea name="answer" rows="4">' + esc(q.answer || '') + '</textarea></label>' +
+      '<label class="field-label">出典・詳細の置き場所<input type="text" name="answerRef" value="' + esc(q.answerRef || '') + '" placeholder="URL や資料名"></label>' +
+      '<div class="submit-row"><button class="btn primary" type="submit">保存(状態を「答えあり」に)</button><span class="status"></span></div></form>';
+    var form = slot.querySelector('form');
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var st = form.querySelector('.status');
+      st.textContent = '保存中…';
+      try {
+        await api('PUT', '/api/journal/questions/' + id, formData(form));
+        flash('#' + id + ' の答えを保存しました');
+        loadQuestions();
+        refreshQuestionMeta();
+      } catch (e) { st.textContent = e.message; st.className = 'status error'; }
+    });
   }
 
   //================================================================== 取込
@@ -711,6 +923,40 @@
     }
     if ((el = t.closest('[data-review]'))) { openReviewForm(el.closest('.dcard'), Number(el.dataset.review)); return; }
     if ((el = t.closest('[data-supersede]'))) { startSupersede(Number(el.dataset.supersede)); return; }
+    if ((el = t.closest('[data-qinline-add]'))) { addPendingQ(el.dataset.qinlineAdd); return; }
+    if ((el = t.closest('[data-qinline-del]'))) {
+      var pp = el.dataset.qinlineDel.split(':');
+      pendingQ[pp[0]].splice(Number(pp[1]), 1);
+      renderPendingQ(pp[0]);
+      return;
+    }
+    if ((el = t.closest('[data-q-add]'))) {
+      var qa = el.dataset.qAdd.split(':');
+      var ctx = qa[0] === 'decision'
+        ? { decisionId: Number(qa[1]), label: '判断 #' + qa[1] }
+        : { noteId: Number(qa[1]), label: 'メモ #' + qa[1] };
+      showTab('questions');
+      setQLinkCtx(ctx);
+      $('questionForm').elements.codes.value = (qa[2] || '').split(',').filter(Boolean).map(short).join(', ');
+      $('questionForm').elements.question.focus();
+      $('questionForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if ((el = t.closest('[data-q-filter]'))) {
+      var qf = el.dataset.qFilter.split(':');
+      setQFilter(qf[0] === 'decision'
+        ? { decisionId: Number(qf[1]), label: '判断 #' + qf[1] }
+        : { noteId: Number(qf[1]), label: 'メモ #' + qf[1] });
+      if (loaded.questions) loadQuestions();
+      showTab('questions');
+      return;
+    }
+    if ((el = t.closest('[data-q-assign]'))) {
+      var qs = el.dataset.qAssign.split(':');
+      try { await api('PUT', '/api/journal/questions/' + qs[0], { assignee: qs[1] }); loadQuestions(); } catch (e) { flash(e.message, true); }
+      return;
+    }
+    if ((el = t.closest('[data-q-answer]'))) { openAnswerForm(el.closest('.qcard'), Number(el.dataset.qAnswer)); return; }
     if ((el = t.closest('[data-unpick]'))) { pendingImages.splice(Number(el.dataset.unpick), 1); renderThumbs(); return; }
     if ((el = t.closest('[data-edit-note]'))) { startEditNote(Number(el.dataset.editNote)); return; }
     if ((el = t.closest('[data-del-note]'))) {
@@ -734,6 +980,17 @@
       try { await api('DELETE', '/api/journal/snapshots/' + el.dataset.delSnap); loadSnapshots(); } catch (e) { flash(e.message, true); }
       return;
     }
+  });
+
+  document.addEventListener('change', async function (ev) {
+    var el = ev.target.closest && ev.target.closest('[data-q-status]');
+    if (!el) return;
+    try {
+      await api('PUT', '/api/journal/questions/' + el.dataset.qStatus, { status: el.value });
+      flash('#' + el.dataset.qStatus + ' を「' + LABELS.qstatus[el.value] + '」にしました');
+      loadQuestions();
+      refreshQuestionMeta();
+    } catch (e) { flash(e.message, true); }
   });
 
   //================================================================== 起動
@@ -769,6 +1026,9 @@
     initNoteForm();
     initImport();
     initSnapForm();
+    initQuestions();
+    refreshQuestionMeta();
+    $('dataMeta').textContent = '';
     $('decisionFilterBtn').onclick = loadDecisions;
     $('decisionFilterClear').onclick = function () { $('decisionFilter').value = ''; loadDecisions(); };
     $('noteSearchBtn').onclick = loadNotes;
@@ -789,7 +1049,7 @@
       } catch (e) { setStatus('transStatus', e.message, true); }
     };
     var tab = (location.hash || '').replace('#', '');
-    showTab(['positions', 'decisions', 'notes', 'import', 'account'].indexOf(tab) >= 0 ? tab : 'positions');
+    showTab(['positions', 'decisions', 'notes', 'questions', 'import', 'account'].indexOf(tab) >= 0 ? tab : 'positions');
   }
 
   init();

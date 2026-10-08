@@ -19,6 +19,8 @@ const REASONS = ['EARNINGS', 'DIP', 'MOMENTUM', 'NEWS', 'THEME', 'VALUE', 'DIVID
   'RECOMMEND', 'REBALANCE', 'STOPLOSS', 'TAKEPROFIT', 'OTHER'];
 const SOURCES = ['OWN_SCREEN', 'NEWS', 'SNS', 'DISCLOSURE', 'MEDIA', 'PERSON', 'APP', 'OTHER'];
 const VERDICTS = ['RIGHT', 'PARTLY', 'WRONG', 'UNKNOWN'];
+const ASSIGNEES = ['SELF', 'CLAUDE'];
+const Q_STATUSES = ['OPEN', 'DOING', 'DONE', 'DROPPED'];
 
 /** IN 句のバインドを作る: inBinds('c', ['a','b']) → { sql: ':c0,:c1', binds: {c0:'a', c1:'b'} } */
 function inBinds(prefix, values) {
@@ -473,11 +475,120 @@ async function fetchSnapshots(conn, limit = 104) {
   }));
 }
 
+//------------------------------------------------------------------
+// 調べたいこと(ddl/27_journal_questions.sql)
+//------------------------------------------------------------------
+
+function mapQuestion(x) {
+  return {
+    questionId: x.QUESTION_ID, askedDate: x.ASKED_DATE, question: x.QUESTION, background: x.BACKGROUND,
+    codes: x.CODES ? x.CODES.split(',') : [], decisionId: x.DECISION_ID, noteId: x.NOTE_ID,
+    assignee: x.ASSIGNEE, status: x.STATUS, priority: x.PRIORITY, answer: x.ANSWER || null,
+    answerRef: x.ANSWER_REF, answeredBy: x.ANSWERED_BY, answeredAt: ts(x.ANSWERED_AT),
+    createdAt: ts(x.CREATED_AT), updatedAt: ts(x.UPDATED_AT),
+  };
+}
+
+/** 一覧。scope: 'open'(未完了: OPEN/DOING) / 'closed'(DONE/DROPPED) / 'all' */
+async function fetchQuestions(conn, { scope = 'open', assignee = null, limit = 500 } = {}) {
+  const r = await conn.execute(
+    `SELECT question_id, TO_CHAR(asked_date,'YYYY-MM-DD') AS asked_date, question, background, codes,
+            decision_id, note_id, assignee, status, priority, answer, answer_ref, answered_by, answered_at,
+            created_at, updated_at
+     FROM jnl_question
+     WHERE (:scope = 'all'
+            OR (:scope = 'open' AND status IN ('OPEN','DOING'))
+            OR (:scope = 'closed' AND status IN ('DONE','DROPPED')))
+       AND (:assignee IS NULL OR assignee = :assignee)
+     ORDER BY CASE WHEN status IN ('OPEN','DOING') THEN 0 ELSE 1 END, priority, asked_date DESC, question_id DESC
+     FETCH FIRST :n ROWS ONLY`,
+    { scope, assignee, n: limit },
+    { ...OBJ, fetchInfo: { ANSWER: { type: oracledb.STRING } } }
+  );
+  return r.rows.map(mapQuestion);
+}
+
+/** 判断・メモに付いた問いの件数(カードに出す) */
+async function fetchQuestionLinks(conn) {
+  const r = await conn.execute(
+    `SELECT decision_id, note_id, status FROM jnl_question WHERE decision_id IS NOT NULL OR note_id IS NOT NULL`,
+    {}, OBJ
+  );
+  return r.rows.map((x) => ({ decisionId: x.DECISION_ID, noteId: x.NOTE_ID, open: x.STATUS === 'OPEN' || x.STATUS === 'DOING' }));
+}
+
+async function insertQuestion(conn, q, { doCommit = true } = {}) {
+  const r = await conn.execute(
+    `INSERT INTO jnl_question (asked_date, question, background, codes, decision_id, note_id, assignee, priority)
+     VALUES (TO_DATE(:askedDate,'YYYY-MM-DD'), :question, :background, :codes, :decisionId, :noteId, :assignee, :priority)
+     RETURNING question_id INTO :id`,
+    {
+      askedDate: q.askedDate, question: q.question, background: q.background, codes: q.codes,
+      decisionId: q.decisionId, noteId: q.noteId, assignee: q.assignee, priority: q.priority,
+      id: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+    }
+  );
+  if (doCommit) await conn.commit();
+  return r.outBinds.id[0];
+}
+
+/**
+ * 部分更新。渡された項目だけ変える。
+ * answer を入れたとき: 状態の指定が無ければ DONE にし、answered_by / answered_at を付ける。
+ * answer を空にしたとき: answered_by / answered_at も消す。
+ */
+async function updateQuestion(conn, id, u, { answeredBy = 'SELF', onlyEmptyAnswer = false, doCommit = true } = {}) {
+  const sets = [];
+  const binds = { id };
+  const put = (col, key, val, type) => {
+    sets.push(`${col} = :${key}`);
+    binds[key] = type ? { val, type } : val;
+  };
+  if ('question' in u) put('question', 'question', u.question);
+  if ('background' in u) put('background', 'background', u.background);
+  if ('codes' in u) put('codes', 'codes', u.codes);
+  if ('assignee' in u) put('assignee', 'assignee', u.assignee);
+  if ('priority' in u) put('priority', 'priority', u.priority);
+  if ('answerRef' in u) put('answer_ref', 'answerRef', u.answerRef);
+  let status = u.status;
+  if ('answer' in u) {
+    put('answer', 'answer', u.answer, oracledb.CLOB);
+    if (u.answer) {
+      sets.push('answered_by = :answeredBy', 'answered_at = SYSTIMESTAMP');
+      binds.answeredBy = answeredBy;
+      if (!status) status = 'DONE';
+    } else {
+      sets.push('answered_by = NULL', 'answered_at = NULL');
+    }
+  }
+  if (status) put('status', 'status', status);
+  if (!sets.length) return true;
+  sets.push('updated_at = SYSTIMESTAMP');
+  const r = await conn.execute(
+    `UPDATE jnl_question SET ${sets.join(', ')} WHERE question_id = :id` +
+      (onlyEmptyAnswer ? ' AND answer IS NULL' : ''),
+    binds
+  );
+  if (doCommit) await conn.commit();
+  return r.rowsAffected > 0;
+}
+
+async function questionExists(conn, id) {
+  const r = await conn.execute(`SELECT COUNT(*) FROM jnl_question WHERE question_id = :id`, { id });
+  return r.rows[0][0] > 0;
+}
+
+async function noteExists(conn, id) {
+  const r = await conn.execute(`SELECT COUNT(*) FROM jnl_note WHERE note_id = :id`, { id });
+  return r.rows[0][0] > 0;
+}
+
 module.exports = {
-  ACTIONS, REASONS, SOURCES, VERDICTS,
+  ACTIONS, REASONS, SOURCES, VERDICTS, ASSIGNEES, Q_STATUSES,
   importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, lookupCode,
   insertDecision, insertReview, fetchDecisions, decisionExists,
   insertNote, updateNote, deleteNote, deleteImage, fetchNotes, fetchImage, updateTranscription, exportUntranscribed,
   upsertSnapshot, deleteSnapshot, fetchSnapshots,
+  fetchQuestions, fetchQuestionLinks, insertQuestion, updateQuestion, questionExists, noteExists,
   _internal: { iso },
 };

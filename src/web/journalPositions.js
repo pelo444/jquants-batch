@@ -18,6 +18,14 @@
  *   現物の売りは受渡金額を手取りにする。無ければ 数量×単価−手数料−税−諸費用。
  *   信用返済は CSV の受渡金額(=決済損益)をそのまま実現損益にする。無ければ単価差から概算。
  *
+ * 【入庫(楽天は株式分割で増えた株も「入庫」で記録する)】
+ *   DB の分割日(AdjFactor≠1)の前後10日以内に同じ銘柄の入庫があれば、その分割は証券会社の記録に
+ *   反映済みとみなし、(1) 入庫は取得費0で株数だけ増やす(分割では取得費の総額は変わらない)、
+ *   (2) その分割を上の AdjFactor による換算から外す(二重に数えないため)。
+ *   入庫の株数が「その時の保有 × (1/AdjFactor − 1)」と合わなければ警告を出す。
+ *   分割と対応しない入庫は他社からの移管とみなし、CSVの単価を取得単価にして警告を出す。
+ *   出庫は平均単価で株数を減らすだけで、損益は付けない。
+ *
  * 【履歴が足りないとき】
  *   CSVの期間より前に買った株を売ると、持っていない株を売ったことになる。
  *   その場合は数量を0で止め、実現損益は「不明」として警告に出す(黙って負の保有にしない)。
@@ -59,9 +67,25 @@ function computePositions(trades, splits = new Map()) {
   const sorted = trades.slice().sort((a, b) =>
     a.tradeDate < b.tradeDate ? -1 : a.tradeDate > b.tradeDate ? 1 : a.tradeId - b.tradeId);
 
+  // 入庫と DB の分割を突き合わせる
+  const DAY = 86400000;
+  const splitDeposit = new Map();   // tradeId → 対応する分割 {date, factor}
+  const effSplits = new Map();      // 入庫で反映済みの分割を除いた残り
+  for (const [code, list] of splits) {
+    const deps = sorted.filter((t) => t.code === code && t.positionEffect === 'DEPOSIT');
+    const rest = [];
+    for (const sp of list) {
+      const hit = deps.filter((t) => Math.abs(Date.parse(t.tradeDate) - Date.parse(sp.date)) <= 10 * DAY);
+      if (hit.length) hit.forEach((t) => splitDeposit.set(t.tradeId, sp));
+      else rest.push(sp);
+    }
+    if (rest.length) effSplits.set(code, rest);
+  }
+
   const book = new Map();
   const realized = [];
   const warnings = [];
+  const adjustedCodes = new Set();   // DB の AdjFactor で株数を直した銘柄(画面の「分割調整」の印)
 
   function pos(account, kind, t) {
     const key = `${account}|${kind}|${t.code}`;
@@ -96,11 +120,40 @@ function computePositions(trades, splits = new Map()) {
   }
 
   for (const t of sorted) {
-    const f = splitFactorAfter(splits, t.code, t.tradeDate);
+    const f = splitFactorAfter(effSplits, t.code, t.tradeDate);
     const qa = t.qty / f;
     const pa = t.price * f;
     const account = t.accountType || '(不明)';
     const year = t.tradeDate.slice(0, 4);
+    if (f !== 1) adjustedCodes.add(t.code);
+
+    if (t.positionKind === 'CASH' && (t.positionEffect === 'DEPOSIT' || t.positionEffect === 'WITHDRAW')) {
+      const p = pos(account, 'CASH', t);
+      if (t.positionEffect === 'WITHDRAW') {
+        reduce(p, qa, t);
+        continue;
+      }
+      const sp = splitDeposit.get(t.tradeId);
+      if (sp) {
+        const expected = p.qty * (1 / sp.factor - 1);
+        if (Math.abs(expected - qa) > 0.5) {
+          warnings.push({
+            tradeId: t.tradeId, code: t.code, tradeDate: t.tradeDate,
+            message: `分割(${sp.date}、1株→${round(1 / sp.factor)}株)の入庫が${round(qa)}株ですが、` +
+              `その時点の保有(${round(p.qty)}株)からは${round(expected)}株のはずです。他の口座の分か、履歴の不足を確認してください。`,
+          });
+        }
+        p.qty += qa;            // 分割: 取得費の総額は変わらない
+      } else {
+        p.qty += qa;
+        p.cost += qa * pa;
+        warnings.push({
+          tradeId: t.tradeId, code: t.code, tradeDate: t.tradeDate,
+          message: `入庫(${round(qa)}株)に対応する分割が見つからないため、移管とみなしてCSVの単価を取得単価にしました。`,
+        });
+      }
+      continue;
+    }
 
     if (t.positionKind === 'CASH') {
       const p = pos(account, 'CASH', t);
@@ -161,7 +214,7 @@ function computePositions(trades, splits = new Map()) {
       positions.push({
         account: p.account, kind: p.kind, code: p.code, name: p.name,
         qty: round(p.qty), avgCost: p.cost / p.qty, cost: p.cost,
-        firstDate: p.firstDate, lastDate: p.lastDate,
+        firstDate: p.firstDate, lastDate: p.lastDate, splitAdjusted: adjustedCodes.has(p.code),
       });
     }
   }

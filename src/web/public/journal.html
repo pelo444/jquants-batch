@@ -24,6 +24,7 @@
     <button class="tab" data-tab="positions" aria-selected="true" type="button">保有</button>
     <button class="tab" data-tab="decisions" aria-selected="false" type="button">判断</button>
     <button class="tab" data-tab="notes" aria-selected="false" type="button">メモ</button>
+    <button class="tab" data-tab="questions" aria-selected="false" type="button">調べたいこと<span class="tab-badge" id="qBadge" hidden></span></button>
     <button class="tab" data-tab="import" aria-selected="false" type="button">約定の取込</button>
     <button class="tab" data-tab="account" aria-selected="false" type="button">口座</button>
   </nav>
@@ -84,6 +85,15 @@
         <span class="field-label">判断時の状態</span>
         <span class="chips" id="emotionChips"></span>
       </div>
+      <div class="wide qinline" data-qinline="decision">
+        <span class="field-label">調べたいこと <span class="unit">(判断と一緒に保存されます。銘柄と日付は判断から引き継ぎます)</span></span>
+        <div class="qinline-row">
+          <input type="text" class="qinline-text" placeholder="例: 同業他社の受注動向は? / この会社の過去の決算後の値動きは?">
+          <select class="qinline-assignee"><option value="SELF">自分で調べる</option><option value="CLAUDE">Claude に頼む</option></select>
+          <button class="btn" type="button" data-qinline-add="decision">追加</button>
+        </div>
+        <div class="qinline-list" data-qinline-list="decision"></div>
+      </div>
       <div class="submit-row">
         <button class="btn primary" type="submit">判断を記録する</button>
         <span class="status" id="decisionStatus"></span>
@@ -118,6 +128,15 @@
         <span class="unit">長辺1600pxのJPEGに縮めてから保存します(位置情報などは落ちます)。HEICが読めない場合は Safari で開いてください。</span>
         <div class="thumbs" id="noteThumbs"></div>
       </div>
+      <div class="wide qinline" data-qinline="note">
+        <span class="field-label">調べたいこと <span class="unit">(メモと一緒に保存されます。銘柄と日付はメモから引き継ぎます)</span></span>
+        <div class="qinline-row">
+          <input type="text" class="qinline-text" placeholder="例: 同業他社の受注動向は? / この会社の過去の決算後の値動きは?">
+          <select class="qinline-assignee"><option value="SELF">自分で調べる</option><option value="CLAUDE">Claude に頼む</option></select>
+          <button class="btn" type="button" data-qinline-add="note">追加</button>
+        </div>
+        <div class="qinline-list" data-qinline-list="note"></div>
+      </div>
       <div class="submit-row">
         <button class="btn primary" type="submit" id="noteSubmit">メモを保存</button>
         <button class="link" type="button" id="noteCancel" hidden>編集をやめる</button>
@@ -145,6 +164,51 @@
       <span class="status" id="noteListStatus"></span>
     </div>
     <div id="noteList"></div>
+  </section>
+
+  <!-- ==================== 調べたいこと ==================== -->
+  <section class="pane" id="paneQuestions" hidden>
+    <p class="lede">
+      判断やメモを書いていて出てきた「調べたいこと」を書き留めます。自分で調べるか Claude に頼むかを決め、答えも同じ場所に残します。
+      <strong>1つの行に1つの問い</strong>にして、「なぜ知りたいか・答えをどう使うか」を書いておくと、調べる範囲がぶれません。
+    </p>
+
+    <form class="card form" id="questionForm" autocomplete="off">
+      <div class="supersede" id="questionLinkBanner" hidden></div>
+      <label class="wide"><span class="lbl">調べたいこと<span class="req">必須</span></span>
+        <input type="text" name="question" required placeholder="例: キーエンスの受注は前年比でどう動いているか"></label>
+      <label class="wide">なぜ知りたいか・答えをどう使うか
+        <textarea name="background" rows="2" placeholder="例: 押し目買いの理由が「受注は堅調」なので、それが本当か確かめたい"></textarea></label>
+      <div class="grid">
+        <label>関連銘柄<input type="text" name="codes" placeholder="6861, 6954"></label>
+        <label>担当<span class="radios"><label><input type="radio" name="assignee" value="SELF" checked>自分</label>
+          <label><input type="radio" name="assignee" value="CLAUDE">Claude</label></span></label>
+        <label>優先度<select name="priority"><option value="1">高</option><option value="2" selected>中</option><option value="3">低</option></select></label>
+      </div>
+      <div class="submit-row">
+        <button class="btn primary" type="submit">書き留める</button>
+        <span class="status" id="questionStatus"></span>
+      </div>
+    </form>
+
+    <div class="card transcribe">
+      <strong>Claude に頼んだもの</strong>
+      <span class="unit">担当を「Claude」にした未完了の問いは、Claude がデータベースから読めます。Claude に「調べたいことを見て」と頼むと、
+        調べた結果を作業フォルダの <code>answers.json</code> に書きます(長いものは project の資料にして出典に名前を入れます)。
+        取り込むと、<strong>答えが空の問いにだけ</strong>入ります(自分で書いた答えは上書きしません)。</span>
+      <div class="filter-row">
+        <button class="btn" id="importAnswersBtn" type="button">Claude の回答を取り込む</button>
+        <span class="status" id="answersStatus"></span>
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <select id="qScope"><option value="open">未完了</option><option value="closed">答えあり・見送り</option><option value="all">すべて</option></select>
+      <select id="qAssignee"><option value="">担当: すべて</option><option value="SELF">自分</option><option value="CLAUDE">Claude</option></select>
+      <span class="supersede" id="qFilterBanner" hidden></span>
+      <span class="status" id="questionListStatus"></span>
+    </div>
+    <div id="questionList"></div>
   </section>
 
   <!-- ==================== 取込 ==================== -->

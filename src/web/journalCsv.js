@@ -30,7 +30,7 @@ const SOURCE = 'RAKUTEN_JP_STOCK';
 function normHeader(h) {
   return String(h || '')
     .replace(/^﻿/, '')
-    .replace(/[［\[（(【].*?[］\]）)】]/g, '')
+    .replace(/[［\[（(【〔].*?[］\]）)】〕]/g, '')
     .replace(/[\s　"]/g, '')
     .trim();
 }
@@ -135,11 +135,16 @@ function toCode(v) {
  *   信用返済の売埋/買埋 → MLONG/MSHORT の CLOSE
  *   現引(買建玉を現物で引き取る) → MLONG の CONVERT(建玉が閉じて現物が増える)
  *   現渡(売建玉に現物を渡す)     → MSHORT の CONVERT(建玉が閉じて現物が減る)
+ *   入庫 / 出庫 → CASH の DEPOSIT / WITHDRAW(分割で増えた株、または他社からの移管)
  * 解釈できなければ null(取込時にエラー行として返す)。
  */
 function classify(tradeType, sideRaw) {
   const t = String(tradeType || '');
   const s = String(sideRaw || '');
+  // 入庫・出庫(取引区分は空)。楽天は株式分割で増えた株も「入庫」で記録する(単価は分割後の取得単価)。
+  // 分割か移管かはここでは決めず、保有計算で DB の分割日と突き合わせる(journalPositions.js)
+  if (s.includes('入庫')) return { side: 'B', kind: 'CASH', effect: 'DEPOSIT' };
+  if (s.includes('出庫')) return { side: 'S', kind: 'CASH', effect: 'WITHDRAW' };
   if (s.includes('現引') || t.includes('現引')) return { side: 'B', kind: 'MLONG', effect: 'CONVERT' };
   if (s.includes('現渡') || t.includes('現渡')) return { side: 'S', kind: 'MSHORT', effect: 'CONVERT' };
   if (s.includes('買建')) return { side: 'B', kind: 'MLONG', effect: 'OPEN' };

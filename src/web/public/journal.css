@@ -138,3 +138,45 @@ tr.dup td { color: var(--muted); }
   .flash { margin-left: 10px; margin-right: 10px; }
   .nimg, .nimg img { width: 100%; }
 }
+
+/* 調べたいこと */
+.tab-badge {
+  display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px;
+  font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+  background: var(--series-1); color: #fff;
+}
+.qinline { border-top: 1px dashed var(--border); padding-top: 8px; }
+.qinline-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.qinline-row .qinline-text { flex: 1 1 360px; }
+.qinline-row select, .qinline-row input, #qScope, #qAssignee {
+  font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary);
+}
+.qinline-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.qpending {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 400; color: var(--text-primary);
+  background: var(--hover-wash); border-radius: 6px; padding: 4px 8px;
+}
+.qcard {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 10px; max-width: 980px;
+}
+.qcard.closed { opacity: .72; }
+.qcard .qhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.qcard .qtext { font-size: 14px; font-weight: 600; margin: 6px 0 2px; }
+.qcard .qbg { font-size: 12px; color: var(--text-secondary); white-space: pre-wrap; }
+.qstatus { font-size: 11px; border-radius: 3px; padding: 0 6px; border: 1px solid var(--border); }
+.qstatus.OPEN { color: var(--text-primary); }
+.qstatus.DOING { color: var(--series-1); border-color: var(--series-1); }
+.qstatus.DONE { color: var(--good); border-color: var(--good-mark); }
+.qstatus.DROPPED { color: var(--muted); }
+.qwho { font-size: 11px; font-weight: 600; }
+.qwho.CLAUDE { color: var(--series-1); }
+.qanswer {
+  margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--good-mark); background: var(--hover-wash);
+  font-size: 13px; white-space: pre-wrap; border-radius: 0 6px 6px 0;
+}
+.qanswer .qmeta { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; white-space: normal; }
+.qactions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; font-size: 12px; }
+.qactions select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary); }
+.qlinks { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 12px; }

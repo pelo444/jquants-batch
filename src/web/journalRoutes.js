@@ -139,6 +139,35 @@ function vImages(list) {
   });
 }
 
+/** 調べたいこと1件の入力 */
+function questionInput(b, { partial = false } = {}) {
+  const q = {};
+  const has = (k) => !partial || Object.prototype.hasOwnProperty.call(b, k);
+  if (has('question')) q.question = vText(b.question, '調べたいこと', 2000, { required: true });
+  if (has('background')) q.background = vText(b.background, '背景', 4000);
+  if (has('codes')) q.codes = vCodes(b.codes);
+  if (has('assignee')) q.assignee = vEnum(b.assignee, jq.ASSIGNEES, '担当');
+  if (has('priority')) q.priority = vNum(b.priority, '優先度', { min: 1, max: 3, int: true }) || 2;
+  if (partial) {
+    if (has('status')) q.status = vEnum(b.status, jq.Q_STATUSES, '状態');
+    if (has('answer')) q.answer = vText(b.answer, '答え', 100000);
+    if (has('answerRef')) q.answerRef = vText(b.answerRef, '出典', 1000);
+  } else {
+    q.askedDate = vDate(b.askedDate || todayLocal(), '日付');
+    q.decisionId = b.decisionId ? vId(b.decisionId, '判断ID') : null;
+    q.noteId = b.noteId ? vId(b.noteId, 'メモID') : null;
+  }
+  return q;
+}
+
+/** 判断・メモの保存と一緒に送られた「調べたいこと」(本体の銘柄・日付を引き継ぐ) */
+function inlineQuestions(list, { codes, date }) {
+  if (!list) return [];
+  if (!Array.isArray(list)) throw new BadRequest('questions の形式が不正です');
+  if (list.length > 20) throw new BadRequest('一度に書ける調べたいことは20件までです');
+  return list.map((b) => questionInput({ codes, askedDate: date, ...b }));
+}
+
 function noteInput(b) {
   return {
     noteDate: vDate(b.noteDate, 'メモの日付'),
@@ -166,6 +195,7 @@ module.exports = function journalRoutes({ db }) {
   router.get('/api/journal/meta', (req, res) => {
     res.json({
       actions: jq.ACTIONS, reasons: jq.REASONS, sources: jq.SOURCES, verdicts: jq.VERDICTS,
+      assignees: jq.ASSIGNEES, questionStatuses: jq.Q_STATUSES,
       workDir: WORK_DIR, today: todayLocal(),
     });
   });
@@ -227,7 +257,7 @@ module.exports = function journalRoutes({ db }) {
       const { positions, realized, warnings } = computePositions(trades, splits);
       const quotes = await jq.fetchQuotes(c, Array.from(new Set(positions.map((p) => p.code))));
       const snaps = await jq.fetchSnapshots(c, 1);
-      return { positions, realized, warnings, quotes, snapshot: snaps[0] || null, tradeCount: trades.length, splits };
+      return { positions, realized, warnings, quotes, snapshot: snaps[0] || null, tradeCount: trades.length };
     });
 
     let totalValue = 0;
@@ -252,7 +282,6 @@ module.exports = function journalRoutes({ db }) {
       return {
         ...p, name: p.name || (q && q.name) || null, close, closeDate: q ? q.date : null, value, pnl,
         pnlPct: pnl !== null && p.cost ? (pnl / p.cost) * 100 : null,
-        splitAdjusted: out.splits.has(p.code),
       };
     });
     res.json({
@@ -292,15 +321,22 @@ module.exports = function journalRoutes({ db }) {
       emotion: vText(Array.isArray(b.emotion) ? b.emotion.join(',') : b.emotion, '状態', 200),
       supersedesId: b.supersedesId ? vId(b.supersedesId, '訂正元') : null,
     };
-    const id = await db.withConnection(async (c) => {
+    const questions = inlineQuestions(b.questions, { codes: d.code, date: d.decisionDate });
+    const out = await db.withConnection(async (c) => {
       const info = await jq.lookupCode(c, d.code);
       if (!info) throw new BadRequest(`銘柄マスタに ${d.code} がありません`);
       if (d.supersedesId && !(await jq.decisionExists(c, d.supersedesId))) {
         throw new BadRequest(`訂正元の判断 #${d.supersedesId} がありません`);
       }
-      return jq.insertDecision(c, d);
+      const decisionId = await jq.insertDecision(c, d);
+      const questionIds = [];
+      for (const q of questions) {
+        questionIds.push(await jq.insertQuestion(c, { ...q, decisionId, noteId: null }, { doCommit: false }));
+      }
+      await c.commit();
+      return { decisionId, questionIds };
     });
-    res.status(201).json({ decisionId: id });
+    res.status(201).json(out);
   }));
 
   router.post('/api/journal/decisions/:id/reviews', wrap(async (req, res) => {
@@ -331,17 +367,35 @@ module.exports = function journalRoutes({ db }) {
 
   router.post('/api/journal/notes', wrap(async (req, res) => {
     const n = noteInput(req.body || {});
-    if (!n.body && !n.images.length) throw new BadRequest('本文か写真のどちらかを入れてください');
-    const id = await db.withConnection((c) => jq.insertNote(c, n));
-    res.status(201).json({ noteId: id });
+    const questions = inlineQuestions((req.body || {}).questions, { codes: n.codes, date: n.noteDate });
+    if (!n.body && !n.images.length && !questions.length) throw new BadRequest('本文か写真のどちらかを入れてください');
+    const out = await db.withConnection(async (c) => {
+      const noteId = await jq.insertNote(c, n);
+      const questionIds = [];
+      for (const q of questions) {
+        questionIds.push(await jq.insertQuestion(c, { ...q, noteId, decisionId: null }, { doCommit: false }));
+      }
+      await c.commit();
+      return { noteId, questionIds };
+    });
+    res.status(201).json(out);
   }));
 
   router.put('/api/journal/notes/:id', wrap(async (req, res) => {
     const noteId = vId(req.params.id, 'メモID');
     const n = noteInput(req.body || {});
-    const ok = await db.withConnection((c) => jq.updateNote(c, noteId, n));
-    if (!ok) throw new NotFound(`メモ #${noteId} がありません`);
-    res.json({ noteId });
+    const questions = inlineQuestions((req.body || {}).questions, { codes: n.codes, date: n.noteDate });
+    const questionIds = await db.withConnection(async (c) => {
+      const ok = await jq.updateNote(c, noteId, n);
+      if (!ok) throw new NotFound(`メモ #${noteId} がありません`);
+      const ids = [];
+      for (const q of questions) {
+        ids.push(await jq.insertQuestion(c, { ...q, noteId, decisionId: null }, { doCommit: false }));
+      }
+      await c.commit();
+      return ids;
+    });
+    res.json({ noteId, questionIds });
   }));
 
   router.delete('/api/journal/notes/:id', wrap(async (req, res) => {
@@ -402,6 +456,71 @@ module.exports = function journalRoutes({ db }) {
         if (!text) { skipped.push(id); continue; }
         if (await jq.updateTranscription(c, id, text, { onlyEmpty: true, doCommit: false })) updated += 1;
         else skipped.push(id);
+      }
+      await c.commit();
+      return { updated, skipped };
+    });
+    res.json({ file, ...result });
+  }));
+
+  //---------------------------------------------------------- 調べたいこと
+  router.get('/api/journal/questions', wrap(async (req, res) => {
+    const scope = ['open', 'closed', 'all'].includes(req.query.scope) ? req.query.scope : 'open';
+    const assignee = vEnum(req.query.assignee, jq.ASSIGNEES, '担当', { required: false });
+    const rows = await db.withConnection((c) => jq.fetchQuestions(c, { scope, assignee }));
+    res.json({ count: rows.length, rows });
+  }));
+
+  // 判断・メモのカードに「調べたいこと n件」を出すための対応表
+  router.get('/api/journal/questions/links', wrap(async (req, res) => {
+    const rows = await db.withConnection((c) => jq.fetchQuestionLinks(c));
+    res.json({ rows });
+  }));
+
+  router.post('/api/journal/questions', wrap(async (req, res) => {
+    const q = questionInput(req.body || {});
+    const id = await db.withConnection(async (c) => {
+      if (q.decisionId && !(await jq.decisionExists(c, q.decisionId))) throw new BadRequest(`判断 #${q.decisionId} がありません`);
+      if (q.noteId && !(await jq.noteExists(c, q.noteId))) throw new BadRequest(`メモ #${q.noteId} がありません`);
+      return jq.insertQuestion(c, q);
+    });
+    res.status(201).json({ questionId: id });
+  }));
+
+  router.put('/api/journal/questions/:id', wrap(async (req, res) => {
+    const id = vId(req.params.id, '調べたいことのID');
+    const u = questionInput(req.body || {}, { partial: true });
+    const ok = await db.withConnection((c) => jq.updateQuestion(c, id, u, { answeredBy: 'SELF' }));
+    if (!ok) throw new NotFound(`調べたいこと #${id} がありません`);
+    res.json({ questionId: id });
+  }));
+
+  // Claude の回答(作業フォルダの answers.json)を取り込む。答えが空の行にだけ入れる
+  // 形式: [{ "questionId": 3, "answer": "...", "answerRef": "claude/xxx.md" }, ...]
+  router.post('/api/journal/questions/import-answers', wrap(async (req, res) => {
+    const file = path.join(WORK_DIR, 'answers.json');
+    if (!fs.existsSync(file)) throw new BadRequest(`${file} がありません`);
+    let list;
+    try {
+      list = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (e) {
+      throw new BadRequest(`answers.json を読めません: ${e.message}`);
+    }
+    if (!Array.isArray(list)) throw new BadRequest('answers.json は配列にしてください');
+    const items = list.map((x) => ({
+      id: vId(x.questionId, 'questionId'),
+      answer: vText(x.answer, '答え', 100000),
+      answerRef: vText(x.answerRef, '出典', 1000),
+    }));
+    const result = await db.withConnection(async (c) => {
+      let updated = 0;
+      const skipped = [];
+      for (const it of items) {
+        if (!it.answer) { skipped.push(it.id); continue; }
+        const ok = await jq.updateQuestion(c, it.id, { answer: it.answer, answerRef: it.answerRef },
+          { answeredBy: 'CLAUDE', onlyEmptyAnswer: true, doCommit: false });
+        if (ok) updated += 1;
+        else skipped.push(it.id);
       }
       await c.commit();
       return { updated, skipped };
