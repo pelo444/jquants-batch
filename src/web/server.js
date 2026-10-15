@@ -12,6 +12,8 @@
  *   4. 自分の売買・判断・メモの記録を /journal で付ける
  *      ルーティングは journalRoutes.js。約束と運用は docs/JOURNAL.md。
  *      個人の財務情報なので、127.0.0.1 以外で待ち受けるなら認証を先に入れること。
+ *   5. 銘柄購入の流れ(購入検討リスト → 参考情報 → 損失回避チェック → 判断メモ)を /purchase で行う
+ *      ルーティングは purchaseRoutes.js。設計は claude/purchase_flow_design.md。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -36,6 +38,7 @@ const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
 const journalRoutes = require('./journalRoutes');
+const purchaseRoutes = require('./purchaseRoutes');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 
@@ -624,7 +627,15 @@ app.get('/api/demand/supplementary', async (req, res, next) => {
 // 売買記録 (/journal)
 //   判断は追記のみ・保有は約定から計算・写真は画面側で縮小、の約束は journalRoutes.js 冒頭。
 //==================================================================
-app.use(journalRoutes({ db }));
+// タグを付け直したら、騰落率一覧のタグ件数・結果のキャッシュ(5分)を捨てる
+app.use(journalRoutes({ db, onTagsChanged: () => cache.clear() }));
+
+//==================================================================
+// 銘柄購入の流れ (/purchase)
+//   購入検討リスト → 参考情報 → 損失回避チェック → 判断メモ。約束は purchaseRoutes.js 冒頭、
+//   設計は claude/purchase_flow_design.md。タグ一覧は騰落率一覧と同じキャッシュ(getMeta)を使う。
+//==================================================================
+app.use(purchaseRoutes({ db, getTags: getMeta }));
 
 //---------------------------------------------------------- エラー処理
 app.use((req, res) => {

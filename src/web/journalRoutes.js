@@ -10,6 +10,8 @@
  *   ・写真は画面側で長辺1600pxのJPEGに縮めてから送る(位置情報などのEXIFも落ちる)。
  *     サーバーは JPEG/PNG の中身であることだけ確かめて、そのまま保存する。
  *   ・個人の財務情報なので、既定の 127.0.0.1 以外で待ち受けるときは認証を先に入れること。
+ *   ・約定の取込と判断の記録のあとに、騰落率一覧用のタグ(jnl_held 等、ddl/28)を付け直す。
+ *     タグの付け直しに失敗しても、取込・記録そのものは成功として返す(結果に tagSync.error を付ける)。
  */
 
 const fs = require('fs');
@@ -20,6 +22,8 @@ const express = require('express');
 const jq = require('./journalQuery');
 const { parseRakutenCsv } = require('./journalCsv');
 const { computePositions, summarizeRealized } = require('./journalPositions');
+const { syncJournalTags } = require('./journalTags');
+const capital = require('../capital');
 
 const WORK_DIR = process.env.JQB_JOURNAL_WORK_DIR || path.resolve(__dirname, '../../../journal_work');
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -181,9 +185,22 @@ function noteInput(b) {
 //------------------------------------------------------------------
 // ルーター
 //------------------------------------------------------------------
-module.exports = function journalRoutes({ db }) {
+module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
   const router = express.Router();
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
+
+  /** タグの付け直し。失敗しても呼び出し元の処理は止めない */
+  async function syncTagsSafe(c) {
+    try {
+      const r = await syncJournalTags(c);
+      onTagsChanged();
+      return r;
+    } catch (e) {
+      console.error('タグの付け直しに失敗:', e.message);
+      await c.rollback().catch(() => {});
+      return { error: e.message };
+    }
+  }
 
   router.get(['/journal', '/journal/'], (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'journal.html'));
@@ -207,6 +224,28 @@ module.exports = function journalRoutes({ db }) {
     res.json(info);
   }));
 
+  // 判断を書くときに、その銘柄の過去の売買と今の保有を横に出す(保有タブと同じ計算)
+  router.get('/api/journal/code-history', wrap(async (req, res) => {
+    const code = vCode(req.query.code);
+    const out = await db.withConnection(async (c) => {
+      const trades = await jq.fetchTrades(c, { code });
+      const splits = trades.length ? await jq.fetchSplits(c, [code], trades[0].tradeDate) : new Map();
+      return { trades, positions: computePositions(trades, splits).positions };
+    });
+    const recent = out.trades.slice().reverse();
+    res.json({
+      code,
+      total: recent.length,
+      firstDate: recent.length ? recent[recent.length - 1].tradeDate : null,
+      lastDate: recent.length ? recent[0].tradeDate : null,
+      trades: recent.slice(0, 30).map((t) => ({
+        tradeDate: t.tradeDate, accountType: t.accountType, tradeType: t.tradeType, sideRaw: t.sideRaw,
+        side: t.side, positionKind: t.positionKind, positionEffect: t.positionEffect, qty: t.qty, price: t.price,
+      })),
+      positions: out.positions.map((p) => ({ account: p.account, kind: p.kind, qty: p.qty, avgCost: p.avgCost })),
+    });
+  }));
+
   //---------------------------------------------------------- 約定CSVの取込
   router.post('/api/journal/import', wrap(async (req, res) => {
     const b = req.body || {};
@@ -220,11 +259,16 @@ module.exports = function journalRoutes({ db }) {
     if (commit && parsed.errors.length) {
       throw new BadRequest(`解釈できない行が${parsed.errors.length}行あります。プレビューで確認してください`);
     }
-    const r = await db.withConnection((c) => jq.importTrades(c, {
-      source: 'RAKUTEN_JP_STOCK', fileName, sha256, encoding: parsed.encoding, trades: parsed.trades, commit,
-    }));
+    let tagSync = null;
+    const r = await db.withConnection(async (c) => {
+      const out = await jq.importTrades(c, {
+        source: 'RAKUTEN_JP_STOCK', fileName, sha256, encoding: parsed.encoding, trades: parsed.trades, commit,
+      });
+      if (commit) tagSync = await syncTagsSafe(c);
+      return out;
+    });
     res.json({
-      committed: commit, batchId: r.batchId, encoding: parsed.encoding,
+      committed: commit, batchId: r.batchId, encoding: parsed.encoding, tagSync,
       headers: parsed.headers, unknownHeaders: parsed.unknownHeaders,
       total: r.total, inserted: r.inserted, duplicate: r.duplicate, errors: parsed.errors,
       rows: parsed.trades.slice(0, 2000).map((t) => ({
@@ -256,8 +300,9 @@ module.exports = function journalRoutes({ db }) {
       const splits = await jq.fetchSplits(c, codes, first);
       const { positions, realized, warnings } = computePositions(trades, splits);
       const quotes = await jq.fetchQuotes(c, Array.from(new Set(positions.map((p) => p.code))));
-      const snaps = await jq.fetchSnapshots(c, 1);
-      return { positions, realized, warnings, quotes, snapshot: snaps[0] || null, tradeCount: trades.length };
+      const cap = await capital.fetchCapital(c).catch(() => null);
+      const counts = await jq.fetchRecordCounts(c);
+      return { positions, realized, warnings, quotes, counts, capital: cap, tradeCount: trades.length };
     });
 
     let totalValue = 0;
@@ -281,6 +326,7 @@ module.exports = function journalRoutes({ db }) {
       }
       return {
         ...p, name: p.name || (q && q.name) || null, close, closeDate: q ? q.date : null, value, pnl,
+        records: out.counts.get(p.code) || { decisions: 0, notes: 0 },
         pnlPct: pnl !== null && p.cost ? (pnl / p.cost) * 100 : null,
       };
     });
@@ -291,7 +337,7 @@ module.exports = function journalRoutes({ db }) {
       realizedByYear: summarizeRealized(out.realized),
       realized: out.realized.slice(-300).reverse(),
       warnings: out.warnings,
-      snapshot: out.snapshot,
+      capital: out.capital,
     });
   }));
 
@@ -314,7 +360,7 @@ module.exports = function journalRoutes({ db }) {
       ideaSource: vEnum(b.ideaSource, jq.SOURCES, '情報源', { required: false }),
       expectRetPct: vNum(b.expectRetPct, '想定リターン(%)', { min: -100, max: 1000 }),
       horizonWeeks: vNum(b.horizonWeeks, '想定期間(週)', { min: 0, max: 520 }),
-      invalidation: vText(b.invalidation, '間違いと認める条件', 1000),
+      invalidation: vText(b.invalidation, '次の行動への条件', 1000),
       confidence: vNum(b.confidence, '確信度', { min: 1, max: 5, int: true }),
       plannedStopPct: vNum(b.plannedStopPct, '予定の損切り(%)', { min: 0, max: 100 }),
       sizeNote: vText(b.sizeNote, 'サイズの考え', 500),
@@ -334,9 +380,18 @@ module.exports = function journalRoutes({ db }) {
         questionIds.push(await jq.insertQuestion(c, { ...q, decisionId, noteId: null }, { doCommit: false }));
       }
       await c.commit();
-      return { decisionId, questionIds };
+      const tagSync = d.action === 'PASS' || d.supersedesId ? await syncTagsSafe(c) : null;
+      return { decisionId, questionIds, tagSync };
     });
     res.status(201).json(out);
+  }));
+
+  // 判断を記録した時点の値(損失回避チェックから記録したときだけある)
+  router.get('/api/journal/decisions/:id/snapshot', wrap(async (req, res) => {
+    const decisionId = vId(req.params.id, '判断ID');
+    const p = await db.withConnection((c) => jq.fetchDecisionSnapshot(c, decisionId));
+    if (!p) throw new NotFound(`判断 #${decisionId} の判断時の値はありません`);
+    res.json(p);
   }));
 
   router.post('/api/journal/decisions/:id/reviews', wrap(async (req, res) => {
@@ -528,7 +583,39 @@ module.exports = function journalRoutes({ db }) {
     res.json({ file, ...result });
   }));
 
-  //---------------------------------------------------------- 口座
+  //---------------------------------------------------------- 騰落率一覧用のタグ
+  router.post('/api/journal/tags/sync', wrap(async (req, res) => {
+    const r = await db.withConnection((c) => syncJournalTags(c));
+    onTagsChanged();
+    res.json(r);
+  }));
+
+  //---------------------------------------------------------- 口座(元手。ddl/30、src/capital.js)
+  // 株の時価は保有の計算(/api/journal/positions の totals.cashStockValue)と同じものを画面側で併記する
+  router.get('/api/journal/capital', wrap(async (req, res) => {
+    res.json(await db.withConnection((c) => capital.fetchCapital(c)));
+  }));
+
+  router.post('/api/journal/capital', wrap(async (req, res) => {
+    const b = req.body || {};
+    const v = {
+      effectiveDate: vDate(b.effectiveDate, '日付'),
+      amount: vNum(b.amount, '元手(円)', { min: 0 }),
+      note: vText(b.note, 'メモ', 500),
+    };
+    if (v.amount === null) throw new BadRequest('元手(円)を入力してください');
+    await db.withConnection((c) => capital.upsertCapital(c, v));
+    res.json({ effectiveDate: v.effectiveDate });
+  }));
+
+  router.delete('/api/journal/capital/:id', wrap(async (req, res) => {
+    const id = vId(req.params.id, '元手の記録ID');
+    const ok = await db.withConnection((c) => capital.deleteCapital(c, id));
+    if (!ok) throw new NotFound(`元手の記録 #${id} がありません`);
+    res.json({ deleted: id });
+  }));
+
+  //---------------------------------------------------------- 以前の週次記録(現金・株式評価額。今は使っていない。過去の行の参照・削除のみ)
   router.get('/api/journal/snapshots', wrap(async (req, res) => {
     const rows = await db.withConnection((c) => jq.fetchSnapshots(c, 104));
     res.json({ rows });

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>銘柄購入</title>
+<link rel="stylesheet" href="/style.css">
+<!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
+<link rel="stylesheet" href="/purchase.css?v=20261013e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 3h2l1.6 7h7L14 5H5' fill='none' stroke='%232a78d6' stroke-width='1.6' stroke-linejoin='round'/%3E%3Ccircle cx='6.5' cy='13' r='1.2' fill='%232a78d6'/%3E%3Ccircle cx='11.5' cy='13' r='1.2' fill='%232a78d6'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>銘柄購入</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/demand">需給3階層</a>
+    <a class="btn" href="/journal">売買記録</a>
+    <button class="btn" id="themeBtn" type="button">ダーク</button>
+  </header>
+
+  <div class="flash" id="flash" role="status" hidden></div>
+
+  <!-- ==================== 購入検討リスト ==================== -->
+  <section class="panel" id="listPanel">
+    <div class="row">
+      <label class="field-label">リスト
+        <select id="listSelect"></select>
+      </label>
+      <span class="list-meta" id="listMeta"></span>
+      <button class="btn" id="closeListBtn" type="button" hidden>検討を終える</button>
+      <span class="spacer"></span>
+      <label class="field-label">新しいリスト
+        <span class="inline">
+          <input type="text" id="newListName" maxlength="100" placeholder="例: 半導体の検討 2026-10">
+          <button class="btn" id="createListBtn" type="button">作成</button>
+        </span>
+      </label>
+    </div>
+
+    <div id="listBody" hidden>
+      <label class="field-label">購入検討銘柄(カンマ区切り。手で入力・削除してもよい)
+        <textarea id="codesInput" rows="2" spellcheck="false"></textarea>
+      </label>
+      <div class="row">
+        <span class="count" id="countLabel"></span>
+        <span class="dirty" id="dirtyLabel" hidden>保存していない変更があります</span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="saveBtn" type="button">リストを保存</button>
+        <button class="btn" id="fundBtn" type="button">ファンダメンタル参考情報表示</button>
+        <button class="btn" id="techBtn" type="button">テクニカル参考情報表示</button>
+      </div>
+      <div class="table-wrap short"><table id="memberTable"></table></div>
+      <p class="note" id="removedNote"></p>
+    </div>
+    <p class="empty-inline" id="listEmpty">リストを選ぶか、新しいリストを作成してください。</p>
+  </section>
+
+  <!-- ==================== b) 参考情報 ==================== -->
+  <section class="pane" id="refPane" hidden>
+    <h2 class="ref-title"><span id="refTitle">ファンダメンタル参考情報</span> <span class="h2-note" id="refNote"></span></h2>
+    <p class="legend">◎ 理想 / 〇 最低ラインは満たす / × 届かない・警戒 / ⚠ 注意書きあり / - データなし。
+      1つの項目に値が複数あるときは一番悪い記号を出しています。行をクリックすると詳細が開きます。</p>
+    <div class="table-wrap"><table id="refTable"></table></div>
+    <div class="row check-bar">
+      <span class="count" id="checkCount">0 / 5 銘柄を選択</span>
+      <button class="btn primary" id="checkBtn" type="button" disabled>損失回避チェック(別タブで開く)</button>
+      <span class="unit">左の「選ぶ」で最大5銘柄。ファンダメンタルとテクニカルを切り替えても選択は残ります</span>
+    </div>
+  </section>
+
+  <!-- ==================== 銘柄を探す ==================== -->
+  <section class="panel" id="searchPanel">
+    <nav class="tabs inner" id="searchTabs">
+      <button class="tab" data-tab="sector" aria-selected="true" type="button">33業種</button>
+      <button class="tab" data-tab="tag" aria-selected="false" type="button">タグ</button>
+    </nav>
+    <div id="sectorBox" class="sector-grid"></div>
+    <div id="tagBox" class="tag-groups" hidden></div>
+    <div class="row">
+      <button class="btn primary" id="showBtn" type="button">銘柄一覧を表示</button>
+      <button class="link" id="clearSelBtn" type="button">選択を外す</button>
+      <span class="status" id="searchStatus"></span>
+    </div>
+  </section>
+
+  <section class="pane" id="resultPane" hidden>
+    <div class="result-bar">
+      <span class="result-count" id="resultCount"></span>
+      <span class="spacer"></span>
+      <button class="btn primary" id="addBtn" type="button">購入検討銘柄に追加</button>
+    </div>
+    <div class="table-wrap"><table id="resultTable"></table></div>
+    <p class="note">
+      株価は最新の終値。時価総額は最新の決算短信の株式数(自己株式を除く)× 終値。売買代金は直近20営業日の平均。
+      52週高値からの位置は直近250営業日の分割調整後の終値の最高値との比較。
+      外す候補は追加下落スコアの上位10%(売買代金1億円/日以上・52週高値から −15% 以下の銘柄の中での順位)。印にマウスを載せると中身が出ます。
+    </p>
+  </section>
+
+</div>
+<script src="/purchase.js?v=20261013e"></script>
+</body>
+</html>

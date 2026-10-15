@@ -1,0 +1,69 @@
+/* 損失回避チェック(/purchase/check)。purchase.css の上に重ねる。色は style.css のトークンだけ */
+
+.in-num {
+  font: inherit; font-size: 13px; font-weight: 400; padding: 5px 8px; width: 150px;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.buy-item { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.buy-item input { width: 120px; }
+
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+.card h3 { font-size: 13px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.tag-chip { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-weight: 400; }
+.auto-lines { font-size: 12px; margin: 4px 0 8px; padding-left: 18px; }
+.auto-lines li { margin: 2px 0; font-variant-numeric: tabular-nums; }
+.q { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; font-size: 12px; }
+.q .q-text { color: var(--text-secondary); font-weight: 600; }
+.q textarea {
+  font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary); resize: vertical; min-height: 34px; line-height: 1.5;
+}
+.q textarea.filled { border-color: var(--series-1); }
+
+#stockTable tr.main { cursor: pointer; }
+#stockTable tr.main.open { background: var(--sel-wash); }
+#stockTable td.st-check { color: var(--critical); font-weight: 700; }
+#stockTable td.st-check::before { content: "● "; }
+tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 14px; }
+.ch-block { border-bottom: 1px dashed var(--border); padding: 6px 0 8px; }
+.ch-block:last-child { border-bottom: 0; }
+.ch-head { font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.ch-head .st { font-weight: 400; color: var(--muted); }
+.ch-head .st.need { color: var(--critical); font-weight: 700; }
+.stock-actions { display: flex; gap: 8px; margin-top: 8px; }
+.ans-count { font-size: 11px; color: var(--muted); }
+
+.save-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; position: sticky; bottom: 0;
+  background: var(--page); padding: 10px 0; border-top: 1px solid var(--border); }
+
+/* 2026-10-14 読む順の組み替え(1 前提 / 2 赤信号 / 3 金額と損切り / 4 判断メモへ) */
+.cap-grid { display: grid; grid-template-columns: max-content max-content 1fr; gap: 2px 14px; font-size: 12px; margin-bottom: 8px; }
+.cap-row { display: contents; }
+.cap-row > span { padding: 3px 6px; }
+.cap-row.key > span { background: var(--sel-wash); }
+.cap-label { color: var(--text-secondary); }
+.cap-value { text-align: right; font-variant-numeric: tabular-nums; }
+.cap-note { color: var(--muted); }
+.semi-line { font-size: 12px; margin: 6px 0 2px; }
+.hl { background: var(--sel-wash); padding: 0 4px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+#flagTable td.out-cell { text-align: center; }
+#flagTable tr.main.out td.code, #flagTable tr.main.out td.name { color: var(--muted); text-decoration: line-through; }
+#sizeTable th.grp, #sizeTable td.grp { border-left: 1px solid var(--baseline); }
+#sizeTable tr.total td { border-top: 1px solid var(--baseline); background: var(--sel-wash); font-variant-numeric: tabular-nums; }
+.memo-table { font-size: 12px; border-collapse: collapse; }
+.memo-table td { padding: 4px 10px 4px 0; }
+.memo-actions { display: flex; gap: 8px; }
+/* 銘柄ごとの買値・株数、選ぶ形の問い(2026-10-14) */
+#buyRow .buy-item { flex-direction: row; align-items: flex-end; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+#buyRow .buy-item > span { align-self: center; min-width: 120px; }
+#buyRow .buy-item label { display: flex; flex-direction: column; gap: 3px; font-weight: 400; }
+#buyRow .buy-item input { width: 100px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary); cursor: pointer; }
+.choice:hover { background: var(--hover-wash); }
+.choice.on { background: var(--sel-wash); border-color: var(--series-1); }
+/* 買う額の合計が、まだ使っていない元手を上回るとき(背景色で示す) */
+#sizeTable tr.total td.over { background: rgba(208, 59, 59, 0.18); color: var(--critical); }
+.over-warn { font-size: 12px; margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: rgba(208, 59, 59, 0.12); color: var(--critical); }

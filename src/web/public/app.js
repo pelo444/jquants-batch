@@ -100,7 +100,8 @@
     var groups = [];
     var byMajor = {};
     tags.forEach(function (t) {
-      var key = t.majorCode || 'theme';
+      // 番号なし(THEME)でも大分類名があるもの(例: 売買記録の jnl_* タグ、ddl/28)は別のグループにする
+      var key = t.majorCode || (t.majorLabel ? 'label:' + t.majorLabel : 'theme');
       if (!byMajor[key]) {
         byMajor[key] = { key: key, label: t.majorLabel || 'テーマ(番号なし)', items: [] };
         groups.push(byMajor[key]);

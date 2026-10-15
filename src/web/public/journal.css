@@ -180,3 +180,63 @@ tr.dup td { color: var(--muted); }
 .qactions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; font-size: 12px; }
 .qactions select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary); }
 .qlinks { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 12px; }
+
+/* 判断フォーム: 銘柄の過去の売買(銘柄コードと行動の間) */
+.code-history {
+  flex: 0 1 300px; min-width: 220px; max-height: 150px; overflow: auto;
+  font-size: 11px; color: var(--text-secondary);
+  border-left: 2px solid var(--series-1); padding: 2px 0 2px 10px;
+}
+.code-history .ch-head { font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.code-history .ch-held { font-weight: 400; color: var(--text-secondary); }
+.code-history .ch-none { color: var(--muted); }
+.code-history .ch-list { list-style: none; margin: 0; padding: 0; }
+.code-history .ch-list li { display: flex; gap: 6px; align-items: baseline; white-space: nowrap; line-height: 1.6; }
+.code-history .ch-date { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.code-history .ch-side { font-weight: 600; }
+.code-history .ch-side.buy { color: var(--good); }
+.code-history .ch-side.sell { color: var(--critical); }
+.code-history .ch-qty { font-variant-numeric: tabular-nums; }
+.code-history .ch-acc { color: var(--muted); }
+.code-history .ch-more { color: var(--muted); margin-top: 2px; }
+
+/* 保有タブ: 記録・判断・メモの件数 */
+.rec-cell > * + * { margin-left: 10px; }
+.rec-count { font-size: 11px; font-variant-numeric: tabular-nums; }
+.rec-count.zero { color: var(--muted); }
+
+/* 口座(元手) */
+.acc-h { font-size: 13px; margin: 0 0 6px; }
+.acc-current { font-size: 13px; }
+.acc-current b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.acc-formula { font-size: 12px; color: var(--text-secondary); margin: 6px 0 0; padding-left: 18px; }
+.hint { font-size: 11px; font-weight: 400; color: var(--muted); }
+.acc-now { display: grid; grid-template-columns: max-content max-content 1fr; gap: 2px 0; font-size: 13px; align-items: baseline; }
+.acc-now > span { padding: 3px 16px 3px 8px; }
+.acc-now .v { text-align: right; font-variant-numeric: tabular-nums; }
+/* 強調は背景だけで行う(文字の太さ・大きさは変えない。桁をほかの行と揃えるため) */
+.acc-now .key { background: var(--sel-wash); }
+.acc-now .sub { font-size: 11px; color: var(--muted); }
+tr.active-row { background: var(--sel-wash); font-weight: 600; }
+.active-badge { font-size: 10px; color: var(--series-1); border: 1px solid var(--series-1); border-radius: 3px; padding: 0 4px; margin-left: 6px; }
+.acc-old { margin-top: 18px; font-size: 12px; color: var(--muted); }
+.acc-old summary { cursor: pointer; margin-bottom: 6px; }
+
+/* 判断時の値(損失回避チェックから記録した判断。2026-10-15) */
+.snap { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--page); font-size: 12px; }
+.snap-head { color: var(--muted); margin-bottom: 6px; }
+.snap-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 3px 0; border-top: 1px dashed var(--border); }
+.snap-k { min-width: 110px; color: var(--text-secondary); }
+.snap-flag { color: var(--muted); }
+.snap-flag.hit { color: var(--critical); background: rgba(208, 59, 59, 0.10); padding: 0 4px; border-radius: 3px; }
+.snap-stop { font-variant-numeric: tabular-nums; }
+.snap-stop.chosen { background: var(--sel-wash); padding: 0 4px; border-radius: 3px; }
+.snap-item { white-space: nowrap; }
+.snap-no { color: var(--muted); margin-right: 3px; font-size: 11px; }
+.snap-answers { display: flex; flex-direction: column; gap: 2px; }
+.snap-note { color: var(--muted); font-size: 11px; margin-top: 4px; }
+.sym-good { color: var(--good); font-weight: 700; }
+.sym-ok { color: var(--text-secondary); font-weight: 700; }
+.sym-bad { color: var(--critical); font-weight: 700; }
+.sym-na { color: var(--muted); }
+.sym-warn { color: #c77700; font-size: 11px; }

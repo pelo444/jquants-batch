@@ -1,0 +1,87 @@
+/* 銘柄購入(/purchase)。色は style.css のトークンだけを使う */
+
+[hidden] { display: none !important; }
+.viz-root { color: var(--text-primary); }
+
+.row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+.field-label {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.inline { display: flex; gap: 6px; }
+select, #newListName, #codesInput {
+  font: inherit; font-size: 13px; font-weight: 400; padding: 5px 8px;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary);
+}
+#listSelect { min-width: 280px; }
+#newListName { width: 240px; }
+#codesInput { width: 100%; resize: vertical; font-variant-numeric: tabular-nums; line-height: 1.6; }
+.list-meta { font-size: 12px; color: var(--muted); padding-bottom: 6px; }
+.count { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.count.full { color: var(--critical); font-weight: 600; }
+.dirty { font-size: 12px; color: var(--critical); }
+.empty-inline { font-size: 12px; color: var(--muted); margin: 0; }
+
+.flash {
+  margin: 10px 20px 0; padding: 8px 12px; border-radius: 6px; font-size: 12px;
+  background: var(--sel-wash); color: var(--text-primary);
+}
+.flash.error { background: rgba(208, 59, 59, 0.12); color: var(--critical); }
+
+.tabs.inner { margin: 0; }
+.sector-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px 12px;
+}
+.sector-item {
+  display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 6px;
+  border-radius: 4px; cursor: pointer;
+}
+.sector-item:hover { background: var(--hover-wash); }
+.sector-item input { margin: 0; }
+.sector-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.table-wrap.short { max-height: 360px; }
+td.from { color: var(--muted); font-size: 11px; }
+tr.in-list td { color: var(--muted); }
+tr.in-list td.name { font-weight: 400; }
+.inlist-badge {
+  font-size: 10px; color: var(--series-1); border: 1px solid var(--series-1);
+  border-radius: 3px; padding: 0 4px;
+}
+.pct.up { color: var(--good); }
+.pct.down { color: var(--critical); }
+
+/* b) 参考情報 */
+.ref-title { font-size: 13px; margin: 18px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.h2-note { font-size: 11px; font-weight: 400; color: var(--muted); }
+.legend { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+#refTable th.grp { text-align: center; border-left: 1px solid var(--baseline); }
+#refTable th.no, #refTable td.sym { text-align: center; padding: 5px 4px; min-width: 30px; }
+#refTable td.sym.first, #refTable th.first { border-left: 1px solid var(--baseline); }
+#refTable tr.main { cursor: pointer; }
+#refTable tr.main.open { background: var(--sel-wash); }
+.sym-good { color: var(--good); font-weight: 700; }
+.sym-ok { color: var(--text-secondary); font-weight: 700; }
+.sym-bad { color: var(--critical); font-weight: 700; }
+.sym-na { color: var(--muted); }
+.sym-warn { color: #c77700; font-size: 11px; }
+tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 14px; }
+.d-grp { margin: 6px 0 2px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.d-item { display: grid; grid-template-columns: 26px 22px 140px 1fr; gap: 2px 8px; font-size: 12px; padding: 3px 0;
+  border-bottom: 1px dashed var(--border); }
+.d-item .d-no { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.d-item .d-label { font-weight: 600; }
+.d-lines div { font-variant-numeric: tabular-nums; }
+.d-lines .lbl { color: var(--muted); margin-right: 6px; }
+.d-warn { color: #c77700; }
+.d-asof { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+/* 外す候補(追加下落スコアの上位10%) */
+.avoid-badge {
+  font-size: 10px; font-weight: 600; color: var(--critical); border: 1px solid var(--critical);
+  border-radius: 3px; padding: 0 4px; cursor: help;
+}
+
+.check-bar { margin-top: 10px; align-items: center; }
+#refTable th.c-sel { font-size: 11px; }

@@ -8,6 +8,8 @@
     "load:initial": "node src/loadInitial.js",
     "load:daily": "node src/loadDaily.js",
     "chart": "node src/chart.js",
+    "check": "node src/check.js",
+    "test:check": "node tests/lossChecks.test.js",
     "web": "node src/web/server.js"
   },
   "dependencies": {

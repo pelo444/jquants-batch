@@ -134,7 +134,7 @@ CREATE INDEX jnl_decision_code_ix ON jnl_decision (code, decision_date);
 COMMENT ON TABLE jnl_decision IS '判断の記録。追記のみ(トリガーでUPDATE/DELETEを拒否)。見送り(PASS)も書く';
 COMMENT ON COLUMN jnl_decision.decision_date IS '判断した日(画面の入力)。CREATED_AT との差が1日を超える行は後から書いた記録として評価ビューで印を付ける';
 COMMENT ON COLUMN jnl_decision.action IS 'BUY=新規買い、ADD=買い増し、TRIM=一部売り、SELL=全部売り、PASS=見送り(買わなかった)、HOLD=売らずに持つと決めた';
-COMMENT ON COLUMN jnl_decision.invalidation IS '何が起きたら間違いと認めるか(判断の時点で書く)';
+COMMENT ON COLUMN jnl_decision.invalidation IS '次の行動への条件(どうなったら、何をするか。判断の時点で書く。2026-10-14 に「何が起きたら間違いと認めるか」から名前を変更)';
 COMMENT ON COLUMN jnl_decision.confidence IS '確信度 1〜5';
 COMMENT ON COLUMN jnl_decision.emotion IS '判断時の状態のタグ(カンマ区切り)。例: 焦り,取り残される不安,自信,迷い';
 COMMENT ON COLUMN jnl_decision.supersedes_id IS '訂正のとき、訂正前の行。元の行は残る';

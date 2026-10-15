@@ -131,13 +131,16 @@ async function fetchImportBatches(conn, limit = 20) {
 // 約定・保有の材料
 //------------------------------------------------------------------
 
-async function fetchTrades(conn) {
+/** 約定。code を渡すとその銘柄だけ */
+async function fetchTrades(conn, { code = null } = {}) {
   const r = await conn.execute(
     `SELECT trade_id, TO_CHAR(trade_date,'YYYY-MM-DD') AS trade_date, TO_CHAR(settle_date,'YYYY-MM-DD') AS settle_date,
             code, name, account_type, trade_type, side_raw, side, position_kind, position_effect,
             qty, price, fee, tax, other_cost, settle_amount, batch_id
-     FROM jnl_trade ORDER BY trade_date, trade_id`,
-    {}, OBJ
+     FROM jnl_trade
+     WHERE (:code IS NULL OR code = :code)
+     ORDER BY trade_date, trade_id`,
+    { code }, OBJ
   );
   return r.rows.map((x) => ({
     tradeId: x.TRADE_ID, tradeDate: x.TRADE_DATE, settleDate: x.SETTLE_DATE, code: x.CODE, name: x.NAME,
@@ -145,6 +148,30 @@ async function fetchTrades(conn) {
     positionKind: x.POSITION_KIND, positionEffect: x.POSITION_EFFECT, qty: x.QTY, price: x.PRICE,
     fee: x.FEE, tax: x.TAX, otherCost: x.OTHER_COST, settleAmount: x.SETTLE_AMOUNT, batchId: x.BATCH_ID,
   }));
+}
+
+/**
+ * 銘柄ごとの判断・メモの件数(保有タブに出す)。
+ * 判断は訂正された元の行を数えない(訂正しても1件のまま)。メモは CODES(カンマ区切り)に含まれるもの。
+ * @returns {Promise<Map<string, {decisions:number, notes:number}>>}
+ */
+async function fetchRecordCounts(conn) {
+  const out = new Map();
+  const get = (code) => {
+    if (!out.has(code)) out.set(code, { decisions: 0, notes: 0 });
+    return out.get(code);
+  };
+  const d = await conn.execute(
+    `SELECT d.code, COUNT(*) AS n FROM jnl_decision d
+     WHERE NOT EXISTS (SELECT 1 FROM jnl_decision s WHERE s.supersedes_id = d.decision_id)
+     GROUP BY d.code`
+  );
+  d.rows.forEach((x) => { get(x[0]).decisions = x[1]; });
+  const n = await conn.execute(`SELECT codes FROM jnl_note WHERE codes IS NOT NULL`);
+  n.rows.forEach((x) => {
+    new Set(String(x[0]).split(',').filter(Boolean)).forEach((c) => { get(c).notes += 1; });
+  });
+  return out;
 }
 
 /** 分割(AdjFactor≠1)の日。銘柄ごとに日付順 */
@@ -237,6 +264,14 @@ async function insertReview(conn, v) {
   return r.outBinds.id[0];
 }
 
+/** 判断を記録した時点の値(損失回避チェックから記録したときだけある。ddl/29 の JNL_DECISION_SNAPSHOT) */
+async function fetchDecisionSnapshot(conn, decisionId) {
+  const r = await conn.execute(
+    `SELECT payload FROM jnl_decision_snapshot WHERE decision_id = :id`,
+    { id: decisionId }, { ...OBJ, fetchInfo: { PAYLOAD: { type: require('oracledb').STRING } } });
+  return r.rows.length ? JSON.parse(r.rows[0].PAYLOAD) : null;
+}
+
 /** 判断の一覧(評価ビューの値と振り返りを付ける) */
 async function fetchDecisions(conn, { limit = 200, code = null } = {}) {
   const r = await conn.execute(
@@ -245,7 +280,8 @@ async function fetchDecisions(conn, { limit = 200, code = null } = {}) {
             d.invalidation, d.confidence, d.planned_stop_pct, d.size_note, d.emotion, d.supersedes_id, d.created_at,
             e.late_entry, e.is_superseded, TO_CHAR(e.base_date,'YYYY-MM-DD') AS base_date, e.base_close,
             e.vol_20d_pct, e.ret_20d_pre_pct, e.dd_250d_pct, e.turnover_20d_oku,
-            e.ret_20d_pct, e.topix_20d_pct, e.exr_20d_pct, e.ret_60d_pct, e.topix_60d_pct, e.exr_60d_pct
+            e.ret_20d_pct, e.topix_20d_pct, e.exr_20d_pct, e.ret_60d_pct, e.topix_60d_pct, e.exr_60d_pct,
+            CASE WHEN EXISTS (SELECT 1 FROM jnl_decision_snapshot s WHERE s.decision_id = d.decision_id) THEN 'Y' END AS has_snap
      FROM (SELECT * FROM jnl_decision
            WHERE (:code IS NULL OR code = :code)
            ORDER BY decision_date DESC, decision_id DESC FETCH FIRST :n ROWS ONLY) d
@@ -279,6 +315,7 @@ async function fetchDecisions(conn, { limit = 200, code = null } = {}) {
     confidence: x.CONFIDENCE, plannedStopPct: x.PLANNED_STOP_PCT, sizeNote: x.SIZE_NOTE, emotion: x.EMOTION,
     supersedesId: x.SUPERSEDES_ID, createdAt: ts(x.CREATED_AT),
     lateEntry: x.LATE_ENTRY === 'Y', superseded: x.IS_SUPERSEDED === 'Y',
+    hasSnapshot: x.HAS_SNAP === 'Y',
     eval: {
       baseDate: x.BASE_DATE, baseClose: x.BASE_CLOSE, vol20: x.VOL_20D_PCT, ret20Pre: x.RET_20D_PRE_PCT,
       dd250: x.DD_250D_PCT, turnover20: x.TURNOVER_20D_OKU,
@@ -585,8 +622,8 @@ async function noteExists(conn, id) {
 
 module.exports = {
   ACTIONS, REASONS, SOURCES, VERDICTS, ASSIGNEES, Q_STATUSES,
-  importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, lookupCode,
-  insertDecision, insertReview, fetchDecisions, decisionExists,
+  importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, lookupCode, fetchRecordCounts,
+  insertDecision, insertReview, fetchDecisions, decisionExists, fetchDecisionSnapshot,
   insertNote, updateNote, deleteNote, deleteImage, fetchNotes, fetchImage, updateTranscription, exportUntranscribed,
   upsertSnapshot, deleteSnapshot, fetchSnapshots,
   fetchQuestions, fetchQuestionLinks, insertQuestion, updateQuestion, questionExists, noteExists,

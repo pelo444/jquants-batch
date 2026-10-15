@@ -111,23 +111,27 @@
     Object.keys(panes).forEach(function (k) { $(panes[k]).hidden = k !== name; });
     if (!loaded[name]) {
       loaded[name] = true;
-      ({ positions: loadPositions, decisions: loadDecisions, notes: loadNotes, questions: loadQuestions, import: loadImports, account: loadSnapshots })[name]();
+      ({ positions: loadPositions, decisions: loadDecisions, notes: loadNotes, questions: loadQuestions, import: loadImports, account: loadAccount })[name]();
     }
     try { history.replaceState(null, '', '#' + name); } catch (e) { /* noop */ }
   }
 
   //------------------------------------------------------------------ 銘柄コードの確認
-  function attachLookup(input, out) {
+  function attachLookup(input, out, onResult) {
     var timer = null;
     function run() {
       var v = input.value.trim();
-      if (!v) { out.textContent = ''; out.className = 'lookup'; return; }
+      if (!v) { out.textContent = ''; out.className = 'lookup'; if (onResult) onResult(null); return; }
       api('GET', '/api/journal/lookup?code=' + encodeURIComponent(v)).then(function (r) {
+        if (input.value.trim() !== v) return;   // 打ち直されていたら古い結果は捨てる
         out.textContent = r.name + (r.delisted ? '(上場廃止)' : '') + ' ・ ' + (r.sector || '');
         out.className = 'lookup';
+        if (onResult) onResult(r.code);
       }).catch(function (e) {
+        if (input.value.trim() !== v) return;
         out.textContent = e.message;
         out.className = 'lookup bad';
+        if (onResult) onResult(null);
       });
     }
     input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 400); });
@@ -151,16 +155,15 @@
 
   function renderPositions(r) {
     var t = r.totals;
-    var snap = r.snapshot;
+    var cap = r.capital;
     var html = '<span>現物の評価額 <b>' + yen(t.cashStockValue) + '</b> 円</span>' +
       '<span>取得額 <b>' + yen(t.cashStockCost) + '</b> 円</span>' +
       '<span>含み損益 ' + signed(t.cashStockValue - t.cashStockCost, 0, ' 円') + '</span>';
-    if (snap && snap.cash !== null) {
-      var total = (t.cashStockValue || 0) + snap.cash;
-      html += '<span>投資比率 <b>' + (total > 0 ? (t.cashStockValue / total * 100).toFixed(1) : '—') + '%</b>' +
-        '(現金は ' + esc(snap.snapDate) + ' の記録 ' + yen(snap.cash) + ' 円)</span>';
+    if (cap && cap.current) {
+      html += '<span>まだ使っていない元手 <b>' + yen(cap.unused) + '</b> 円(元手 ' + yen(cap.current.amount) + ' 円 − 株に入れた正味の額 ' +
+        yen(cap.netInvested) + ' 円)</span>';
     } else {
-      html += '<span class="pending">投資比率は「口座」タブで現金を記録すると出ます</span>';
+      html += '<span class="pending">「口座」タブで元手を記録すると、まだ使っていない元手が出ます</span>';
     }
     $('posSummary').innerHTML = html;
 
@@ -177,7 +180,7 @@
       $('posTable').innerHTML =
         '<thead><tr><th>口座</th><th>種別</th><th>コード</th><th>銘柄</th><th class="num-col">数量</th>' +
         '<th class="num-col">平均取得単価</th><th class="num-col">終値</th><th>終値の日</th>' +
-        '<th class="num-col">評価額</th><th class="num-col">含み損益</th><th class="num-col">損益率</th><th>保有開始</th><th></th></tr></thead><tbody>' +
+        '<th class="num-col">評価額</th><th class="num-col">含み損益</th><th class="num-col">損益率</th><th>保有開始</th><th>判断・メモ</th></tr></thead><tbody>' +
         r.positions.map(function (p) {
           return '<tr><td>' + esc(p.account) + '</td><td class="kind">' + esc(LABELS.kind[p.kind]) + '</td>' +
             '<td class="code">' + esc(short(p.code)) + '</td><td class="name">' + esc(p.name || '') +
@@ -186,7 +189,8 @@
             '<td class="num-col">' + num(p.close, 1) + '</td><td class="dim">' + esc(p.closeDate || '—') + '</td>' +
             '<td class="num-col">' + yen(p.value) + '</td><td class="num-col">' + signed(p.pnl, 0) + '</td>' +
             '<td class="num-col">' + signed(p.pnlPct, 1, '%') + '</td><td class="dim">' + esc(p.firstDate) + '</td>' +
-            '<td><button class="link" data-decide="' + esc(p.code) + '" type="button">判断を記録</button></td></tr>';
+            '<td class="rec-cell"><button class="link" data-decide="' + esc(p.code) + '" type="button" title="この銘柄の判断を記録する">記録</button>' +
+            recCount('decisions', p.code, p.records.decisions, '判断') + recCount('notes', p.code, p.records.notes, 'メモ') + '</td></tr>';
         }).join('') + '</tbody>';
     }
 
@@ -199,6 +203,13 @@
             (s.unknown ? '<span class="neg">' + s.unknown + '</span>' : '0') + '</td></tr>';
         }).join('') + '</tbody>'
       : '<tbody><tr><td class="dim">まだ売りの約定がありません</td></tr></tbody>';
+  }
+
+  /** 保有の行の「判断 n」「メモ n」。0件は薄く出すだけ(押せない) */
+  function recCount(kind, code, n, label) {
+    if (!n) return '<span class="rec-count zero">' + label + ' 0</span>';
+    return '<button class="link rec-count" type="button" data-goto-' + kind + '="' + esc(code) + '" title="この銘柄の' +
+      label + 'を一覧で見る">' + label + ' ' + n + '</button>';
   }
 
   async function loadTrades() {
@@ -220,6 +231,35 @@
     }
   }
 
+  //------------------------------------------------------------------ 騰落率一覧用のタグ
+  var TAG_LABELS = { jnl_held: '保有中', jnl_held_past: '過去に保有', jnl_passed: '見送った銘柄' };
+
+  /** タグの付け直しの結果を1行にする。エラーや未登録があれば isError */
+  function tagSyncText(r) {
+    if (!r) return { text: '', isError: false };
+    if (r.error) return { text: 'タグの更新に失敗しました: ' + r.error, isError: true };
+    var parts = r.tags.map(function (t) {
+      var diff = [];
+      if (t.added) diff.push('+' + t.added);
+      if (t.removed) diff.push('−' + t.removed);
+      return (TAG_LABELS[t.tag] || t.tag) + ' ' + t.count + '銘柄' + (diff.length ? '(' + diff.join(' ') + ')' : '') +
+        (t.missing.length ? '・マスタに無い ' + t.missing.join(',') : '');
+    });
+    if (r.skipped.length) parts.push('未登録のタグ: ' + r.skipped.join(', ') + '(ddl/28 を流してください)');
+    return { text: 'タグ: ' + parts.join(' / '), isError: r.skipped.length > 0 };
+  }
+
+  async function syncTags() {
+    setStatus('syncTagsStatus', '更新中…');
+    try {
+      var r = await api('POST', '/api/journal/tags/sync');
+      var t = tagSyncText(r);
+      setStatus('syncTagsStatus', t.text, t.isError);
+    } catch (e) {
+      setStatus('syncTagsStatus', e.message, true);
+    }
+  }
+
   //================================================================== 判断
   function initDecisionForm() {
     var f = $('decisionForm');
@@ -238,8 +278,49 @@
       var b = ev.target.closest('[data-emotion]');
       if (b) b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
     });
-    attachLookup(f.elements.code, f.querySelector('[data-lookup-for="code"]'));
+    attachLookup(f.elements.code, f.querySelector('[data-lookup-for="code"]'), showCodeHistory);
     f.addEventListener('submit', submitDecision);
+  }
+
+  /**
+   * 判断を書くときに、その銘柄の過去の売買と今の保有を、銘柄コードと行動の間に出す。
+   * 約定が無ければ「売買はまだありません」と出す(見送り・新規の判断でも、無いことが分かるように)。
+   */
+  var historySeq = 0;
+  async function showCodeHistory(code) {
+    var box = $('codeHistory');
+    var seq = ++historySeq;
+    if (!code) { box.hidden = true; box.innerHTML = ''; return; }
+    try {
+      var r = await api('GET', '/api/journal/code-history?code=' + encodeURIComponent(code));
+      if (seq !== historySeq) return;
+      box.hidden = false;
+      if (!r.total) {
+        box.innerHTML = '<div class="ch-head">売買記録</div><div class="ch-none">この銘柄の売買はまだありません</div>';
+        return;
+      }
+      var held = r.positions.length
+        ? r.positions.map(function (p) {
+          return esc(p.account) + (p.kind !== 'CASH' ? '・' + esc(LABELS.kind[p.kind]) : '') + ' ' + num(p.qty) + '株' +
+            '(平均 ' + num(p.avgCost, 1) + ')';
+        }).join('、')
+        : 'いまは保有なし';
+      var shown = r.trades.slice(0, 8);
+      box.innerHTML = '<div class="ch-head">売買記録 ' + r.total + '件 ・ <span class="ch-held">' + held + '</span></div>' +
+        '<ul class="ch-list">' + shown.map(function (t) {
+          var dir = t.side === 'B' ? 'buy' : 'sell';
+          var noPrice = t.positionEffect === 'DEPOSIT' || t.positionEffect === 'WITHDRAW';
+          return '<li><span class="ch-date">' + esc(t.tradeDate) + '</span>' +
+            '<span class="ch-side ' + dir + '">' + esc(t.sideRaw || (t.side === 'B' ? '買' : '売')) + '</span>' +
+            '<span class="ch-qty">' + num(t.qty) + '株' + (noPrice ? '' : ' @' + num(t.price, t.price % 1 ? 1 : 0)) + '</span>' +
+            '<span class="ch-acc">' + esc(t.accountType || '') + '</span></li>';
+        }).join('') + '</ul>' +
+        (r.total > shown.length ? '<div class="ch-more">ほか ' + (r.total - shown.length) + '件(最初の売買 ' + esc(r.firstDate) + ')</div>' : '');
+    } catch (e) {
+      if (seq !== historySeq) return;
+      box.hidden = false;
+      box.innerHTML = '<div class="ch-none">売買記録を読めませんでした: ' + esc(e.message) + '</div>';
+    }
   }
 
   var supersedesId = null;
@@ -254,6 +335,40 @@
     $('cancelSupersede').onclick = function () { setSupersede(null); };
   }
 
+  /**
+   * 損失回避チェック(/purchase/check)の「判断メモへ」「見送りとして記録」から開いたとき。
+   * URL の値をフォームに入れ、記録した直後に、その時点の値(F・T・チェック)を /api/purchase/snapshot で残す。
+   */
+  var fromCheck = null;
+  function applyFromCheck() {
+    var q = new URLSearchParams(location.search);
+    if (q.get('from') !== 'check' || !Number(q.get('list'))) return;
+    fromCheck = { listId: Number(q.get('list')), runId: Number(q.get('run')) || null, listName: q.get('listName') || '' };
+    showTab('decisions');
+    var f = $('decisionForm');
+    var set = function (name, v) { if (v !== null && v !== undefined && v !== '') f.elements[name].value = v; };
+    set('code', q.get('code'));
+    set('action', q.get('action'));
+    set('ideaSource', 'OWN_SCREEN');
+    set('reasonText', q.get('reason'));
+    set('invalidation', q.get('inv'));
+    set('plannedStopPct', q.get('stop'));
+    set('sizeNote', q.get('size'));
+    f.elements.code.dispatchEvent(new Event('blur'));   // 銘柄名と売買記録を出す
+    var b = $('fromCheckBanner');
+    b.hidden = false;
+    b.innerHTML = '損失回避チェック(リスト「' + esc(fromCheck.listName) + '」' + (fromCheck.runId ? '、記録 #' + fromCheck.runId : '') +
+      ')から開きました。記録すると、その時点のファンダメンタル・テクニカル・チェックの値も残します。 ' +
+      '<button class="link" type="button" id="cancelFromCheck">値を残さない</button>';
+    $('cancelFromCheck').onclick = clearFromCheck;
+    f.scrollIntoView({ block: 'start' });
+  }
+  function clearFromCheck() {
+    fromCheck = null;
+    $('fromCheckBanner').hidden = true;
+    history.replaceState(null, '', '/journal#decisions');
+  }
+
   async function submitDecision(ev) {
     ev.preventDefault();
     var f = ev.target;
@@ -266,13 +381,31 @@
     try {
       var r = await api('POST', '/api/journal/decisions', d);
       setStatus('decisionStatus', '');
-      flash('判断 #' + r.decisionId + ' を記録しました' + (r.questionIds.length ? '(調べたいこと ' + r.questionIds.length + '件)' : ''));
+      var dts = tagSyncText(r.tagSync);
+      var snapText = '';
+      var snapErr = false;
+      if (fromCheck) {
+        setStatus('decisionStatus', '判断時の値を残しています…');
+        try {
+          var sr = await api('POST', '/api/purchase/snapshot', { decisionId: r.decisionId, listId: fromCheck.listId, runId: fromCheck.runId });
+          snapText = '。判断時の値を残しました(株価 ' + (sr.asOf || '—') + ' 時点)';
+        } catch (e2) {
+          snapText = '。判断時の値は残せませんでした: ' + e2.message;
+          snapErr = true;
+        }
+        setStatus('decisionStatus', '');
+        clearFromCheck();
+      }
+      flash('判断 #' + r.decisionId + ' を記録しました' + (r.questionIds.length ? '(調べたいこと ' + r.questionIds.length + '件)' : '') +
+        (dts.text ? '。' + dts.text : '') + snapText, dts.isError || snapErr);
       pendingQ.decision = [];
       renderPendingQ('decision');
+      loaded.positions = false;   // 保有タブの判断・メモの件数を、次に開いたときに取り直す
       if (r.questionIds.length) refreshQuestionMeta();
       f.reset();
       f.elements.decisionDate.value = meta.today;
       f.querySelector('[data-lookup-for="code"]').textContent = '';
+      showCodeHistory(null);
       document.querySelectorAll('#emotionChips .chip').forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
       setSupersede(null);
       loadDecisions();
@@ -333,19 +466,96 @@
         (d.lateEntry ? '<span class="flag late" title="判断した日より2日以上あとに書いた記録">後から記録</span>' : '') +
         '</div>' +
         '<div class="dbody">' + esc(d.reasonText) + '</div>' +
-        (d.invalidation ? '<div class="dmeta"><span><span class="k">間違いと認める条件</span>' + esc(d.invalidation) + '</span></div>' : '') +
+        (d.invalidation ? '<div class="dmeta"><span><span class="k">次の行動への条件</span>' + esc(d.invalidation) + '</span></div>' : '') +
         '<div class="dmeta">' + metaBits.join('') + '</div>' +
         evalHtml(d.eval) +
         (d.reviews.length ? '<div class="reviews">' + d.reviews.map(function (v) {
           return '<div class="review"><span class="verdict">' + esc(v.reviewDate) + ' ' + esc(LABELS.verdict[v.reasonVerdict]) + '</span>' +
             esc(v.outcomeNote || '') + (v.lesson ? '<br><span class="pending">教訓: </span>' + esc(v.lesson) : '') + '</div>';
         }).join('') + '</div>' : '') +
-        '<div class="dactions"><button class="link" type="button" data-review="' + d.decisionId + '">振り返りを書く</button>' +
+        '<div class="dactions">' +
+        (d.hasSnapshot ? '<button class="link" type="button" data-snap="' + d.decisionId + '">判断時の値</button>' : '') +
+        '<button class="link" type="button" data-review="' + d.decisionId + '">振り返りを書く</button>' +
         '<button class="link" type="button" data-supersede="' + d.decisionId + '">訂正する</button>' +
         '<button class="link" type="button" data-q-add="decision:' + d.decisionId + ':' + esc(d.code) + '">調べたいことを追加</button>' +
         qLinkHtml('decision', d.decisionId) + '</div>' +
-        '<div class="review-slot"></div></div>';
+        '<div class="snap-slot"></div><div class="review-slot"></div></div>';
     }).join('');
+  }
+
+  //------------------------------------------------------------------ 判断時の値(損失回避チェックから記録したとき)
+  var SYM = { good: '◎', ok: '〇', bad: '×', na: '-' };
+  var ANSWER_LABEL = { 'P-SEMI': '半導体の銘柄数', 'S-SIZE': 'この株数で買うか', 'S-STOP': '損切り' };
+
+  async function toggleSnapshot(card, id) {
+    var slot = card.querySelector('.snap-slot');
+    if (slot.innerHTML) { slot.innerHTML = ''; return; }
+    slot.innerHTML = '<div class="snap"><span class="pending">読み込み中…</span></div>';
+    try {
+      var p = await api('GET', '/api/journal/decisions/' + id + '/snapshot');
+      slot.innerHTML = snapshotHtml(p);
+    } catch (e) {
+      slot.innerHTML = '<div class="snap"><span class="status error">' + esc(e.message) + '</span></div>';
+    }
+  }
+
+  function symItems(items) {
+    return items.map(function (it) {
+      return '<span class="snap-item" title="' + esc(it.warn || '') + '"><span class="snap-no">' + esc(it.id || it.no) + '</span>' +
+        esc(it.label) + ' <span class="sym-' + esc(it.level) + '">' + (SYM[it.level] || '-') + '</span>' +
+        (it.warn ? '<span class="sym-warn">⚠</span>' : '') + '</span>';
+    }).join('');
+  }
+
+  function snapshotHtml(p) {
+    var c = p.check || {};
+    var stopAns = c.answers ? c.answers['S-STOP'] : null;
+    var h = '<div class="snap">';
+    h += '<div class="snap-head">株価 ' + esc(c.asOf || '—') + ' 時点(終値 ' + num(c.lastClose, c.lastClose % 1 ? 1 : 0) + '円)' +
+      (p.list ? ' ・ リスト「' + esc(p.list.name) + '」' : '') + (p.run ? ' ・ チェックの記録 #' + p.run.runId : '') +
+      ' ・ 記録 ' + esc((p.savedAt || '').slice(0, 10)) + '</div>';
+
+    // 赤信号
+    h += '<div class="snap-row"><span class="snap-k">赤信号</span>' + (c.flags || []).map(function (f) {
+      return '<span class="snap-flag' + (f.hit ? ' hit' : '') + '">' + esc(f.label) + (f.hit ? ' 要確認' : ' -') + '</span>';
+    }).join('') + (c.excluded ? '<span class="snap-flag hit">「外す」にした</span>' : '') + '</div>';
+
+    // 金額と損切り価格
+    var buyTxt = num(c.buy, c.buy % 1 ? 1 : 0) + '円' + (c.buyIsDefault ? '(終値)' : '(指定)');
+    h += '<div class="snap-row"><span class="snap-k">損切り価格</span>' +
+      '<span>買値 ' + buyTxt + (c.shares ? ' × ' + num(c.shares) + '株 = ' + num((c.yen || 0) / 10000, 1) + '万円' : '') + '</span>' +
+      (c.stops || []).map(function (s) {
+        var chosen = stopAns === s.pct + '%';
+        return '<span class="snap-stop' + (chosen ? ' chosen' : '') + '">' + s.pct + '%: ' + num(s.price, s.price % 1 ? 1 : 0) + '円' +
+          (s.lossYen != null ? '(損失 ' + num(s.lossYen / 10000, 1) + '万円)' : '') + (chosen ? ' ← 選んだ' : '') + '</span>';
+      }).join('') + (stopAns === '置かない' ? '<span class="snap-stop chosen">損切りは置かない</span>' : '') + '</div>';
+
+    h += '<div class="snap-row"><span class="snap-k">値動き</span>' +
+      '<span>ふつうの1週の動き ' + (c.vol13 != null ? num(c.vol13, 1) + '%' : '—') + '</span>' +
+      '<span>高値から ' + signed(c.dd250, 1, '%') + '</span><span>20営業日 ' + signed(c.ret20d, 1, '%') + '</span>' +
+      '<span>下方修正 ' + (c.downRevisions && c.downRevisions.length ? c.downRevisions.map(function (r) { return esc(r.discDate); }).join('、') : 'なし') + '</span></div>';
+
+    // F・T
+    var f = p.F && p.F.items ? p.F.items : [];
+    ['F1', 'F2', 'F3'].forEach(function (g) {
+      var its = f.filter(function (it) { return it.group === g; });
+      if (its.length) h += '<div class="snap-row"><span class="snap-k">' + g + ' ' + ({ F1: '成長', F2: '割安', F3: '収益・財務' })[g] + '</span>' + symItems(its) + '</div>';
+    });
+    if (p.T && p.T.items) h += '<div class="snap-row"><span class="snap-k">T 値動き・需給</span>' + symItems(p.T.items) + '</div>';
+
+    // 答え
+    var ans = c.answers || {};
+    var flagLabel = {};
+    (c.flags || []).forEach(function (fl) { flagLabel['R-' + fl.key] = fl.label; });
+    var keys = Object.keys(ans).filter(function (k) { return k !== 'R-OUT'; });
+    if (keys.length) {
+      h += '<div class="snap-row"><span class="snap-k">チェックの答え</span><span class="snap-answers">' + keys.map(function (k) {
+        var q = k.replace(/^ALL:/, '');
+        return '<span>' + esc(ANSWER_LABEL[q] || flagLabel[q] || q) + ': ' + esc(ans[k]) + '</span>';
+      }).join('') + '</span></div>';
+    }
+    h += '<div class="snap-note">⚠ にマウスを重ねると注意の中身が出ます。値は記録した時点のもので、その後の決算・株価では変わりません。</div>';
+    return h + '</div>';
   }
 
   function openReviewForm(card, id) {
@@ -381,6 +591,7 @@
     var f = $('decisionForm');
     f.elements.decisionDate.value = d.decisionDate;
     f.elements.code.value = short(d.code);
+    f.elements.code.dispatchEvent(new Event('blur'));
     f.elements.action.value = d.action;
     f.elements.reasonCat.value = d.reasonCat;
     f.elements.ideaSource.value = d.ideaSource || '';
@@ -504,6 +715,7 @@
         flash('メモ #' + r.noteId + ' を保存しました' + (r.questionIds.length ? '(調べたいこと ' + r.questionIds.length + '件)' : ''));
       }
       if (d.questions.length) refreshQuestionMeta();
+      loaded.positions = false;
       pendingQ.note = [];
       renderPendingQ('note');
       setStatus('noteStatus', '');
@@ -606,7 +818,11 @@
     var box = document.querySelector('[data-qinline="' + kind + '"]');
     var text = box.querySelector('.qinline-text');
     var v = text.value.trim();
-    if (!v) { text.focus(); return; }
+    if (!v) {
+      flash('調べたいことを入力してから「追加」を押してください', true);
+      text.focus();
+      return;
+    }
     pendingQ[kind].push({ question: v, assignee: box.querySelector('.qinline-assignee').value });
     text.value = '';
     renderPendingQ(kind);
@@ -796,7 +1012,8 @@
       var r = await api('POST', '/api/journal/import', { fileName: importBuffer.name, dataBase64: importBuffer.b64, commit: commit });
       setStatus('importStatus', '');
       if (commit) {
-        flash(r.inserted + '件を取り込みました(重複 ' + r.duplicate + '件は飛ばしました)');
+        var ts = tagSyncText(r.tagSync);
+        flash(r.inserted + '件を取り込みました(重複 ' + r.duplicate + '件は飛ばしました)' + (ts.text ? '。' + ts.text : ''), ts.isError);
         importBuffer = null;
         $('csvFile').value = '';
         $('importPreview').innerHTML = '';
@@ -859,50 +1076,91 @@
     }
   }
 
-  //================================================================== 口座
-  function initSnapForm() {
-    var f = $('snapForm');
-    f.elements.snapDate.value = meta.today;
-    f.elements.snapDate.max = meta.today;
+  //================================================================== 口座(元手。src/capital.js)
+  function initCapitalForm() {
+    var f = $('capForm');
+    f.elements.effectiveDate.value = meta.today;
+    f.elements.effectiveDate.max = meta.today;
     f.addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      setStatus('snapStatus', '保存中…');
+      setStatus('capStatus', '保存中…');
       try {
-        await api('POST', '/api/journal/snapshots', formData(f));
-        setStatus('snapStatus', '');
-        flash('記録しました');
-        loadSnapshots();
+        await api('POST', '/api/journal/capital', formData(f));
+        setStatus('capStatus', '');
+        flash('元手を記録しました');
+        loadAccount();
         loaded.positions = false;
       } catch (e) {
-        setStatus('snapStatus', e.message, true);
-      }
-    });
-    $('fillStockBtn').addEventListener('click', async function () {
-      try {
-        var r = lastPositions || await api('GET', '/api/journal/positions');
-        lastPositions = r;
-        f.elements.stock.value = Math.round(r.totals.cashStockValue);
-      } catch (e) {
-        flash(e.message, true);
+        setStatus('capStatus', e.message, true);
       }
     });
   }
 
-  async function loadSnapshots() {
+  async function loadAccount() {
+    var cap;
+    try {
+      cap = await api('GET', '/api/journal/capital');
+    } catch (e) {
+      $('capCurrent').textContent = '元手を読み込めませんでした: ' + e.message +
+        '(ddl/30_journal_capital.sql を実行していない可能性があります)';
+      $('capNow').innerHTML = '';
+      $('capTable').innerHTML = '';
+      loadOldSnapshots();
+      return;
+    }
+    var cur = cap.current;
+    $('capCurrent').innerHTML = cur
+      ? '元手 <b>' + yen(cur.amount) + '</b> 円(' + esc(cur.effectiveDate) + ' から)'
+      : '<span class="pending">元手がまだ記録されていません。下の欄で記録してください</span>';
+
+    // 株の時価は保有の計算と同じもの(参考)
+    var stockValue = null;
+    try {
+      var r = lastPositions || await api('GET', '/api/journal/positions');
+      lastPositions = r;
+      stockValue = r.totals.cashStockValue;
+    } catch (e) { /* 時価が出なくても他は出す */ }
+
+    var fl = cap.flows;
+    $('capNowNote').textContent = fl.firstTradeDate ? '約定 ' + fl.firstTradeDate + '〜' + fl.lastTradeDate + '(現物のみ)' : '約定がまだありません';
+    $('capNow').innerHTML = '<div class="acc-now">' +
+      '<span>取得額の累計</span><span class="v">' + yen(fl.buyTotal) + ' 円</span><span class="sub">買付 ' + fl.buyCount + '件の受渡金額</span>' +
+      '<span>売却額の累計</span><span class="v">' + yen(fl.sellTotal) + ' 円</span><span class="sub">売付 ' + fl.sellCount + '件の受渡金額</span>' +
+      '<span>株に入れた正味の額</span><span class="v">' + yen(cap.netInvested) + ' 円</span><span class="sub">取得額の累計 − 売却額の累計</span>' +
+      '<span class="key">まだ使っていない元手</span><span class="v key">' + (cap.unused === null ? '—' : yen(cap.unused) + ' 円') + '</span>' +
+      '<span class="sub key">元手 − 株に入れた正味の額' + (cap.unused === null ? '(元手が未記録)' : '') + '</span>' +
+      '<span>参考: 株の時価</span><span class="v">' + (stockValue === null ? '—' : yen(stockValue) + ' 円') + '</span>' +
+      '<span class="sub">今持っている現物 × 最新の終値(保有タブと同じ)</span>' +
+      '<span>参考: トータルの差益</span><span class="v">' +
+      (stockValue === null ? '—' : signed(stockValue - cap.netInvested, 0, ' 円')) + '</span>' +
+      '<span class="sub">株の時価 − 株に入れた正味の額(= 実現損益 + 含み損益。配当は含まない)</span>' +
+      '</div>';
+
+    $('capTable').innerHTML = cap.history.length
+      ? '<thead><tr><th>日付</th><th class="num-col">元手</th><th>メモ</th><th>更新</th><th></th></tr></thead><tbody>' +
+        cap.history.map(function (h, i) {
+          return '<tr' + (i === 0 ? ' class="active-row"' : '') + '><td>' + esc(h.effectiveDate) +
+            (i === 0 ? '<span class="active-badge">今有効</span>' : '') + '</td><td class="num-col">' + yen(h.amount) +
+            '</td><td class="wrap">' + esc(h.note || '') + '</td><td class="dim">' + esc(h.updatedAt || '') +
+            '</td><td><button class="link" type="button" data-del-capital="' + h.capitalId + '" data-label="' + esc(h.effectiveDate) + '">削除</button></td></tr>';
+        }).join('') + '</tbody>'
+      : '<tbody><tr><td class="dim">まだ記録がありません</td></tr></tbody>';
+    loadOldSnapshots();
+  }
+
+  /** 以前の週次記録(今は使っていない。参照と削除だけ) */
+  async function loadOldSnapshots() {
     try {
       var r = await api('GET', '/api/journal/snapshots');
       $('snapTable').innerHTML = r.rows.length
-        ? '<thead><tr><th>日付</th><th class="num-col">現金</th><th class="num-col">株式評価額</th><th class="num-col">合計</th>' +
-          '<th class="num-col">投資比率</th><th class="num-col">入金</th><th class="num-col">出金</th><th>メモ</th><th></th></tr></thead><tbody>' +
+        ? '<thead><tr><th>日付</th><th class="num-col">現金</th><th class="num-col">株式評価額</th>' +
+          '<th class="num-col">入金</th><th class="num-col">出金</th><th>メモ</th><th></th></tr></thead><tbody>' +
           r.rows.map(function (s) {
-            var tot = (s.cash || 0) + (s.stock || 0);
-            var ratio = s.cash !== null && s.stock !== null && tot > 0 ? (s.stock / tot * 100).toFixed(1) + '%' : '—';
             return '<tr><td>' + esc(s.snapDate) + '</td><td class="num-col">' + yen(s.cash) + '</td><td class="num-col">' + yen(s.stock) +
-              '</td><td class="num-col">' + yen(tot) + '</td><td class="num-col">' + ratio + '</td><td class="num-col">' + yen(s.deposit) +
-              '</td><td class="num-col">' + yen(s.withdrawal) + '</td><td class="wrap">' + esc(s.note || '') +
+              '</td><td class="num-col">' + yen(s.deposit) + '</td><td class="num-col">' + yen(s.withdrawal) + '</td><td class="wrap">' + esc(s.note || '') +
               '</td><td><button class="link" type="button" data-del-snap="' + esc(s.snapDate) + '">削除</button></td></tr>';
           }).join('') + '</tbody>'
-        : '<tbody><tr><td class="dim">まだ記録がありません</td></tr></tbody>';
+        : '<tbody><tr><td class="dim">記録はありません</td></tr></tbody>';
     } catch (e) {
       $('snapTable').innerHTML = '<tbody><tr><td class="dim">' + esc(e.message) + '</td></tr></tbody>';
     }
@@ -921,6 +1179,24 @@
       f.scrollIntoView({ behavior: 'smooth' });
       return;
     }
+    if ((el = t.closest('[data-goto-decisions]'))) {
+      $('decisionFilter').value = short(el.dataset.gotoDecisions);
+      var wasD = loaded.decisions;
+      showTab('decisions');
+      if (wasD) loadDecisions();
+      $('decisionList').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if ((el = t.closest('[data-goto-notes]'))) {
+      $('noteCode').value = short(el.dataset.gotoNotes);
+      $('noteQ').value = '';
+      var wasN = loaded.notes;
+      showTab('notes');
+      if (wasN) loadNotes();
+      $('noteList').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if ((el = t.closest('[data-snap]'))) { toggleSnapshot(el.closest('.dcard'), Number(el.dataset.snap)); return; }
     if ((el = t.closest('[data-review]'))) { openReviewForm(el.closest('.dcard'), Number(el.dataset.review)); return; }
     if ((el = t.closest('[data-supersede]'))) { startSupersede(Number(el.dataset.supersede)); return; }
     if ((el = t.closest('[data-qinline-add]'))) { addPendingQ(el.dataset.qinlineAdd); return; }
@@ -961,7 +1237,7 @@
     if ((el = t.closest('[data-edit-note]'))) { startEditNote(Number(el.dataset.editNote)); return; }
     if ((el = t.closest('[data-del-note]'))) {
       if (!window.confirm('メモ #' + el.dataset.delNote + ' を写真ごと削除します。よろしいですか?')) return;
-      try { await api('DELETE', '/api/journal/notes/' + el.dataset.delNote); flash('削除しました'); loadNotes(); } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', '/api/journal/notes/' + el.dataset.delNote); flash('削除しました'); loadNotes(); loaded.positions = false; } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-del-img]'))) {
@@ -975,9 +1251,14 @@
       try { await api('PUT', '/api/journal/images/' + id + '/transcription', { text: ta.value }); flash('文字起こしを保存しました'); } catch (e) { flash(e.message, true); }
       return;
     }
+    if ((el = t.closest('[data-del-capital]'))) {
+      if (!window.confirm(el.dataset.label + ' の元手の記録を削除します。よろしいですか?')) return;
+      try { await api('DELETE', '/api/journal/capital/' + el.dataset.delCapital); loadAccount(); loaded.positions = false; } catch (e) { flash(e.message, true); }
+      return;
+    }
     if ((el = t.closest('[data-del-snap]'))) {
       if (!window.confirm(el.dataset.delSnap + ' の記録を削除します。よろしいですか?')) return;
-      try { await api('DELETE', '/api/journal/snapshots/' + el.dataset.delSnap); loadSnapshots(); } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', '/api/journal/snapshots/' + el.dataset.delSnap); loadOldSnapshots(); } catch (e) { flash(e.message, true); }
       return;
     }
   });
@@ -1025,8 +1306,9 @@
     initDecisionForm();
     initNoteForm();
     initImport();
-    initSnapForm();
+    initCapitalForm();
     initQuestions();
+    $('syncTagsBtn').onclick = syncTags;
     refreshQuestionMeta();
     $('dataMeta').textContent = '';
     $('decisionFilterBtn').onclick = loadDecisions;
@@ -1050,6 +1332,7 @@
     };
     var tab = (location.hash || '').replace('#', '');
     showTab(['positions', 'decisions', 'notes', 'questions', 'import', 'account'].indexOf(tab) >= 0 ? tab : 'positions');
+    applyFromCheck();
   }
 
   init();
