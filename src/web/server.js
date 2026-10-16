@@ -39,6 +39,7 @@ const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
 const journalRoutes = require('./journalRoutes');
 const purchaseRoutes = require('./purchaseRoutes');
+const purchaseQuery = require('./purchaseQuery');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 
@@ -188,6 +189,33 @@ function parseTags(value, knownTags) {
 }
 
 /** 4桁の証券コードをJ-Quantsの5桁形式に揃える */
+function parseSectors(value, knownSectors) {
+  const uniq = Array.from(new Set(String(value || '').split(',').map((s) => s.trim()).filter(Boolean)));
+  if (uniq.length === 0) {
+    throw new BadRequest('33業種を1つ以上選択してください');
+  }
+  const unknown = uniq.filter((s) => !knownSectors.has(s));
+  if (unknown.length > 0) {
+    throw new BadRequest(`存在しない業種コードです: ${unknown.join(', ')}`);
+  }
+  return uniq;
+}
+
+/**
+ * 騰落率一覧・チャートの対象の指定を解釈する。
+ * all=1(全銘柄) / sectors=(33業種コード) / tags=(タグ名) のどれか1つ。
+ */
+function parseTarget(query, meta) {
+  const allStocks = query.all === '1' || query.all === 'true';
+  if (allStocks) return { allStocks, sectors: [], tags: [] };
+  if (query.sectors) {
+    const known = new Set(meta.sectors.map((s) => s.code));
+    return { allStocks, sectors: parseSectors(query.sectors, known), tags: [] };
+  }
+  const knownTags = new Set(meta.tags.map((t) => t.tagName));
+  return { allStocks, sectors: [], tags: parseTags(query.tags, knownTags) };
+}
+
 function normalizeCode(raw) {
   const c = String(raw).trim().toUpperCase();
   if (c.length === 4) return c + '0';
@@ -205,11 +233,13 @@ async function getMeta() {
   if (cached) return cached;
 
   const meta = await db.withConnection(async (conn) => {
-    const [latestDate, tags] = await Promise.all([
+    // 33業種の一覧は銘柄購入(/purchase)と同じもの(上場中・TOKYO PRO MARKET 除く・件数付き)
+    const [latestDate, tags, sectors] = await Promise.all([
       webQuery.fetchLatestPriceDate(conn),
       webQuery.fetchTags(conn),
+      purchaseQuery.fetchSectors(conn),
     ]);
-    return { latestDate, tags };
+    return { latestDate, tags, sectors };
   });
 
   cacheSet('meta', meta);
@@ -277,6 +307,7 @@ app.get('/api/meta', async (req, res, next) => {
     res.json({
       latestDate: meta.latestDate,
       tags: meta.tags,
+      sectors: meta.sectors,
       limits: {
         chartMaxCodes: CHART_MAX_CODES,
         chartMaxYears: CHART_MAX_YEARS,
@@ -288,34 +319,46 @@ app.get('/api/meta', async (req, res, next) => {
   }
 });
 
+//---------------------------------------------------------- 前営業日(期間「1日」の起点)
+app.get('/api/prev-trading-date', async (req, res, next) => {
+  try {
+    const meta = await getMeta();
+    const to = req.query.to ? parseDate(req.query.to, '終了日') : meta.latestDate;
+    const date = await withCache('prevdate:' + to, CACHE_TTL_MS, () =>
+      db.withConnection((conn) => webQuery.fetchPrevTradingDate(conn, to))
+    );
+    if (!date) throw new BadRequest(`${to} より前の営業日がありません`);
+    res.json({ to, date });
+  } catch (err) {
+    next(err);
+  }
+});
+
 //---------------------------------------------------------- 騰落率一覧
 app.get('/api/performance', async (req, res, next) => {
   try {
     const meta = await getMeta();
-    const knownTags = new Set(meta.tags.map((t) => t.tagName));
-
-    const allStocks = req.query.all === '1' || req.query.all === 'true';
-    const tags = allStocks ? [] : parseTags(req.query.tags, knownTags);
+    const { allStocks, sectors, tags } = parseTarget(req.query, meta);
     const { from, to, notice } = resolvePeriod(req.query, meta.latestDate, TABLE_MAX_YEARS);
     const minDays = parseInt0(req.query.minDays, '最低営業日数', 0, 3000, 0);
     const excludeFund = parseBool(req.query.excludeFund, true);
     const excludeDelisted = parseBool(req.query.excludeDelisted, true);
 
     const key = JSON.stringify([
-      'perf', allStocks, tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
+      'perf', allStocks, sectors.slice().sort(), tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
     ]);
     let rows = cacheGet(key);
     if (!rows) {
       rows = await db.withConnection((conn) =>
         webQuery.fetchPerformance(conn, {
-          tags, allStocks, from, to, minDays, excludeFund, excludeDelisted,
+          tags, sectors, allStocks, from, to, minDays, excludeFund, excludeDelisted,
         })
       );
       cacheSet(key, rows);
     }
 
     res.json({
-      params: { tags, allStocks, from, to, minDays, excludeFund, excludeDelisted },
+      params: { tags, sectors, allStocks, from, to, minDays, excludeFund, excludeDelisted },
       notice,
       count: rows.length,
       rows,
@@ -355,21 +398,19 @@ app.get('/chart', async (req, res, next) => {
       }
       source = `選択した${codes.length}銘柄`;
     } else {
-      const knownTags = new Set(meta.tags.map((t) => t.tagName));
-      const allStocks = req.query.all === '1' || req.query.all === 'true';
-      const tags = allStocks ? [] : parseTags(req.query.tags, knownTags);
+      const { allStocks, sectors, tags } = parseTarget(req.query, meta);
       const minDays = parseInt0(req.query.minDays, '最低営業日数', 0, 3000, 0);
       const excludeFund = parseBool(req.query.excludeFund, true);
       const excludeDelisted = parseBool(req.query.excludeDelisted, true);
 
       const key = JSON.stringify([
-        'perf', allStocks, tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
+        'perf', allStocks, sectors.slice().sort(), tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
       ]);
       let perf = cacheGet(key);
       if (!perf) {
         perf = await db.withConnection((conn) =>
           webQuery.fetchPerformance(conn, {
-            tags, allStocks, from, to, minDays, excludeFund, excludeDelisted,
+            tags, sectors, allStocks, from, to, minDays, excludeFund, excludeDelisted,
           })
         );
         cacheSet(key, perf);
@@ -382,7 +423,11 @@ app.get('/chart', async (req, res, next) => {
       const ordered = order === 'asc' ? perf.slice().reverse() : perf;
       codes = ordered.slice(0, limit).map((r) => r.code);
       source =
-        (allStocks ? '全銘柄' : `タグ: ${tags.join(' / ')}`) +
+        (allStocks
+          ? '全銘柄'
+          : sectors.length
+            ? `33業種: ${sectors.map((c) => (meta.sectors.find((s) => s.code === c) || {}).name || c).join(' / ')}`
+            : `タグ: ${tags.join(' / ')}`) +
         ` ・騰落率${order === 'asc' ? '下位' : '上位'}${codes.length}件` +
         (perf.length > codes.length ? `(全${perf.length}銘柄中)` : '');
     }

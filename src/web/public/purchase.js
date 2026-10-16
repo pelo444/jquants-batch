@@ -84,7 +84,6 @@
 
   //------------------------------------------------------------------ 初期化
   async function init() {
-    initTheme();
     bindEvents();
     try {
       meta = await api('GET', '/api/purchase/meta');
@@ -783,25 +782,6 @@
     });
   }
 
-  function initTheme() {
-    var btn = $('themeBtn');
-    var saved = null;
-    try { saved = localStorage.getItem('jqb-theme'); } catch (e) { /* noop */ }
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-    function label() {
-      var cur = document.documentElement.getAttribute('data-theme') ||
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      btn.textContent = cur === 'dark' ? 'ライト' : 'ダーク';
-      return cur;
-    }
-    label();
-    btn.addEventListener('click', function () {
-      var next = label() === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      try { localStorage.setItem('jqb-theme', next); } catch (e) { /* noop */ }
-      label();
-    });
-  }
 
   init();
 })();

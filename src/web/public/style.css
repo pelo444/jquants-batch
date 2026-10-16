@@ -1,61 +1,38 @@
 /*
- * 配色は chart.js が出力するHTMLと同じトークンを使い、
- * 一覧とグラフで見た目が地続きになるようにしている。
+ * 配色トークン(2026-10-15 ノスタルジック・レトロ案)。ライトのみ。
+ * 元にした4色: マスタード #C2A649 / アッシュパープル #8A7E8A / オリーブドラブ #6B705C / アンティークホワイト #EDF2F4。
+ * 上がった/下がった(good/critical)だけは4色に無いので、彩度を落とした緑・赤茶を足している。
+ * 各画面の CSS と src/chartHtml.js はこのトークンだけを使う(chartHtml.js には同じ値を写している)。
+ * :root に置くのは body の文字色・背景にも効かせるため。
  */
 *, *::before, *::after { box-sizing: border-box; }
 
-.viz-root {
+:root {
   color-scheme: light;
-  --surface-1: #fcfcfb;
-  --page: #f9f9f7;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --muted: #898781;
-  --grid: #e1e0d9;
-  --baseline: #c3c2b7;
-  --series-1: #2a78d6;
-  --border: rgba(11,11,11,0.10);
-  --good: #006300;
-  --good-mark: #0ca30c;
-  --critical: #d03b3b;
-  --hover-wash: rgba(11,11,11,0.04);
-  --sel-wash: rgba(42,120,214,0.08);
-}
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .viz-root {
-    color-scheme: dark;
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --muted: #898781;
-    --grid: #2c2c2a;
-    --baseline: #383835;
-    --series-1: #3987e5;
-    --border: rgba(255,255,255,0.10);
-    --good: #0ca30c;
-    --good-mark: #0ca30c;
-    --critical: #d03b3b;
-    --hover-wash: rgba(255,255,255,0.06);
-    --sel-wash: rgba(57,135,229,0.16);
-  }
-}
-:root[data-theme="dark"] .viz-root {
-  color-scheme: dark;
-  --surface-1: #1a1a19;
-  --page: #0d0d0d;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --baseline: #383835;
-  --series-1: #3987e5;
-  --border: rgba(255,255,255,0.10);
-  --good: #0ca30c;
-  --good-mark: #0ca30c;
-  --critical: #d03b3b;
-  --hover-wash: rgba(255,255,255,0.06);
-  --sel-wash: rgba(57,135,229,0.16);
+  --page: #EDF2F4;            /* アンティークホワイト */
+  --surface-1: #F7F9FA;       /* 枠の中の地(アンティークホワイトを明るく) */
+  --text-primary: #2B2D24;    /* オリーブを暗く */
+  --text-secondary: #4E5143;  /* オリーブを暗く */
+  --muted: #6D646D;           /* アッシュパープルを暗く(注記) */
+  --grid: #DCDEDB;
+  --baseline: #B9B3B9;
+  --border: rgba(138,126,138,0.30);     /* アッシュパープル 30% */
+  --hover-wash: rgba(138,126,138,0.10); /* アッシュパープル 10% */
+  --sel-wash: rgba(194,166,73,0.24);    /* マスタード 24%(強調の背景) */
+  --series-1: #6B705C;        /* オリーブドラブ(主ボタン・選んだタブ・リンク・系列1) */
+  --series-2: #8A7E8A;        /* アッシュパープル */
+  --series-3: #C2A649;        /* マスタード */
+  --series-4: #A3432F;        /* 赤茶 */
+  --on-accent: #ffffff;       /* series-1 の上の文字 */
+  --link: #A0581A;            /* 文字のリンク(「条件を変更」など)。暖色にして目立たせる(地の色とのコントラスト 4.8) */
+  --good: #4A6B3A;
+  --good-mark: #6B8A4E;
+  --critical: #A3432F;
+  --critical-wash: rgba(163,67,47,0.12);
+  --warning: #C2A649;                   /* ⚠ の枠 */
+  --warning-wash: rgba(194,166,73,0.22);
+  --warning-ink: #6E5A12;               /* ⚠ の文字(濃い辛子) */
+  --na-ink: #6D646D;
 }
 
 html, body { margin: 0; padding: 0; height: 100%; }
@@ -77,6 +54,9 @@ body {
   display: flex; align-items: center; gap: 14px;
 }
 .topbar h1 { font-size: 15px; font-weight: 600; margin: 0; }
+/* 狭い幅でもボタンと見出しは1行のまま。入りきらないときは説明(.meta)の末尾を … で省く */
+.topbar h1, .topbar .btn { white-space: nowrap; flex: none; }
+.topbar .meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meta { font-size: 12px; color: var(--text-secondary); }
 .spacer { flex: 1 1 auto; }
 
@@ -88,15 +68,18 @@ body {
   padding: 5px 10px; text-decoration: none; display: inline-block;
 }
 .btn:hover, .chip:hover { background: var(--hover-wash); }
+/* 上部バーで、いま開いている画面のリンク(背景で示す) */
+.btn[aria-current="page"] { background: var(--sel-wash); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn.primary { background: var(--series-1); color: #fff; border-color: transparent; font-weight: 600; padding: 6px 18px; }
+.btn.primary { background: var(--series-1); color: var(--on-accent); border-color: transparent; font-weight: 600; padding: 6px 18px; }
 .btn.primary:hover { filter: brightness(1.08); }
-.link { border: 0; background: none; color: var(--series-1); padding: 0; }
-.chip[aria-pressed="true"] { background: var(--series-1); color: #fff; border-color: transparent; }
+.link { border: 0; background: none; color: var(--link); padding: 0; }
+.chip[aria-pressed="true"] { background: var(--series-1); color: var(--on-accent); border-color: transparent; }
+/* 入力欄はどの画面も同じ見た目(13px・地の色の背景) */
 input[type="date"], input.num {
-  font: inherit; font-size: 12px; padding: 4px 8px;
+  font: inherit; font-size: 13px; padding: 5px 8px;
   border-radius: 6px; border: 1px solid var(--border);
-  background: var(--surface-1); color: var(--text-primary);
+  background: var(--page); color: var(--text-primary);
 }
 input.num { width: 74px; text-align: right; font-variant-numeric: tabular-nums; }
 .unit { font-size: 12px; color: var(--muted); }
@@ -145,6 +128,21 @@ input.num { width: 74px; text-align: right; font-variant-numeric: tabular-nums; 
 }
 .tag-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-left: auto; }
 .tag-item.zero .tag-name { color: var(--muted); }
+
+/* 33業種のグリッドと内側のタブ(騰落率一覧・銘柄購入で共通) */
+.tabs.inner { margin: 0; }
+.sector-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px 12px;
+}
+.sector-grid[hidden], .tag-groups[hidden] { display: none; }
+.sector-item {
+  display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 6px;
+  border-radius: 4px; cursor: pointer;
+}
+.sector-item:hover { background: var(--hover-wash); }
+.sector-item input { margin: 0; }
+.sector-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sector-grid.disabled, .tabs.inner.disabled { opacity: .35; pointer-events: none; }
 
 .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .dates { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-secondary); }
@@ -233,7 +231,41 @@ td.dim { color: var(--muted); }
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1);
 }
 
+/* ---------- 各画面で共通の部品(2026-10-16 journal/purchase/purchase-check/demand から集約) ---------- */
+/* hidden 属性は display 指定より優先する(これが無いと display:flex の部品が隠れない) */
+[hidden] { display: none !important; }
+.viz-root { color: var(--text-primary); }
+.pane h2 {
+  font-size: 13px; margin: 20px 0 8px; color: var(--text-primary);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+}
+.pane h2:first-child { margin-top: 0; }
+.h2-note { font-size: 11px; font-weight: 400; color: var(--muted); }
+/* 枠(.panel)の中の見出し */
+.panel-title { font-size: 13px; margin: 0; color: var(--text-primary); }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 12px;
+}
+.field-label {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.flash {
+  margin: 10px 20px 0; padding: 8px 12px; border-radius: 6px; font-size: 12px;
+  background: var(--sel-wash); color: var(--text-primary);
+}
+.flash.error { background: var(--critical-wash); color: var(--critical); }
+/* ◎〇×- と ⚠(参考情報・損失回避チェック・判断時の値) */
+.sym-good { color: var(--good); font-weight: 700; }
+.sym-ok { color: var(--text-secondary); font-weight: 700; }
+.sym-bad { color: var(--critical); font-weight: 700; }
+.sym-na { color: var(--muted); }
+.sym-warn { color: var(--warning-ink); font-size: 11px; }
+/* 表の行を押して開く詳細 */
+tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 14px; }
+
 @media (max-width: 720px) {
-  .panel, .pane, .tabs { margin-left: 10px; margin-right: 10px; }
+  .panel, .pane, .tabs, .flash { margin-left: 10px; margin-right: 10px; }
   .table-wrap { max-height: none; }
 }

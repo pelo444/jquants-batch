@@ -206,7 +206,7 @@
       var s = pr.semi;
       h += '<p class="semi-line">保有と今回の候補(外した銘柄を除く)を合わせた半導体(タグ120/130)の銘柄数: <span class="hl">' + s.total + '</span>' +
         '(保有 ' + s.held + '、今回の候補 ' + s.cand + (s.both ? '。うち ' + s.both + ' 銘柄は両方に入っている' : '') + ')</p>';
-      if (s.total) h += '<p class="note">半導体は、群全体の13週の騰落の振れが他の約2倍だった(事後の観察)。同じ向きに動きやすく、銘柄数を増やしても振れが減りにくい。</p>';
+      if (s.total) h += '<p class="note">半導体は、群全体の13週の騰落の振れが他の約2倍だった。同じ向きに動きやすく、銘柄数を増やしても振れが減りにくい。</p>';
       h += qHtml(ALL, pr.question);
     } else h += '<p class="note">保有の半導体の数を取得できませんでした。</p>';
     $('premiseBox').innerHTML = h;
@@ -314,7 +314,6 @@
       '<li>参考: 同じ合計額を、値動きの小さい銘柄ほど多くなるように分けたら(1 ÷ ふつうの1週の動き の比)何株になるか</li>' +
       '<li>「1週の動きの○倍」が1倍に近い損切り幅は、ふつうの値動きで当たりやすい</li>' +
       '<li>逆指値は、急落した日に損切り価格より下で売れることがある。損失はこの表より大きくなりうる</li>' +
-      '<li>検証資料: 固定幅の損切りは、13週で一番悪かった5%の銘柄の損を浅くするが、平均の成績は週あたり 0.3〜0.7pt 下がる。成績を上げる手段ではなく、最悪を浅くする手段</li>' +
       '</ul>';
     h += qHtml(ALL, sz.sizeQuestion);
     h += sz.rows.map(function (r) { return qHtml(r.code, sz.stopQuestion, short(r.code) + ' ' + (r.name || '')); }).join('');
@@ -456,7 +455,6 @@
 
   //------------------------------------------------------------------ 初期化
   async function init() {
-    initTheme();
     var q = new URLSearchParams(location.search);
     listId = Number(q.get('list'));
     codes = (q.get('codes') || '').split(/[,\s]+/).map(normCode).filter(Boolean);
@@ -511,25 +509,6 @@
     await recalc();
   }
 
-  function initTheme() {
-    var btn = $('themeBtn');
-    var saved = null;
-    try { saved = localStorage.getItem('jqb-theme'); } catch (e) { /* noop */ }
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-    function label() {
-      var cur = document.documentElement.getAttribute('data-theme') ||
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      btn.textContent = cur === 'dark' ? 'ライト' : 'ダーク';
-      return cur;
-    }
-    label();
-    btn.addEventListener('click', function () {
-      var next = label() === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      try { localStorage.setItem('jqb-theme', next); } catch (e) { /* noop */ }
-      label();
-    });
-  }
 
   init();
 })();

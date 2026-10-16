@@ -1,13 +1,7 @@
 /* 銘柄購入(/purchase)。色は style.css のトークンだけを使う */
 
-[hidden] { display: none !important; }
-.viz-root { color: var(--text-primary); }
 
 .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
-.field-label {
-  font-size: 12px; font-weight: 600; color: var(--text-secondary);
-  display: flex; flex-direction: column; gap: 4px;
-}
 .inline { display: flex; gap: 6px; }
 select, #newListName, #codesInput {
   font: inherit; font-size: 13px; font-weight: 400; padding: 5px 8px;
@@ -23,23 +17,8 @@ select, #newListName, #codesInput {
 .dirty { font-size: 12px; color: var(--critical); }
 .empty-inline { font-size: 12px; color: var(--muted); margin: 0; }
 
-.flash {
-  margin: 10px 20px 0; padding: 8px 12px; border-radius: 6px; font-size: 12px;
-  background: var(--sel-wash); color: var(--text-primary);
-}
-.flash.error { background: rgba(208, 59, 59, 0.12); color: var(--critical); }
 
-.tabs.inner { margin: 0; }
-.sector-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px 12px;
-}
-.sector-item {
-  display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 6px;
-  border-radius: 4px; cursor: pointer;
-}
-.sector-item:hover { background: var(--hover-wash); }
-.sector-item input { margin: 0; }
-.sector-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* 33業種のグリッドと内側のタブ(.tabs.inner)は style.css に移した(騰落率一覧と共通) */
 
 .table-wrap.short { max-height: 360px; }
 td.from { color: var(--muted); font-size: 11px; }
@@ -49,24 +28,15 @@ tr.in-list td.name { font-weight: 400; }
   font-size: 10px; color: var(--series-1); border: 1px solid var(--series-1);
   border-radius: 3px; padding: 0 4px;
 }
-.pct.up { color: var(--good); }
-.pct.down { color: var(--critical); }
 
 /* b) 参考情報 */
-.ref-title { font-size: 13px; margin: 18px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
-.h2-note { font-size: 11px; font-weight: 400; color: var(--muted); }
-.legend { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+.pane h2.ref-title, .ref-title { font-size: 13px; margin: 18px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.sym-legend { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
 #refTable th.grp { text-align: center; border-left: 1px solid var(--baseline); }
 #refTable th.no, #refTable td.sym { text-align: center; padding: 5px 4px; min-width: 30px; }
 #refTable td.sym.first, #refTable th.first { border-left: 1px solid var(--baseline); }
 #refTable tr.main { cursor: pointer; }
 #refTable tr.main.open { background: var(--sel-wash); }
-.sym-good { color: var(--good); font-weight: 700; }
-.sym-ok { color: var(--text-secondary); font-weight: 700; }
-.sym-bad { color: var(--critical); font-weight: 700; }
-.sym-na { color: var(--muted); }
-.sym-warn { color: #c77700; font-size: 11px; }
-tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 14px; }
 .d-grp { margin: 6px 0 2px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .d-item { display: grid; grid-template-columns: 26px 22px 140px 1fr; gap: 2px 8px; font-size: 12px; padding: 3px 0;
   border-bottom: 1px dashed var(--border); }
@@ -74,7 +44,7 @@ tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 
 .d-item .d-label { font-weight: 600; }
 .d-lines div { font-variant-numeric: tabular-nums; }
 .d-lines .lbl { color: var(--muted); margin-right: 6px; }
-.d-warn { color: #c77700; }
+.d-warn { color: var(--warning-ink); }
 .d-asof { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
 /* 外す候補(追加下落スコアの上位10%) */

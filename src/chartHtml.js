@@ -9,7 +9,7 @@
  *   ・数年後にCDNのURLが失効しても表示が壊れないようにするため
  *   ・1銘柄1系列の折れ線という単純な形なので、自前で十分に足りるため
  *
- * 配色は Anthropic のデータ可視化ガイドラインの検証済みパレットを使用。
+ * 配色は src/web/public/style.css のトークンと同じ値(2026-10-15 ノスタルジック・レトロ案)。
  * 1系列のみなので凡例は置かず、行見出しの企業名が系列名を兼ねる。
  */
 
@@ -19,52 +19,22 @@
 const STYLE = `
 *, *::before, *::after { box-sizing: border-box; }
 
-.viz-root {
+:root {
+  /* 色は src/web/public/style.css のトークンと同じ値(2026-10-15 ノスタルジック・レトロ案、ライトのみ) */
   color-scheme: light;
-  --surface-1: #fcfcfb;
-  --page: #f9f9f7;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --muted: #898781;
-  --grid: #e1e0d9;
-  --baseline: #c3c2b7;
-  --series-1: #2a78d6;
-  --border: rgba(11,11,11,0.10);
-  --good: #006300;
-  --critical: #d03b3b;
-  --hover-wash: rgba(11,11,11,0.04);
-}
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .viz-root {
-    color-scheme: dark;
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --muted: #898781;
-    --grid: #2c2c2a;
-    --baseline: #383835;
-    --series-1: #3987e5;
-    --border: rgba(255,255,255,0.10);
-    --good: #0ca30c;
-    --critical: #d03b3b;
-    --hover-wash: rgba(255,255,255,0.06);
-  }
-}
-:root[data-theme="dark"] .viz-root {
-  color-scheme: dark;
-  --surface-1: #1a1a19;
-  --page: #0d0d0d;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --baseline: #383835;
-  --series-1: #3987e5;
-  --border: rgba(255,255,255,0.10);
-  --good: #0ca30c;
-  --critical: #d03b3b;
-  --hover-wash: rgba(255,255,255,0.06);
+  --page: #EDF2F4;
+  --surface-1: #F7F9FA;
+  --text-primary: #2B2D24;
+  --text-secondary: #4E5143;
+  --muted: #6D646D;
+  --grid: #DCDEDB;
+  --baseline: #B9B3B9;
+  --border: rgba(138,126,138,0.30);
+  --hover-wash: rgba(138,126,138,0.10);
+  --series-1: #6B705C;
+  --on-accent: #ffffff;
+  --good: #4A6B3A;
+  --critical: #A3432F;
 }
 
 html, body { margin: 0; padding: 0; }
@@ -94,7 +64,7 @@ body {
   font: inherit; font-size: 12px; padding: 4px 10px; border: 0; cursor: pointer;
   background: transparent; color: var(--text-secondary);
 }
-.seg button[aria-pressed="true"] { background: var(--series-1); color: #fff; }
+.seg button[aria-pressed="true"] { background: var(--series-1); color: var(--on-accent); }
 .seg button:hover:not([aria-pressed="true"]) { background: var(--hover-wash); }
 select, .btn {
   font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 6px;
@@ -476,7 +446,8 @@ const CLIENT = `
 
     var code = document.createElement('span');
     code.className = 'row-code';
-    code.textContent = series.code;
+    // 銘柄コードは4桁で出す(5桁 67520 → 6752)
+    code.textContent = series.code && series.code.length === 5 && series.code[4] === '0' ? series.code.slice(0, 4) : series.code;
 
     var name = document.createElement('span');
     name.className = 'row-name';
@@ -664,14 +635,6 @@ const CLIENT = `
     render();
   });
 
-  document.getElementById('themeBtn').addEventListener('click', function () {
-    var cur = document.documentElement.getAttribute('data-theme');
-    var next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    this.textContent = next === 'dark' ? 'ライト' : 'ダーク';
-    redraw();
-  });
-
   var rt = null;
   window.addEventListener('resize', function () {
     clearTimeout(rt);
@@ -738,7 +701,6 @@ function buildHtml(payload) {
       </select>
     </span>
     <span class="cursor-date idle" id="cursorDate">日付にカーソル</span>
-    <button class="btn" id="themeBtn" type="button">ダーク</button>
   </header>
   <main id="charts"></main>
 </div>

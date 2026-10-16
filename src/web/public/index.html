@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>株価タグ分析</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=20261016e">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12L6 7l3 3 5-7' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -14,8 +14,10 @@
     <h1>株価タグ分析</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
+    <a class="btn" href="/" aria-current="page">騰落率一覧</a>
+    <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
-    <button class="btn" id="themeBtn" type="button">ダーク</button>
+    <a class="btn" href="/journal">売買記録</a>
   </header>
 
   <!-- ================= 条件 ================= -->
@@ -27,21 +29,29 @@
     </div>
     <div class="field">
       <div class="field-head">
-        <label>タグ<span class="req" id="tagReq">必須</span></label>
+        <label>銘柄の絞り込み<span class="req" id="tagReq">必須</span></label>
         <span class="field-actions">
           <label class="opt allstocks-opt">
             <input type="checkbox" id="optAllStocks">
-            タグ絞り込みなし(全銘柄)
+            絞り込みなし(全銘柄)
           </label>
-          <button class="link" id="tagClear" type="button">すべて解除</button>
+          <button class="link" id="tagClear" type="button">選択を外す</button>
         </span>
       </div>
+      <!-- 33業種かタグのどちらか一方で絞る(開いているタブの選択だけを使う。銘柄購入と同じ) -->
+      <nav class="tabs inner" id="targetTabs">
+        <button class="tab" data-target="sector" aria-selected="false" type="button">33業種</button>
+        <button class="tab" data-target="tag" aria-selected="true" type="button">タグ</button>
+      </nav>
+      <div id="sectorBox" class="sector-grid" hidden></div>
       <div id="tagGroups" class="tag-groups"></div>
     </div>
 
     <div class="field">
       <div class="field-head"><label>期間</label></div>
       <div class="presets" id="presets">
+        <button class="chip" type="button" data-days="1" title="前営業日の終値からの騰落率">1日</button>
+        <button class="chip" type="button" data-days="7">1週間</button>
         <button class="chip" type="button" data-months="1">1ヶ月</button>
         <button class="chip" type="button" data-months="3">3ヶ月</button>
         <button class="chip" type="button" data-months="6">6ヶ月</button>
@@ -137,11 +147,11 @@
   </section>
 
   <div class="empty" id="empty">
-    タグと期間を選んで「表示」を押してください。
+    33業種かタグと、期間を選んで「表示」を押してください。
   </div>
 
 </div>
 <!-- ?v= は app.js を更新したら上げる(静的ファイルはブラウザに1時間キャッシュされる) -->
-<script src="/app.js?v=20261008c"></script>
+<script src="/app.js?v=20261016e"></script>
 </body>
 </html>

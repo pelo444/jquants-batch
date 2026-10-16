@@ -342,31 +342,36 @@
   }
 
   //================================================================ 鮮度
+  // 画面に出す名前。サーバー側の名前(demandQuery.js の正常範囲の表のキー)は変えず、表示のときだけ補足の括弧を外す
+  function freshLabel(name) {
+    return String(name || '').replace('(出来高)', '').replace('(手動取込)', '');
+  }
+
   function renderFreshness(rows) {
     var late = rows.filter(function (r) { return r.state === 'late'; });
+    // 1つのデータ = 名前・日付・○日前 の3つのセル。広い幅では列(横並び)、狭い幅では行(縦並び)になる(demand.css)
     $('freshnessList').innerHTML = rows.map(function (r) {
-      var cls = 'fresh-item ' + (r.state === 'late' ? 'late' : r.state === 'unknown' ? 'unknown' : '');
+      var cls = 'fc' + (r.state === 'late' ? ' late' : '');
       var title = r.note +
         (r.measured && r.maxDays !== null
           ? '(実測にもとづく正常範囲: 0〜' + r.maxDays + '日)'
-          : '(正常範囲は未実測。日付だけを見てください)');
-      return '<span class="' + cls + '" title="' + esc(title) + '">' +
-        '<span class="fi-name">' + esc(r.dataName) + '</span>' +
-        '<span class="fi-date">' + (r.latest ? esc(r.latest) : na('このテーブルに1件もデータがありません')) + '</span>' +
-        '<span class="fi-days">' + (r.daysBehind === null || r.daysBehind === undefined
-          ? '' : esc(r.daysBehind) + '日前') + '</span>' +
-        (r.measured ? '' : '<span class="badge" title="公表スケジュールからの推定です。実測で確かめた範囲ではありません">目安未実測</span>') +
-        '</span>';
+          : '(正常範囲は未実測。公表スケジュールからの目安です。日付だけを見てください)');
+      var t = ' title="' + esc(title) + '"';
+      return '<span class="' + cls + ' fc-name"' + t + '>' + esc(freshLabel(r.dataName)) + '</span>' +
+        '<span class="' + cls + ' fc-date"' + t + '>' +
+          (r.latest ? esc(String(r.latest).slice(5)) : na('このテーブルに1件もデータがありません')) + '</span>' +
+        '<span class="' + cls + ' fc-days"' + t + '>' + (r.daysBehind === null || r.daysBehind === undefined
+          ? '' : esc(r.daysBehind) + '日前') + '</span>';
     }).join('');
 
     var head = $('freshness').querySelector('.freshness-head span');
     if (late.length > 0) {
       head.innerHTML = '<strong class="pct down">' + late.length +
         '件が実測の正常範囲より遅れています(' +
-        esc(late.map(function (r) { return r.dataName; }).join('・')) +
+        esc(late.map(function (r) { return freshLabel(r.dataName); }).join('・')) +
         ')。シグナルを読む前に取込を確認してください。</strong>';
     } else {
-      head.textContent = 'シグナルは最新値で判定します。取込が止まっていると静かに誤判定します。';
+      head.textContent = '';
     }
   }
 
@@ -388,8 +393,6 @@
     $('calib').innerHTML =
       '<div>いま使っているしきい値(最後に実データで較正したのは <strong>' +
       esc(meta.calibratedAt) + '</strong>)。' +
-      '較正クエリ(05〜11)はこの画面に出していません。全期間の分位を使っていて' +
-      'その時点では知り得ない情報を含むため、日々の判断には混ぜません。' +
       'ウォッチリストの顔ぶれを入れ替えたら較正し直してください' +
       '(<code>queries/sql/demand_signal_detection.sql</code> の 05〜11)。</div>' +
       '<div class="calib-grid">' + items.map(function (it) {
@@ -416,10 +419,13 @@
     el.innerHTML = '<span class="status error">' + esc(err.message || String(err)) + '</span>';
   }
 
+  // 銘柄コードは4桁で出す(J-Quants の5桁 67520 → 6752。285A0 → 285A)。CSV はデータのままの5桁
+  function short(code) { return code && code.length === 5 && code[4] === '0' ? code.slice(0, 4) : code; }
+
   /** 銘柄の2列。市場区分と業種は title に逃がす(横幅を食うだけで毎回は見ない) */
   function codeCols(grp) {
     return [
-      { key: 'code', label: 'コード', grp: grp, cls: 'code' },
+      { key: 'code', label: 'コード', grp: grp, cls: 'code', html: function (r) { return esc(short(r.code)); } },
       {
         key: 'coName', label: '銘柄名', grp: grp, cls: 'name',
         html: function (r) {
@@ -475,7 +481,7 @@
       },
       {
         key: 'signalScore', label: '確認順', grp: '② 点灯', num: true, cls: 'rank',
-        title: '点灯した数。買いシグナルの強さではありません。先に中身を見る順番です',
+        title: '点灯した数',
         html: function (r) { return esc(String(r.signalScore)); },
       },
       {
@@ -637,11 +643,8 @@
       d.count + '件が点灯' + (n ? '(ウォッチ' + n + '銘柄中)' : '');
     renderTable($('signalTable'), cols, d.rows, { subRow: signalSubRow });
 
-    // 点灯0件を「何も起きていない」と読ませない(手引き1章: 期待値と独立観測数を先に数える)
     $('signalNote').innerHTML = d.count === 0
-      ? '点灯0件は「何も起きていない」ではありません。' +
-        (n ? n + '銘柄' : 'ウォッチ銘柄') +
-        '・到達率5%なら0件になる確率は3割強あります。1日の結果から構造を語らないでください。'
+      ? ''
       : '⚠ の列を先に読んでから、点灯の材料(③〜⑥)を見てください。' +
         '大量保有は行の下のサマリーで向きを必ず確認します(退出でも点灯します)。';
   }
@@ -1125,7 +1128,7 @@
       return r.code === code;
     })[0];
     $('detail').hidden = false;
-    $('detailTitle').textContent = row ? row.code + ' ' + row.coName : code;
+    $('detailTitle').textContent = row ? short(row.code) + ' ' + row.coName : short(code);
     $('detailSub').textContent = '読み込み中…';
     if (cache.sheet) renderSheet(cache.sheet);   // 選択行のハイライトを更新する
     $('detail').scrollIntoView({ block: 'nearest' });
@@ -1147,7 +1150,7 @@
   //---------------------------------------------------------------- 疑似浮動株比率
   function floatCols() {
     return [
-      { key: 'code', label: 'コード', cls: 'code', grp: '疑似浮動株比率(近似)' },
+      { key: 'code', label: 'コード', cls: 'code', grp: '疑似浮動株比率(近似)', html: function (r) { return esc(short(r.code)); } },
       { key: 'coName', label: '銘柄名', cls: 'name', grp: '疑似浮動株比率(近似)' },
       {
         key: 'pseudoFloatPct', label: '疑似浮動株%', num: true, grp: '疑似浮動株比率(近似)',
@@ -1312,7 +1315,6 @@
 
     card({
       title: 'TOPIX(週の最終営業日)',
-      note: '地合いの物差し。手元のデータは上昇相場10年分しかありません',
       series: [{ name: 'TOPIX', values: col('topixClose'), mode: 'line', colorVar: '--series-1', digits: 2 }],
     });
 
@@ -1321,7 +1323,7 @@
       note: 'プラスが買い越し。線が切れている週はこの区分のデータがありません(0ではありません)。' +
         '2022年4月の市場区分再編で系列が断絶しているので、長期は TokyoNagoya で見ます',
       zeroBase: true,
-      height: 150,
+      height: 250,
       series: [
         { name: '海外', values: col('frgnOku'), mode: 'line', colorVar: '--series-1', digits: 0, unit: '億円' },
         { name: '個人', values: col('indOku'), mode: 'line', colorVar: '--series-2', digits: 0, unit: '億円' },
@@ -1425,13 +1427,6 @@
     $('tabs').addEventListener('click', function (ev) {
       var t = ev.target.closest ? ev.target.closest('.tab') : null;
       if (t) showTab(t.getAttribute('data-tab'));
-    });
-
-    $('themeBtn').addEventListener('click', function () {
-      var cur = document.documentElement.getAttribute('data-theme');
-      var next = cur === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      this.textContent = next === 'dark' ? 'ライト' : 'ダーク';
     });
 
     // 再読み込み。サーバ側に5分のキャッシュがあるので、押した直後も同じ値のことがある

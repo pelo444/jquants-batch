@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>需給3階層</title>
-<link rel="stylesheet" href="/style.css">
-<link rel="stylesheet" href="/demand.css">
+<link rel="stylesheet" href="/style.css?v=20261016e">
+<link rel="stylesheet" href="/demand.css?v=20261016c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12L6 7l3 3 5-7' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -16,8 +16,9 @@
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
     <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/demand" aria-current="page">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
-    <button class="btn" id="themeBtn" type="button">ダーク</button>
+    <a class="btn" href="/journal">売買記録</a>
   </header>
 
   <!-- ============ 鮮度: どのタブでも常に見える位置に置く ============
@@ -26,7 +27,7 @@
   <section class="freshness" id="freshness">
     <div class="freshness-head">
       <strong>取込の鮮度</strong>
-      <span>シグナルは最新値で判定します。取込が止まっていると静かに誤判定します。</span>
+      <span></span>
       <span class="spacer"></span>
       <button class="link" id="reloadBtn" type="button">再読み込み</button>
     </div>
@@ -49,15 +50,6 @@
 
   <!-- ==================== 第三階層 ==================== -->
   <section class="pane" id="paneSignal">
-    <p class="lede">
-      <strong>「確認順」は買いシグナルではありません。先に中身を見る順番です。</strong>
-      需給5指標の予測力は10年分で検証済みで、いずれも先行リターンの方向を予測できませんでした。
-      さらに手元のデータは上昇相場10年分しかなく、上昇に依存する手法は反証できません。
-      点灯は「調べる理由」であって「買う理由」ではありません。<br>
-      読む順番は <strong>①疑う列 → ②点灯したシグナルの材料 → ③大量保有の向き</strong>。
-      4つとも「点灯したこと」より「なぜ点灯したか」のほうに情報があります。
-    </p>
-
     <h2>ウォッチリストの点灯 <span class="h2-note" id="signalMeta"></span></h2>
     <div class="result-bar">
       <span class="result-count" id="signalCount"></span>
@@ -105,15 +97,6 @@
 
   <!-- ==================== 第二階層 ==================== -->
   <section class="pane" id="paneWatchlist" hidden>
-    <p class="lede">
-      いま何が起きているかの描写と、注目銘柄を絞り込むフィルタとして使う一枚ものです。
-      単独の売買判断の根拠にはしません。<br>
-      <strong>空欄(—)は「ゼロ」ではありません。</strong>
-      空売り残高は0.5%以上の報告分だけ、信用残は営業日2日以下の週はJPXが公表しません。
-      大量保有の取込開始は2021-07-01で、それ以前から保有し続けている株主は現れません。
-      各セルの — にカーソルを当てると理由が出ます。
-    </p>
-
     <h2>需給シート <span class="h2-note" id="sheetMeta"></span></h2>
     <div class="result-bar">
       <span class="result-count" id="sheetCount"></span>
@@ -187,14 +170,6 @@
 
   <!-- ==================== 第一階層 ==================== -->
   <section class="pane" id="paneMacro" hidden>
-    <p class="lede">
-      市場全体の需給環境を週次で並べます。<strong>「増えたら強気」とは限りません。</strong>
-      海外投資家ネットはプラスが追い風、裁定買残ネットの増加は将来の解消売り圧力の蓄積で
-      両義的、信用倍率は低いほど売り長で踏み上げ余地が大きい(ただし3月・9月は
-      つなぎ売りで必ず下がる)、空売り比率は高いほど売り圧力が強い一方で
-      極端な高水準は反転の目印にもなります。
-    </p>
-
     <div class="result-bar">
       <span class="ctl">
         <label class="opt">投資部門別の区分
@@ -229,7 +204,7 @@
   <footer class="calib" id="calib"></footer>
 
 </div>
-<script src="/demandChart.js"></script>
-<script src="/demand.js"></script>
+<script src="/demandChart.js?v=20261015y"></script>
+<script src="/demand.js?v=20261016f"></script>
 </body>
 </html>

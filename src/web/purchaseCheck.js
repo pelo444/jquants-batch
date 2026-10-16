@@ -54,7 +54,7 @@ function flagAvoid(code, avoid) {
   const lines = [];
   if (!avoid || avoid.error) lines.push('外す候補を計算できなかった');
   else if (a) {
-    lines.push(`外す候補(追加下落スコアの上位10%。銘柄購入の一覧の印と同じ。${avoid.asOf} 時点、母集団 ${avoid.population} 銘柄)`);
+    lines.push(`外す候補に該当する(追加下落スコアの上位10%。銘柄購入の一覧の印と同じ。${avoid.asOf} 時点、母集団 ${avoid.population} 銘柄)`);
     lines.push(`高値から ${sg(a.dd)}% / ふつうの1週の動き ${f2(a.vol13)}% / 4週の騰落 ${sg(a.ret4w)}% / 売買代金 ${f1(a.turnover)}億円/日`);
   } else lines.push('外す候補ではない');
   return {
@@ -72,8 +72,8 @@ function flagDip(m) {
     lines.push(`直近の騰落: 13週 ${sg(m.ret13w)}% / 4週 ${sg(m.ret4w)}% / 20営業日 ${sg(m.ret20d)}%`);
     if (m.dd250 <= -15) {
       hit = true;
+      lines.push('−15% 以下に該当する');
       lines.push('52週高値から −15% 以下の銘柄は、その後13週のうちにさらに −10% 以上下がった割合が 32〜59%(検証資料。値動きの小さい銘柄ほど低い側)');
-      lines.push('過去の谷の深さや配当利回りは、底の印にならなかった(検証資料)');
     } else lines.push('−15% 以下ではない');
     if (m.ddWindowDays < 200) lines.push(`注意: 高値を探した期間が ${m.ddWindowDays} 営業日しかない`);
   }
@@ -92,8 +92,12 @@ function flagDownrev(revisions) {
   for (const r of recent) {
     const kindJa = r.kind === 'DOWN' ? '下方' : r.kind === 'UP' ? '上方' : '小幅';
     lines.push(`${r.discDate} 営業利益予想 ${oku(r.prevOp)} → ${oku(r.fOp)} 百万円(${kindJa}。修正幅 ${sg(r.rev)}pt = 営業益の変化 ÷ 売上高予想)` +
-      `${r.verified ? '' : ' ※決算短信での予想変更。検証していない種類'}`);
+      `${r.verified ? '' : ' ※決算短信での予想変更は未検証。検証済みなのは「業績予想の修正」なので混同しないこと'}`);
   }
+  // 結論の行(ほかの赤信号の「−15% 以下ではない」などに合わせる)
+  if (down.length) lines.push('下方修正に該当する');
+  else if (recent.some((r) => r.kind === 'DOWN')) lines.push('決算短信での予想の下方変更はあるが、「業績予想の修正」による下方修正ではない');
+  else if (recent.length) lines.push('下方修正ではない');
   if (down.length) {
     lines.push('検証資料: 下方修正を出した銘柄は、同業種・同規模の銘柄より 4週で −0.89pt、13週で −1.57pt 下回った(平均)');
   }
@@ -112,7 +116,8 @@ function flagSurge(m) {
     lines.push(`直近5営業日の出来高は直前20営業日の ${f2(m.vbu.vr)} 倍、5営業日の騰落 ${sg(m.vbu.ret5d)}%`);
     if (m.vbu.flag) {
       hit = true;
-      lines.push('出来高2倍以上かつ +3% 以上の急騰に当たる。検証では、その後13週で −1.63pt(売買代金1億円/日以上では −3.39pt)。事後に見えた傾向で、根拠にはしない');
+      lines.push('出来高2倍以上かつ +3% 以上の急騰に該当する');
+      lines.push('検証では、その後13週で −1.63pt(売買代金1億円/日以上では −3.39pt)');
     } else lines.push('出来高2倍以上かつ +3% 以上の急騰ではない');
   }
   return {
@@ -130,7 +135,7 @@ function flagRebuy(pastExits) {
     for (const e of pastExits) {
       lines.push(`${e.decisionDate} ${e.action}(${e.reasonCat})${e.sinceRet != null ? ` — その後の値動き ${sg(e.sinceRet)}%` : ''}`);
     }
-    lines.push('検証資料(15%幅・日次安値判定の損切り): 損切りした銘柄が13週先までに TOPIX より戻る傾向は見つからなかった');
+    lines.push('過去180日以内に売った・損切りした記録があるので該当する');
   }
   return {
     key: 'REBUY', label: '過去180日に売った', hit, lines,

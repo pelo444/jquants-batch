@@ -256,7 +256,6 @@ function buildReport(c) {
     human: [
       '次の行動への条件は何か(どうなったら、何をするか。株価・決算などの株価以外・時間のそれぞれで。/journal の「次の行動への条件」に書く)',
       '最悪、いくら下がっても受け入れられるか',
-      '「上がる理由」は、買い側で事前基準を満たした検証が0本であることを前提に書いているか',
     ],
   });
 
@@ -283,18 +282,18 @@ function buildReport(c) {
     ch3.push(`直近13週リターン ${sg(m.ret13w)}% / 直近4週 ${sg(m.ret4w)}% / 直近20営業日 ${sg(m.ret20d)}%`);
     if (m.dd250 != null && m.dd250 <= -15) {
       ch3Status = '要確認';
-      ch3.push('検証資料の「下げている銘柄」(52週高値から −15% 以下)に当たる');
+      ch3.push('検証資料の「下げている銘柄」(52週高値から −15% 以下)に該当する');
       ch3.push('参考: 最も安全側の群 D1 でも、13週内に −10% 以上さらに下がる確率は 31.7%。最もリスク側の D10 は 58.7%(群の平均 46%)');
       if (band) ch3.push(`週次ボラで近い群は ${band.band}(追加下落確率 ${band.further}%)。これは群の平均で、この銘柄の確率ではない`);
     } else {
-      ch3.push('検証資料の「下げている銘柄」の条件(−15% 以下)に当たらない(下の確率の表は参考にならない)');
+      ch3.push('検証資料の「下げている銘柄」の条件(−15% 以下)に該当しない');
     }
     if (m.dd250 != null && m.ddWindowDays < 200) ch3.push(`注意: 高値の窓が ${m.ddWindowDays} 営業日しかない`);
   }
   items.push({
     id: 'Ch3', tag: 'A/C', title: '下げている銘柄を「底」と呼んでいないか', status: ch3Status,
     auto: ch3,
-    human: ['「底」と考える理由は何か(過去の谷の深さや配当利回りは、底の印にならなかった)', 'さらに下がったときの想定幅と、そのときの行動は決めてあるか'],
+    human: ['「底」と考える理由は何か', 'さらに下がったときの想定幅と、そのときの行動は決めてあるか'],
   });
 
   // Ch4
@@ -306,7 +305,7 @@ function buildReport(c) {
   else if (!recent.length) ch4.push(`直近${o.days}日以内に、予想の変更を伴う開示は見つからなかった`);
   for (const r of recent) {
     const kindJa = r.kind === 'DOWN' ? '下方' : r.kind === 'UP' ? '上方' : '小幅';
-    ch4.push(`${r.discDate} ${r.docType} FY${r.fyEnd}: 営業利益予想 ${r.prevOp != null ? Math.round(r.prevOp / 1e6).toLocaleString('en-US') : '—'} → ${r.fOp != null ? Math.round(r.fOp / 1e6).toLocaleString('en-US') : '—'} 百万円 / REV ${sg(r.rev)}pt(${kindJa})${r.verified ? '' : ' ※決算短信での予想変更。検証の対象外'}`);
+    ch4.push(`${r.discDate} ${r.docType} FY${r.fyEnd}: 営業利益予想 ${r.prevOp != null ? Math.round(r.prevOp / 1e6).toLocaleString('en-US') : '—'} → ${r.fOp != null ? Math.round(r.fOp / 1e6).toLocaleString('en-US') : '—'} 百万円 / REV ${sg(r.rev)}pt(${kindJa})${r.verified ? '' : ' ※決算短信での予想変更は未検証。検証済みなのは「業績予想の修正」なので混同しないこと'}`);
   }
   if (downVerified.length) {
     ch4Status = '要確認';
@@ -327,7 +326,8 @@ function buildReport(c) {
     ch5.push(`直近5営業日の出来高は直前20営業日の ${f2(m.vbu.vr)} 倍、直近5営業日リターン ${sg(m.vbu.ret5d)}%`);
     if (m.vbu.flag) {
       ch5Status = '要確認';
-      ch5.push('出来高2倍以上かつ +3% 以上の急騰に当たる(参考: 検証では 13週 −1.63pt、1億円/日以上で −3.39pt。ただし事後に見えた向きで、根拠にはしない)');
+      ch5.push('出来高2倍以上かつ +3% 以上の急騰に該当する');
+      ch5.push('参考: 検証では 13週 −1.63pt、1億円/日以上で −3.39pt');
     } else ch5.push('出来高を伴う急騰(2倍以上かつ +3% 以上)には当たらない');
   }
   items.push({
@@ -347,7 +347,7 @@ function buildReport(c) {
   if (basket.length > 1 && o.amount != null) {
     for (const s of sz) ch6.push(`${s.code}: 週次ボラ ${f2(s.vol13)}% → 重み ${s.weight != null ? f1(s.weight * 100) : '—'}% / ${man(s.yen)}(1週の動き ${man(s.swingYen)})`);
   } else if (basket.length > 1) ch6.push('複数銘柄の重みを出すには --amount(総額)も指定する');
-  if (c.isSemi) ch6.push('この銘柄は半導体(タグ120/130)。群全体の13週リターンの振れが他の約2倍だった(事後の観察)。銘柄数を増やしても分散が効きにくい');
+  if (c.isSemi) ch6.push('この銘柄は半導体(タグ120/130)。群全体の13週リターンの振れが他の約2倍だった。銘柄数を増やしても分散が効きにくい');
   items.push({
     id: 'Ch6', tag: 'B', title: 'サイズはボラで割る', status: '情報',
     auto: ch6,
@@ -365,7 +365,7 @@ function buildReport(c) {
   items.push({
     id: 'Ch7', tag: 'A', title: '損切りを置くなら固定幅(10〜15%)', status: '情報',
     auto: ch7,
-    human: ['損切りを置くか、置くなら幅はいくらか', '逆指値が発動価格どおりに約定しない場合の損失を許容できるか', '幅が週次ボラの1週分に近いと、通常の値動きで当たる(検証の発動率は全銘柄の平均で、高ボラ銘柄別の数字はない)'],
+    human: ['損切りを置くか、置くなら幅はいくらか', '逆指値が発動価格どおりに約定しない場合の損失を許容できるか', '幅が週次ボラの1週分に近いと、通常の値動きで発動する'],
   });
 
   // Ch8
@@ -378,12 +378,12 @@ function buildReport(c) {
     for (const e of c.pastExits) {
       ch8.push(`${e.decisionDate} ${e.action}(${e.reasonCat})${e.sinceRet != null ? ` — その後の値動き ${sg(e.sinceRet)}%` : ''}`);
     }
-    ch8.push('検証資料(15%幅・日次安値判定の損切り): 13週先まで、TOPIX 比で戻る傾向は検出されなかった(平均 −0.45%、後半 −1.39%)。10%幅・トレーリングは未測定');
+    ch8.push('検証資料(15%幅・日次安値判定の損切り): 13週先までの TOPIX 比は平均 −0.45%(後半 −1.39%)。10%幅・トレーリングは未測定');
   }
   items.push({
     id: 'Ch8', tag: 'B', title: '損切り後に「戻るはず」と持ち直さない', status: ch8Status,
     auto: ch8,
-    human: ['再び買う理由は、売ったときの理由と別のものか', '「戻るはず」以外の根拠があるか'],
+    human: ['再び買う理由は、売ったときの理由と別のものか'],
   });
 
   // Ch9
@@ -397,11 +397,11 @@ function buildReport(c) {
     ch9.push(`まだ使っていない元手: ${man(cap.unused)}(元手 − 株に入れた正味の額)`);
   } else ch9.push('元手が記録されていない(売買記録の「口座」タブで入れる)');
   if (c.held) ch9.push(`保有銘柄(タグ jnl_held)${c.held.held} 銘柄のうち、半導体(タグ120/130)は ${c.held.semi} 銘柄(銘柄数ベース。金額ではない)`);
-  if (c.topix) ch9.push(`参考: TOPIX は直近13週 ${sg(c.topix.ret13w)}%、250営業日の高値から ${sg(c.topix.dd250)}%(市場のタイミングの信号としては、検証で根拠が出ていない)`);
+  if (c.topix) ch9.push(`参考: TOPIX は直近13週 ${sg(c.topix.ret13w)}%、250営業日の高値から ${sg(c.topix.dd250)}%`);
   items.push({
     id: 'Ch9', tag: '—', title: '相場に居ること自体が最大の要因', status: '情報',
     auto: ch9,
-    human: ['投資比率(現金比率)をいくらにするか', '全体で受け入れる損失の額', '相場全体が下がったとき、どう行動するか(検証は強気相場が中心で、下落局面の標本は少ない)'],
+    human: ['投資比率(現金比率)をいくらにするか', '全体で受け入れる損失の額', '相場全体が下がったとき、どう行動するか'],
   });
 
   // Ch10

@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>売買記録</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=20261016e">
 <!-- ?v= は更新のたびに上げる。静的ファイルはブラウザに1時間キャッシュされるため(server.js の maxAge)、
      上げないと新しいHTMLに古いJSが組み合わさって、新しいボタンが反応しない -->
-<link rel="stylesheet" href="/journal.css?v=20261015a">
+<link rel="stylesheet" href="/journal.css?v=20261016c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='2' width='10' height='12' rx='1.5' fill='none' stroke='%232a78d6' stroke-width='1.6'/%3E%3Cpath d='M5.5 6h5M5.5 9h5' stroke='%232a78d6' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -20,7 +20,7 @@
     <a class="btn" href="/">騰落率一覧</a>
     <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
-    <button class="btn" id="themeBtn" type="button">ダーク</button>
+    <a class="btn" href="/journal" aria-current="page">売買記録</a>
   </header>
 
   <nav class="tabs" id="tabs">
@@ -36,10 +36,6 @@
 
   <!-- ==================== 保有 ==================== -->
   <section class="pane" id="panePositions">
-    <p class="lede">
-      保有は取り込んだ約定から計算しています(取得単価は移動平均、口座区分ごと)。
-      証券会社の画面と月1回ほど突き合わせてください。ずれていたら、CSVの期間が足りないか、取込漏れです。
-    </p>
     <div class="summary" id="posSummary"></div>
     <div class="filter-row">
       <button class="btn" id="syncTagsBtn" type="button">騰落率一覧のタグを更新</button>
@@ -58,12 +54,6 @@
 
   <!-- ==================== 判断 ==================== -->
   <section class="pane" id="paneDecisions" hidden>
-    <p class="lede">
-      <strong>売買のその時に書きます。保存した判断は編集できません。</strong>
-      結果を見てから理由を書き直すと、記録が自分に都合よく変わってしまうためです。
-      間違いは「訂正する」で新しい記録として残します(元の記録も残ります)。
-      <strong>買わなかった判断(見送り)も書いてください。</strong>見送った銘柄と比べないと、選んだことの良し悪しが分かりません。
-    </p>
 
     <form class="card form" id="decisionForm" autocomplete="off">
       <div class="supersede" id="supersedeBanner" hidden></div>
@@ -178,10 +168,6 @@
 
   <!-- ==================== 調べたいこと ==================== -->
   <section class="pane" id="paneQuestions" hidden>
-    <p class="lede">
-      判断やメモを書いていて出てきた「調べたいこと」を書き留めます。自分で調べるか Claude に頼むかを決め、答えも同じ場所に残します。
-      <strong>1つの行に1つの問い</strong>にして、「なぜ知りたいか・答えをどう使うか」を書いておくと、調べる範囲がぶれません。
-    </p>
 
     <form class="card form" id="questionForm" autocomplete="off">
       <div class="supersede" id="questionLinkBanner" hidden></div>
@@ -223,10 +209,6 @@
 
   <!-- ==================== 取込 ==================== -->
   <section class="pane" id="paneImport" hidden>
-    <p class="lede">
-      楽天証券の「取引履歴 → 国内株式」で期間を指定してCSVをダウンロードし、ここで選びます。
-      まずプレビューを表示し、内容を確かめてから取り込みます。期間が重なるCSVを入れても、同じ約定は二重に入りません。
-    </p>
     <div class="card">
       <input type="file" id="csvFile" accept=".csv,text/csv">
       <span class="status" id="importStatus"></span>
@@ -276,6 +258,6 @@
   </section>
 
 </div>
-<script src="/journal.js?v=20261015b"></script>
+<script src="/journal.js?v=20261016a"></script>
 </body>
 </html>

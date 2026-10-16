@@ -124,7 +124,7 @@
 
     var dates = spec.dates;
     var n = dates.length;
-    var H = spec.height || 130;
+    var H = spec.height || 220;
     var w = Math.max(320, plot.clientWidth || host.clientWidth || 640);
     var innerW = w - PAD.l - PAD.r;
     var innerH = H - PAD.t - PAD.b;

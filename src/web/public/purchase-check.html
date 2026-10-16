@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>損失回避チェック</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=20261016e">
 <!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため) -->
-<link rel="stylesheet" href="/purchase.css?v=20261013e">
-<link rel="stylesheet" href="/purchase-check.css?v=20261014c">
+<link rel="stylesheet" href="/purchase.css?v=20261016e">
+<link rel="stylesheet" href="/purchase-check.css?v=20261016c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5l5.5 2v4c0 3.5-2.4 6-5.5 7-3.1-1-5.5-3.5-5.5-7v-4z' fill='none' stroke='%232a78d6' stroke-width='1.5'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -17,9 +17,10 @@
     <h1>損失回避チェック</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
+    <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
     <a class="btn" href="/journal">売買記録</a>
-    <button class="btn" id="themeBtn" type="button">ダーク</button>
   </header>
 
   <div class="flash" id="flash" role="status" hidden></div>
@@ -45,7 +46,7 @@
           <input type="text" id="stops" class="in-num" value="10,15">
         </label>
         <span class="spacer"></span>
-        <button class="btn primary" id="recalcBtn" type="button">再計算</button>
+        <button class="btn" id="recalcBtn" type="button">再計算</button>
       </div>
       <div class="row" id="buyRow"></div>
       <p class="note">買値は空欄なら直近の終値で計算します。指値を考えているときだけ入れてください。株数は既定で100株です。入れたら「再計算」か Enter で反映します。</p>
@@ -66,6 +67,6 @@
   </div>
 
 </div>
-<script src="/purchase-check.js?v=20261015a"></script>
+<script src="/purchase-check.js?v=20261016f"></script>
 </body>
 </html>

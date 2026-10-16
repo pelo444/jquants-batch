@@ -428,16 +428,19 @@
     }
   }
 
+  // 右の列: 「項目名 値」を縦に並べる(dt/dd)。判断前・その後は小見出しで区切る
+  function kv(k, v) { return '<dt>' + k + '</dt><dd>' + v + '</dd>'; }
+
   function evalHtml(e) {
-    var pre = '<span class="grp"><span class="grp-label">判断前</span>' +
-      '<span>20日 ' + signed(e.ret20Pre, 1, '%') + '</span>' +
-      '<span>日次ボラ <b>' + (e.vol20 === null ? '—' : Number(e.vol20).toFixed(2) + '%') + '</b></span>' +
-      '<span>高値から ' + signed(e.dd250, 1, '%') + '</span>' +
-      '<span>売買代金 <b>' + (e.turnover20 === null ? '—' : Number(e.turnover20).toFixed(1) + '億/日') + '</b></span></span>';
-    var post = '<span class="grp"><span class="grp-label">その後(対TOPIX)</span>' +
-      '<span>20日 ' + (e.exr20 === null ? '<span class="pending">未到来</span>' : signed(e.exr20, 1, 'pt')) + '</span>' +
-      '<span>60日 ' + (e.exr60 === null ? '<span class="pending">未到来</span>' : signed(e.exr60, 1, 'pt')) + '</span></span>';
-    return '<div class="evals">' + pre + post + (e.baseDate ? '<span class="pending">基準 ' + esc(e.baseDate) + ' 終値 ' + num(e.baseClose, 1) + '</span>' : '') + '</div>';
+    return '<dt class="dside-h first">判断したとき</dt>' +
+      kv('20日', signed(e.ret20Pre, 1, '%')) +
+      kv('日次ボラ', e.vol20 === null ? '—' : Number(e.vol20).toFixed(2) + '%') +
+      kv('高値から', signed(e.dd250, 1, '%')) +
+      kv('売買代金', e.turnover20 === null ? '—' : Number(e.turnover20).toFixed(1) + '億/日') +
+      '<dt class="dside-h">その後(株価増減率 − TOPIX増減率)</dt>' +
+      kv('20日後', e.exr20 === null ? '<span class="pending">未到来</span>' : signed(e.exr20, 1, 'pt')) +
+      kv('60日後', e.exr60 === null ? '<span class="pending">未到来</span>' : signed(e.exr60, 1, 'pt')) +
+      (e.baseDate ? kv('基準', esc(e.baseDate) + ' 終値 ' + num(e.baseClose, 1)) : '');
   }
 
   function renderDecisions(rows) {
@@ -446,17 +449,18 @@
       return;
     }
     $('decisionList').innerHTML = rows.map(function (d) {
-      var metaBits = [];
-      metaBits.push('<span><span class="k">理由</span>' + esc(LABELS.reason[d.reasonCat] || d.reasonCat) + '</span>');
-      if (d.ideaSource) metaBits.push('<span><span class="k">情報源</span>' + esc(LABELS.source[d.ideaSource]) + '</span>');
-      if (d.confidence) metaBits.push('<span><span class="k">確信度</span>' + d.confidence + '/5</span>');
+      // 判断のときの項目(枠の下部に、1項目ずつ角丸の背景で並べる)
+      function chip(k, v) { return '<span class="dchip">' + k + '：' + v + '</span>'; }
+      var chips = chip('理由の分類', esc(LABELS.reason[d.reasonCat] || d.reasonCat));
+      if (d.ideaSource) chips += chip('情報源', esc(LABELS.source[d.ideaSource]));
+      if (d.confidence) chips += chip('確信度', d.confidence + '/5');
+      if (d.emotion) chips += chip('状態', esc(d.emotion));
       if (d.expectRetPct !== null || d.horizonWeeks !== null) {
-        metaBits.push('<span><span class="k">想定</span>' + (d.expectRetPct !== null ? d.expectRetPct + '%' : '—') +
-          (d.horizonWeeks !== null ? ' / ' + d.horizonWeeks + '週' : '') + '</span>');
+        chips += chip('想定', (d.expectRetPct !== null ? d.expectRetPct + '%' : '—') +
+          (d.horizonWeeks !== null ? ' / ' + d.horizonWeeks + '週' : ''));
       }
-      if (d.plannedStopPct !== null) metaBits.push('<span><span class="k">損切り</span>' + d.plannedStopPct + '%下</span>');
-      if (d.emotion) metaBits.push('<span><span class="k">状態</span>' + esc(d.emotion) + '</span>');
-      if (d.sizeNote) metaBits.push('<span><span class="k">サイズ</span>' + esc(d.sizeNote) + '</span>');
+      if (d.plannedStopPct !== null) chips += chip('損切り', d.plannedStopPct + '%下');
+      if (d.sizeNote) chips += chip('サイズ', esc(d.sizeNote));
       return '<div class="dcard' + (d.superseded ? ' superseded' : '') + '" data-id="' + d.decisionId + '">' +
         '<div class="dhead"><span class="id">#' + d.decisionId + '</span><span>' + esc(d.decisionDate) + '</span>' +
         '<span class="act ' + d.action + '">' + esc(LABELS.action[d.action]) + '</span>' +
@@ -465,14 +469,15 @@
         (d.superseded ? '<span class="flag">訂正済み</span>' : '') +
         (d.lateEntry ? '<span class="flag late" title="判断した日より2日以上あとに書いた記録">後から記録</span>' : '') +
         '</div>' +
+        '<div class="dgrid"><div class="dmain">' +
         '<div class="dbody">' + esc(d.reasonText) + '</div>' +
-        (d.invalidation ? '<div class="dmeta"><span><span class="k">次の行動への条件</span>' + esc(d.invalidation) + '</span></div>' : '') +
-        '<div class="dmeta">' + metaBits.join('') + '</div>' +
-        evalHtml(d.eval) +
+        (d.invalidation ? '<div class="dsec"><div class="dsec-k">次の行動への条件</div><div class="dsec-v">' + esc(d.invalidation) + '</div></div>' : '') +
         (d.reviews.length ? '<div class="reviews">' + d.reviews.map(function (v) {
           return '<div class="review"><span class="verdict">' + esc(v.reviewDate) + ' ' + esc(LABELS.verdict[v.reasonVerdict]) + '</span>' +
             esc(v.outcomeNote || '') + (v.lesson ? '<br><span class="pending">教訓: </span>' + esc(v.lesson) : '') + '</div>';
         }).join('') + '</div>' : '') +
+        '</div><dl class="dside">' + evalHtml(d.eval) + '</dl></div>' +
+        '<div class="dchips">' + chips + '</div>' +
         '<div class="dactions">' +
         (d.hasSnapshot ? '<button class="link" type="button" data-snap="' + d.decisionId + '">判断時の値</button>' : '') +
         '<button class="link" type="button" data-review="' + d.decisionId + '">振り返りを書く</button>' +
@@ -1275,28 +1280,7 @@
   });
 
   //================================================================== 起動
-  function initTheme() {
-    var btn = $('themeBtn');
-    var saved = null;
-    try { saved = localStorage.getItem('jqb-theme'); } catch (e) { /* noop */ }
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-    function label() {
-      var cur = document.documentElement.getAttribute('data-theme') ||
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      btn.textContent = cur === 'dark' ? 'ライト' : 'ダーク';
-      return cur;
-    }
-    label();
-    btn.addEventListener('click', function () {
-      var next = label() === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      try { localStorage.setItem('jqb-theme', next); } catch (e) { /* noop */ }
-      label();
-    });
-  }
-
   async function init() {
-    initTheme();
     try {
       meta = await api('GET', '/api/journal/meta');
     } catch (e) {

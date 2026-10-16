@@ -39,6 +39,24 @@ async function fetchLatestPriceDate(connection) {
  * @param {import('oracledb').Connection} connection
  * @returns {Promise<object[]>}
  */
+/**
+ * 指定日以前の最後の営業日の、1つ前の営業日。騰落率一覧の「1日」(前営業日比)の起点に使う。
+ * 終了日が休日でも、その直前の営業日を期間末として扱い、さらにその前の営業日を返す。
+ * @param {import('oracledb').Connection} connection
+ * @param {string} to 'YYYY-MM-DD'
+ * @returns {Promise<string|null>} 'YYYY-MM-DD'
+ */
+async function fetchPrevTradingDate(connection, to) {
+  const r = await connection.execute(
+    `SELECT TO_CHAR(MAX(price_date), 'YYYY-MM-DD')
+     FROM equity_price_daily
+     WHERE price_date < (SELECT MAX(price_date) FROM equity_price_daily
+                         WHERE price_date <= TO_DATE(:d, 'YYYY-MM-DD'))`,
+    { d: to }
+  );
+  return r.rows.length > 0 ? r.rows[0][0] : null;
+}
+
 async function fetchTags(connection) {
   const r = await connection.execute(
     `SELECT tm.tag_name,
@@ -77,6 +95,7 @@ async function fetchTags(connection) {
  * @param {import('oracledb').Connection} connection
  * @param {object} opts
  * @param {string[]} opts.tags          タグ名の配列(OR条件)。allStocksがtrueの場合は無視される
+ * @param {string[]} [opts.sectors=[]]  33業種コードの配列(OR条件)。指定したときはタグより優先する(画面ではどちらか一方だけを送る)
  * @param {boolean}  [opts.allStocks=false]  trueの場合はタグで絞らず上場銘柄全体を対象にする
  * @param {string}   opts.from          'YYYY-MM-DD'
  * @param {string}   opts.to            'YYYY-MM-DD'
@@ -88,6 +107,7 @@ async function fetchTags(connection) {
 async function fetchPerformance(connection, opts) {
   const {
     tags,
+    sectors = [],
     allStocks = false,
     from,
     to,
@@ -96,7 +116,8 @@ async function fetchPerformance(connection, opts) {
     excludeDelisted = true,
   } = opts;
 
-  if (!allStocks && (!Array.isArray(tags) || tags.length === 0)) {
+  const hasSectors = Array.isArray(sectors) && sectors.length > 0;
+  if (!allStocks && !hasSectors && (!Array.isArray(tags) || tags.length === 0)) {
     return [];
   }
 
@@ -108,6 +129,14 @@ async function fetchPerformance(connection, opts) {
   let targetSql;
   if (allStocks) {
     targetSql = `SELECT em.code FROM equity_master em`;
+  } else if (hasSectors) {
+    const secPlaceholders = sectors
+      .map((s, i) => {
+        binds[`s${i}`] = s;
+        return `:s${i}`;
+      })
+      .join(', ');
+    targetSql = `SELECT em.code FROM equity_master em WHERE em.sector33_code IN (${secPlaceholders})`;
   } else {
     const tagPlaceholders = tags
       .map((t, i) => {
@@ -203,6 +232,7 @@ async function fetchPerformance(connection, opts) {
 
 module.exports = {
   fetchLatestPriceDate,
+  fetchPrevTradingDate,
   fetchTags,
   fetchPerformance,
 };

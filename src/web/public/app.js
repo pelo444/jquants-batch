@@ -11,6 +11,7 @@
   var selected = new Set(); // チェックした銘柄コード
   var sortKey = 'changePct';
   var sortAsc = false;
+  var targetTab = 'tag';    // 絞り込みのタブ('sector' | 'tag')。開いているほうの選択だけを使う
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -33,6 +34,9 @@
     return String(s === null || s === undefined ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  // 銘柄コードは4桁で出す(J-Quants の5桁 67520 → 6752。285A0 → 285A)。CSV はデータのままの5桁
+  function short(code) { return code && code.length === 5 && code[4] === '0' ? code.slice(0, 4) : code; }
+
   function isoToday() { return new Date().toISOString().slice(0, 10); }
 
   function shiftMonths(iso, months) {
@@ -55,7 +59,12 @@
 
     var shown;
     if (params.allStocks) {
-      shown = '全銘柄(タグ絞り込みなし)';
+      shown = '全銘柄(絞り込みなし)';
+    } else if (params.sectors && params.sectors.length) {
+      var names = {};
+      (meta ? meta.sectors : []).forEach(function (s) { names[s.code] = s.name; });
+      var secs = params.sectors.map(function (c) { return names[c] || c; });
+      shown = '33業種: ' + secs.slice(0, 4).join('・') + (secs.length > 4 ? ' ほか' + (secs.length - 4) : '');
     } else {
       var labels = {};
       (meta ? meta.tags : []).forEach(function (t) { labels[t.tagName] = t.label; });
@@ -82,9 +91,11 @@
           '取込済みデータの最新営業日: ' + (m.latestDate || '—') +
           ' ・タグ ' + m.tags.length + '件';
         renderTagGroups(m.tags);
+        renderSectors(m.sectors || []);
         $('dTo').value = m.latestDate || isoToday();
+        // 期間の初期値は「1日」(前営業日比)。前営業日が取れるまでの仮の値として1年を入れておく
         $('dFrom').value = shiftMonths($('dTo').value, 12);
-        markPreset(12);
+        setPrevDay($('dTo').value);
         $('chartLimit').max = m.limits.chartMaxCodes;
       })
       .catch(function (e) {
@@ -137,6 +148,30 @@
     });
   }
 
+  //---------------------------------------------------------------- 33業種選択
+  function renderSectors(sectors) {
+    $('sectorBox').innerHTML = sectors.map(function (s) {
+      return '<label class="sector-item"><input type="checkbox" class="seccb" value="' + esc(s.code) +
+        '"><span>' + esc(s.name) + '</span>' +
+        '<span class="sector-count">' + s.count + '</span></label>';
+    }).join('');
+  }
+
+  function selectedSectors() {
+    return Array.prototype.map.call(
+      document.querySelectorAll('.seccb:checked'), function (c) { return c.value; }
+    );
+  }
+
+  function showTargetTab(name) {
+    targetTab = name;
+    Array.prototype.forEach.call(document.querySelectorAll('#targetTabs .tab'), function (t) {
+      t.setAttribute('aria-selected', t.dataset.target === name ? 'true' : 'false');
+    });
+    $('sectorBox').hidden = name !== 'sector';
+    $('tagGroups').hidden = name !== 'tag';
+  }
+
   function selectedTags() {
     return Array.prototype.map.call(
       document.querySelectorAll('.tagcb:checked'), function (c) { return c.value; }
@@ -144,24 +179,48 @@
   }
 
   //---------------------------------------------------------------- 期間プリセット
-  function markPreset(months) {
+  // key は 'd1'(日) / 'm12'(月) / 'ytd' / null(手入力)
+  function presetKey(c) {
+    return c.dataset.days ? 'd' + c.dataset.days : (c.dataset.months ? 'm' + c.dataset.months : 'ytd');
+  }
+  function markPreset(key) {
     Array.prototype.forEach.call(document.querySelectorAll('#presets .chip'), function (c) {
-      var m = Number(c.dataset.months);
-      c.setAttribute('aria-pressed', months !== null && m === months ? 'true' : 'false');
+      c.setAttribute('aria-pressed', key !== null && presetKey(c) === key ? 'true' : 'false');
     });
+  }
+
+  // 期間「1日」: 前営業日を開始日にする。土日・祝日をまたぐので、カレンダーで1日戻すのではなくサーバーに聞く
+  function setPrevDay(to) {
+    return fetch('/api/prev-trading-date?to=' + encodeURIComponent(to))
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); return j; }); })
+      .then(function (j) { $('dFrom').value = j.date; markPreset('d1'); })
+      .catch(function (e) { setStatus('前営業日を取得できませんでした: ' + e.message, true); });
+  }
+
+  function shiftDays(iso, days) {
+    var p = iso.split('-').map(Number);
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+    d.setUTCDate(d.getUTCDate() - days);
+    return d.toISOString().slice(0, 10);
   }
 
   //---------------------------------------------------------------- 取得と描画
   function buildParams() {
     var allStocks = $('optAllStocks').checked;
-    var tags = allStocks ? [] : selectedTags();
-    if (!allStocks && tags.length === 0) {
-      throw new Error('タグを1つ以上選択するか、「タグ絞り込みなし(全銘柄)」にチェックしてください');
-    }
     var p = new URLSearchParams();
     if (allStocks) {
       p.set('all', '1');
+    } else if (targetTab === 'sector') {
+      var secs = selectedSectors();
+      if (secs.length === 0) {
+        throw new Error('33業種を1つ以上選択するか、「絞り込みなし(全銘柄)」にチェックしてください');
+      }
+      p.set('sectors', secs.join(','));
     } else {
+      var tags = selectedTags();
+      if (tags.length === 0) {
+        throw new Error('タグを1つ以上選択するか、「絞り込みなし(全銘柄)」にチェックしてください');
+      }
       p.set('tags', tags.join(','));
     }
     p.set('from', $('dFrom').value);
@@ -255,7 +314,7 @@
         : '';
       return '<tr data-code="' + esc(r.code) + '"' + (selected.has(r.code) ? ' class="selected"' : '') + '>' +
         '<td class="c-sel"><input type="checkbox" class="rowcb"' + (selected.has(r.code) ? ' checked' : '') + '></td>' +
-        '<td class="code">' + esc(r.code) + '</td>' +
+        '<td class="code">' + esc(short(r.code)) + '</td>' +
         '<td class="name" title="' + esc(r.name) + '">' + esc(r.name) + splitBadge + '</td>' +
         '<td class="num-col pct ' + pc + '">' + fmtPct(r.changePct) + '</td>' +
         '<td class="bar-cell">' + bar + '</td>' +
@@ -326,7 +385,7 @@
 
   //---------------------------------------------------------------- タブ
   function showTab(name) {
-    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
+    Array.prototype.forEach.call(document.querySelectorAll('#tabs .tab'), function (t) {
       t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false');
     });
     $('paneTable').hidden = name !== 'table';
@@ -374,14 +433,23 @@
       if (ev.target.id !== 'editBtn') collapseFilter(false);
     });
 
+    // 開いているタブ(33業種かタグ)の選択だけを外す
     $('tagClear').addEventListener('click', function () {
-      Array.prototype.forEach.call(document.querySelectorAll('.tagcb'), function (c) { c.checked = false; });
+      var cls = targetTab === 'sector' ? '.seccb' : '.tagcb';
+      Array.prototype.forEach.call(document.querySelectorAll(cls), function (c) { c.checked = false; });
     });
 
-    // 「タグ絞り込みなし(全銘柄)」: ONの間はタグ選択UIを無効化する
+    $('targetTabs').addEventListener('click', function (ev) {
+      var t = ev.target.closest('.tab');
+      if (t) showTargetTab(t.dataset.target);
+    });
+
+    // 「絞り込みなし(全銘柄)」: ONの間は33業種・タグの選択UIを無効化する
     $('optAllStocks').addEventListener('change', function () {
       var on = this.checked;
       $('tagGroups').classList.toggle('disabled', on);
+      $('sectorBox').classList.toggle('disabled', on);
+      $('targetTabs').classList.toggle('disabled', on);
       $('tagClear').disabled = on;
       $('tagReq').hidden = on;
     });
@@ -392,11 +460,17 @@
       var to = $('dTo').value || isoToday();
       if (b.dataset.ytd) {
         $('dFrom').value = to.slice(0, 4) + '-01-01';
-        markPreset(null);
+        markPreset('ytd');
+      } else if (b.dataset.days === '1') {
+        setStatus('');
+        setPrevDay(to);
+      } else if (b.dataset.days) {
+        $('dFrom').value = shiftDays(to, Number(b.dataset.days));
+        markPreset('d' + b.dataset.days);
       } else {
         var m = Number(b.dataset.months);
         $('dFrom').value = shiftMonths(to, m);
-        markPreset(m);
+        markPreset('m' + m);
       }
     });
 
@@ -441,16 +515,6 @@
     $('tabs').addEventListener('click', function (ev) {
       var t = ev.target.closest('.tab');
       if (t) showTab(t.dataset.tab);
-    });
-
-    $('themeBtn').addEventListener('click', function () {
-      var cur = document.documentElement.getAttribute('data-theme');
-      var next = cur === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      this.textContent = next === 'dark' ? 'ライト' : 'ダーク';
-      // iframe内のチャートにもテーマを伝えるため読み直す
-      var f = $('chartFrame');
-      if (f.src) { var s = f.src; f.src = 'about:blank'; setTimeout(function () { f.src = s; }, 0); }
     });
 
     // Enterで実行

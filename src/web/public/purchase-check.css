@@ -8,7 +8,6 @@
 .buy-item { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .buy-item input { width: 120px; }
 
-.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
 .card h3 { font-size: 13px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
 .tag-chip { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-weight: 400; }
 .auto-lines { font-size: 12px; margin: 4px 0 8px; padding-left: 18px; }
@@ -25,7 +24,6 @@
 #stockTable tr.main.open { background: var(--sel-wash); }
 #stockTable td.st-check { color: var(--critical); font-weight: 700; }
 #stockTable td.st-check::before { content: "● "; }
-tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 14px; }
 .ch-block { border-bottom: 1px dashed var(--border); padding: 6px 0 8px; }
 .ch-block:last-child { border-bottom: 0; }
 .ch-head { font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
@@ -65,5 +63,5 @@ tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 
 .choice:hover { background: var(--hover-wash); }
 .choice.on { background: var(--sel-wash); border-color: var(--series-1); }
 /* 買う額の合計が、まだ使っていない元手を上回るとき(背景色で示す) */
-#sizeTable tr.total td.over { background: rgba(208, 59, 59, 0.18); color: var(--critical); }
-.over-warn { font-size: 12px; margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: rgba(208, 59, 59, 0.12); color: var(--critical); }
+#sizeTable tr.total td.over { background: var(--critical-wash); color: var(--critical); }
+.over-warn { font-size: 12px; margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--critical-wash); color: var(--critical); }
