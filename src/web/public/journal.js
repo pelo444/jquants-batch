@@ -156,12 +156,12 @@
   function renderPositions(r) {
     var t = r.totals;
     var cap = r.capital;
-    var html = '<span>現物の評価額 <b>' + yen(t.cashStockValue) + '</b> 円</span>' +
-      '<span>取得額 <b>' + yen(t.cashStockCost) + '</b> 円</span>' +
-      '<span>含み損益 ' + signed(t.cashStockValue - t.cashStockCost, 0, ' 円') + '</span>';
+    var html = '<span>現物の評価額 <b>' + yen(t.cashStockValue) + '</b>円</span>' +
+      '<span>取得額 <b>' + yen(t.cashStockCost) + '</b>円</span>' +
+      '<span>含み損益 ' + signed(t.cashStockValue - t.cashStockCost, 0, '円') + '</span>';
     if (cap && cap.current) {
-      html += '<span>まだ使っていない元手 <b>' + yen(cap.unused) + '</b> 円(元手 ' + yen(cap.current.amount) + ' 円 − 株に入れた正味の額 ' +
-        yen(cap.netInvested) + ' 円)</span>';
+      html += '<span>まだ使っていない元手 <b>' + yen(cap.unused) + '</b>円(元手 ' + yen(cap.current.amount) + '円 − 株に入れた正味の額 ' +
+        yen(cap.netInvested) + '円)</span>';
     } else {
       html += '<span class="pending">「口座」タブで元手を記録すると、まだ使っていない元手が出ます</span>';
     }
@@ -177,18 +177,28 @@
     if (!r.positions.length) {
       $('posTable').innerHTML = '<tbody><tr><td class="dim">保有はありません。「約定の取込」タブで楽天証券のCSVを取り込んでください。</td></tr></tbody>';
     } else {
+      // 13列を10列にまとめる: 口座と種別は1列、終値の日は終値の下、保有開始は銘柄名の下。
+      // 価格は小数があるときだけ小数1桁を出す(1,308.0 と出さない)。狭い幅では1銘柄をカードの形にする(journal.css)
+      var price = function (v) { return v === null || v === undefined ? '—' : num(v, v % 1 ? 1 : 0); };
+      // 終値の日は、一番多い日付を列見出しに1回だけ出す。それと違う日付の銘柄だけ、終値の下に日付を出す
+      var dateCnt = {};
+      r.positions.forEach(function (p) { if (p.closeDate) dateCnt[p.closeDate] = (dateCnt[p.closeDate] || 0) + 1; });
+      var mainDate = Object.keys(dateCnt).sort(function (a, b) { return dateCnt[b] - dateCnt[a] || (a < b ? 1 : -1); })[0] || null;
+      var closeHead = '終値' + (mainDate ? '(' + mainDate.slice(5) + ')' : '');
       $('posTable').innerHTML =
-        '<thead><tr><th>口座</th><th>種別</th><th>コード</th><th>銘柄</th><th class="num-col">数量</th>' +
-        '<th class="num-col">平均取得単価</th><th class="num-col">終値</th><th>終値の日</th>' +
-        '<th class="num-col">評価額</th><th class="num-col">含み損益</th><th class="num-col">損益率</th><th>保有開始</th><th>判断・メモ</th></tr></thead><tbody>' +
+        '<thead><tr><th>口座・種別</th><th>コード</th><th>銘柄・保有開始</th><th class="num-col">数量</th>' +
+        '<th class="num-col">平均取得単価</th><th class="num-col" title="' + esc(mainDate || '') + ' の終値">' + esc(closeHead) + '</th>' +
+        '<th class="num-col">評価額</th><th class="num-col">含み損益</th><th class="num-col">損益率</th><th>判断・メモ</th></tr></thead><tbody>' +
         r.positions.map(function (p) {
-          return '<tr><td>' + esc(p.account) + '</td><td class="kind">' + esc(LABELS.kind[p.kind]) + '</td>' +
-            '<td class="code">' + esc(short(p.code)) + '</td><td class="name">' + esc(p.name || '') +
-            (p.splitAdjusted ? '<span class="badge" title="取得後に分割があり、数量と単価を今の株数に直しています">分割調整</span>' : '') + '</td>' +
-            '<td class="num-col">' + num(p.qty) + '</td><td class="num-col">' + num(p.avgCost, 1) + '</td>' +
-            '<td class="num-col">' + num(p.close, 1) + '</td><td class="dim">' + esc(p.closeDate || '—') + '</td>' +
-            '<td class="num-col">' + yen(p.value) + '</td><td class="num-col">' + signed(p.pnl, 0) + '</td>' +
-            '<td class="num-col">' + signed(p.pnlPct, 1, '%') + '</td><td class="dim">' + esc(p.firstDate) + '</td>' +
+          return '<tr><td data-label="口座">' + esc(p.account) + ' <span class="kind">' + esc(LABELS.kind[p.kind]) + '</span></td>' +
+            '<td class="code" data-label="コード">' + esc(short(p.code)) + '</td><td class="name" data-label="銘柄">' + esc(p.name || '') +
+            (p.splitAdjusted ? '<span class="badge" title="取得後に分割があり、数量と単価を今の株数に直しています">分割調整</span>' : '') +
+            '<div class="sub">' + esc(p.firstDate) + ' から</div></td>' +
+            '<td class="num-col" data-label="数量">' + num(p.qty) + '</td><td class="num-col" data-label="平均取得単価">' + price(p.avgCost) + '</td>' +
+            '<td class="num-col" data-label="' + esc(closeHead) + '">' + price(p.close) +
+              (p.closeDate !== mainDate ? '<div class="sub">' + esc(p.closeDate || '終値なし') + '</div>' : '') + '</td>' +
+            '<td class="num-col" data-label="評価額">' + yen(p.value) + '</td><td class="num-col" data-label="含み損益">' + signed(p.pnl, 0) + '</td>' +
+            '<td class="num-col" data-label="損益率">' + signed(p.pnlPct, 1, '%') + '</td>' +
             '<td class="rec-cell"><button class="link" data-decide="' + esc(p.code) + '" type="button" title="この銘柄の判断を記録する">記録</button>' +
             recCount('decisions', p.code, p.records.decisions, '判断') + recCount('notes', p.code, p.records.notes, 'メモ') + '</td></tr>';
         }).join('') + '</tbody>';
@@ -354,6 +364,7 @@
     set('invalidation', q.get('inv'));
     set('plannedStopPct', q.get('stop'));
     set('sizeNote', q.get('size'));
+    $('decisionMore').open = true;   // 情報源・予定の損切り・サイズの考えに値が入っている
     f.elements.code.dispatchEvent(new Event('blur'));   // 銘柄名と売買記録を出す
     var b = $('fromCheckBanner');
     b.hidden = false;
@@ -403,6 +414,7 @@
       loaded.positions = false;   // 保有タブの判断・メモの件数を、次に開いたときに取り直す
       if (r.questionIds.length) refreshQuestionMeta();
       f.reset();
+      $('decisionMore').open = false;
       f.elements.decisionDate.value = meta.today;
       f.querySelector('[data-lookup-for="code"]').textContent = '';
       showCodeHistory(null);
@@ -431,15 +443,26 @@
   // 右の列: 「項目名 値」を縦に並べる(dt/dd)。判断前・その後は小見出しで区切る
   function kv(k, v) { return '<dt>' + k + '</dt><dd>' + v + '</dd>'; }
 
+  /** その後: 20日後・60日後の株価とTOPIXの増減率、その差を小さな表で出す */
+  function afterTable(e) {
+    function row(label, ret, topix, exr) {
+      if (exr === null || exr === undefined) {
+        return '<tr><th>' + label + '</th><td colspan="3"><span class="pending">未到来</span></td></tr>';
+      }
+      return '<tr><th>' + label + '</th><td>' + signed(ret, 1, '%') + '</td><td>' + signed(topix, 1, '%') +
+        '</td><td>' + signed(exr, 1, 'pt') + '</td></tr>';
+    }
+    return '<dd class="after"><table class="after-t"><thead><tr><th></th><th>株価</th><th>TOPIX</th><th>差</th></tr></thead><tbody>' +
+      row('20日後', e.ret20, e.topix20, e.exr20) + row('60日後', e.ret60, e.topix60, e.exr60) + '</tbody></table></dd>';
+  }
+
   function evalHtml(e) {
     return '<dt class="dside-h first">判断したとき</dt>' +
       kv('20日', signed(e.ret20Pre, 1, '%')) +
       kv('日次ボラ', e.vol20 === null ? '—' : Number(e.vol20).toFixed(2) + '%') +
       kv('高値から', signed(e.dd250, 1, '%')) +
       kv('売買代金', e.turnover20 === null ? '—' : Number(e.turnover20).toFixed(1) + '億/日') +
-      '<dt class="dside-h">その後(株価増減率 − TOPIX増減率)</dt>' +
-      kv('20日後', e.exr20 === null ? '<span class="pending">未到来</span>' : signed(e.exr20, 1, 'pt')) +
-      kv('60日後', e.exr60 === null ? '<span class="pending">未到来</span>' : signed(e.exr60, 1, 'pt')) +
+      '<dt class="dside-h">その後</dt>' + afterTable(e) +
       (e.baseDate ? kv('基準', esc(e.baseDate) + ' 終値 ' + num(e.baseClose, 1)) : '');
   }
 
@@ -528,11 +551,11 @@
     // 金額と損切り価格
     var buyTxt = num(c.buy, c.buy % 1 ? 1 : 0) + '円' + (c.buyIsDefault ? '(終値)' : '(指定)');
     h += '<div class="snap-row"><span class="snap-k">損切り価格</span>' +
-      '<span>買値 ' + buyTxt + (c.shares ? ' × ' + num(c.shares) + '株 = ' + num((c.yen || 0) / 10000, 1) + '万円' : '') + '</span>' +
+      '<span>買値 ' + buyTxt + (c.shares ? ' × ' + num(c.shares) + '株 = ' + num(Math.round(c.yen || 0), 0) + '円' : '') + '</span>' +
       (c.stops || []).map(function (s) {
         var chosen = stopAns === s.pct + '%';
         return '<span class="snap-stop' + (chosen ? ' chosen' : '') + '">' + s.pct + '%: ' + num(s.price, s.price % 1 ? 1 : 0) + '円' +
-          (s.lossYen != null ? '(損失 ' + num(s.lossYen / 10000, 1) + '万円)' : '') + (chosen ? ' ← 選んだ' : '') + '</span>';
+          (s.lossYen != null ? '(損失 ' + num(Math.round(s.lossYen), 0) + '円)' : '') + (chosen ? ' ← 選んだ' : '') + '</span>';
       }).join('') + (stopAns === '置かない' ? '<span class="snap-stop chosen">損切りは置かない</span>' : '') + '</div>';
 
     h += '<div class="snap-row"><span class="snap-k">値動き</span>' +
@@ -613,6 +636,9 @@
     document.querySelectorAll('#emotionChips .chip').forEach(function (b) {
       b.setAttribute('aria-pressed', em.indexOf(b.dataset.emotion) >= 0 ? 'true' : 'false');
     });
+    // 任意の項目に値があれば「その他の項目」を開く
+    $('decisionMore').open = !!(d.ideaSource || d.expectRetPct !== null || d.horizonWeeks !== null || d.plannedStopPct !== null ||
+      d.sizeNote || d.confidence || d.emotion);
     setSupersede(d);
     f.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -1115,7 +1141,7 @@
     }
     var cur = cap.current;
     $('capCurrent').innerHTML = cur
-      ? '元手 <b>' + yen(cur.amount) + '</b> 円(' + esc(cur.effectiveDate) + ' から)'
+      ? '元手 <b>' + yen(cur.amount) + '</b>円(' + esc(cur.effectiveDate) + ' から)'
       : '<span class="pending">元手がまだ記録されていません。下の欄で記録してください</span>';
 
     // 株の時価は保有の計算と同じもの(参考)
@@ -1129,15 +1155,15 @@
     var fl = cap.flows;
     $('capNowNote').textContent = fl.firstTradeDate ? '約定 ' + fl.firstTradeDate + '〜' + fl.lastTradeDate + '(現物のみ)' : '約定がまだありません';
     $('capNow').innerHTML = '<div class="acc-now">' +
-      '<span>取得額の累計</span><span class="v">' + yen(fl.buyTotal) + ' 円</span><span class="sub">買付 ' + fl.buyCount + '件の受渡金額</span>' +
-      '<span>売却額の累計</span><span class="v">' + yen(fl.sellTotal) + ' 円</span><span class="sub">売付 ' + fl.sellCount + '件の受渡金額</span>' +
-      '<span>株に入れた正味の額</span><span class="v">' + yen(cap.netInvested) + ' 円</span><span class="sub">取得額の累計 − 売却額の累計</span>' +
-      '<span class="key">まだ使っていない元手</span><span class="v key">' + (cap.unused === null ? '—' : yen(cap.unused) + ' 円') + '</span>' +
+      '<span>取得額の累計</span><span class="v">' + yen(fl.buyTotal) + '円</span><span class="sub">買付 ' + fl.buyCount + '件の受渡金額</span>' +
+      '<span>売却額の累計</span><span class="v">' + yen(fl.sellTotal) + '円</span><span class="sub">売付 ' + fl.sellCount + '件の受渡金額</span>' +
+      '<span>株に入れた正味の額</span><span class="v">' + yen(cap.netInvested) + '円</span><span class="sub">取得額の累計 − 売却額の累計</span>' +
+      '<span class="key">まだ使っていない元手</span><span class="v key">' + (cap.unused === null ? '—' : yen(cap.unused) + '円') + '</span>' +
       '<span class="sub key">元手 − 株に入れた正味の額' + (cap.unused === null ? '(元手が未記録)' : '') + '</span>' +
-      '<span>参考: 株の時価</span><span class="v">' + (stockValue === null ? '—' : yen(stockValue) + ' 円') + '</span>' +
+      '<span>参考: 株の時価</span><span class="v">' + (stockValue === null ? '—' : yen(stockValue) + '円') + '</span>' +
       '<span class="sub">今持っている現物 × 最新の終値(保有タブと同じ)</span>' +
       '<span>参考: トータルの差益</span><span class="v">' +
-      (stockValue === null ? '—' : signed(stockValue - cap.netInvested, 0, ' 円')) + '</span>' +
+      (stockValue === null ? '—' : signed(stockValue - cap.netInvested, 0, '円')) + '</span>' +
       '<span class="sub">株の時価 − 株に入れた正味の額(= 実現損益 + 含み損益。配当は含まない)</span>' +
       '</div>';
 

@@ -200,16 +200,18 @@ async function fetchList(conn, listId) {
      FROM jnl_candidate WHERE list_id = :id AND removed_at IS NULL
      ORDER BY added_at, cand_id`, { id: listId }, OBJ);
   const removed = await conn.execute(
-    `SELECT code, TO_CHAR(added_at, 'YYYY-MM-DD HH24:MI') AS added_at,
-            TO_CHAR(removed_at, 'YYYY-MM-DD HH24:MI') AS removed_at
-     FROM jnl_candidate WHERE list_id = :id AND removed_at IS NOT NULL
-     ORDER BY removed_at DESC, cand_id DESC`, { id: listId }, OBJ);
+    `SELECT c.code, em.co_name, TO_CHAR(c.added_at, 'YYYY-MM-DD HH24:MI') AS added_at,
+            TO_CHAR(c.removed_at, 'YYYY-MM-DD HH24:MI') AS removed_at
+     FROM jnl_candidate c
+     LEFT JOIN equity_master em ON em.code = c.code
+     WHERE c.list_id = :id AND c.removed_at IS NOT NULL
+     ORDER BY c.removed_at DESC, c.cand_id DESC`, { id: listId }, OBJ);
   return {
     listId: x.LIST_ID, name: x.LIST_NAME, note: x.NOTE, createdAt: x.CREATED_AT, closedAt: x.CLOSED_AT,
     items: items.rows.map((i) => ({
       code: i.CODE, from: i.ADDED_FROM, detail: i.ADDED_DETAIL, note: i.NOTE, addedAt: i.ADDED_AT,
     })),
-    removed: removed.rows.map((i) => ({ code: i.CODE, addedAt: i.ADDED_AT, removedAt: i.REMOVED_AT })),
+    removed: removed.rows.map((i) => ({ code: i.CODE, name: i.CO_NAME, addedAt: i.ADDED_AT, removedAt: i.REMOVED_AT })),
   };
 }
 

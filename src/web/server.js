@@ -14,6 +14,8 @@
  *      個人の財務情報なので、127.0.0.1 以外で待ち受けるなら認証を先に入れること。
  *   5. 銘柄購入の流れ(購入検討リスト → 参考情報 → 損失回避チェック → 判断メモ)を /purchase で行う
  *      ルーティングは purchaseRoutes.js。設計は claude/purchase_flow_design.md。
+ *   6. 市場(米国3指数・日経先物・日経平均・TOPIX・投資部門別・信用残・裁定残・33業種)を /market で1枚の表で見る
+ *      データは marketQuery.js。設計は claude/market_page_design.md。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -37,6 +39,7 @@ const db = require('../db');
 const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
+const marketQuery = require('./marketQuery');
 const journalRoutes = require('./journalRoutes');
 const purchaseRoutes = require('./purchaseRoutes');
 const purchaseQuery = require('./purchaseQuery');
@@ -427,7 +430,11 @@ app.get('/chart', async (req, res, next) => {
           ? '全銘柄'
           : sectors.length
             ? `33業種: ${sectors.map((c) => (meta.sectors.find((s) => s.code === c) || {}).name || c).join(' / ')}`
-            : `タグ: ${tags.join(' / ')}`) +
+            : `タグ: ${tags.map((n) => {
+              // 短縮表記(TAG_SHORT_JA)、無ければ日本語名、それも無ければタグ名のまま(騰落率一覧の表と同じ)
+              const t = meta.tags.find((x) => x.tagName === n);
+              return t ? t.shortLabel || t.label || n : n;
+            }).join(' / ')}`) +
         ` ・騰落率${order === 'asc' ? '下位' : '上位'}${codes.length}件` +
         (perf.length > codes.length ? `(全${perf.length}銘柄中)` : '');
     }
@@ -663,6 +670,49 @@ app.get('/api/demand/supplementary', async (req, res, next) => {
       db.withConnection((conn) => demandQuery.fetchSupplementary(conn))
     );
     res.json({ count: rows.length, rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//==================================================================
+// 市場 (/market)
+//   1枚の表(行 = 項目、列 = 前の週の月曜から今日まで)。データと列の置き方は marketQuery.js 冒頭、
+//   設計は claude/market_page_design.md。米国3指数と日経先物は Yahoo Finance から取り、DBには保存しない。
+//==================================================================
+const MARKET_TTL_MS = 10 * 60 * 1000;
+// Yahoo が取れなかったときは、10分待たせずに1分で取り直す
+const MARKET_RETRY_MS = 60 * 1000;
+
+app.get(['/market', '/market/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'market.html'));
+});
+
+app.get('/api/market', async (req, res, next) => {
+  try {
+    const now = Date.now();
+    const today = marketQuery.ymdIn(new Date(now), marketQuery.TZ_JP);
+    const from = marketQuery.periodStart(today);
+
+    const dbPart = await withCache('market:db:' + today, MARKET_TTL_MS, () =>
+      db.withConnection((conn) =>
+        marketQuery.fetchDbPart(conn, {
+          lookFrom: marketQuery.addDays(from, -14), // 前日比・期間前比のため
+          weekFrom: marketQuery.addDays(from, -35), // 週次の前回比のため
+          histFrom: marketQuery.addDays(from, -380), // Zスコアの平均・標準偏差(過去1年)のため
+          to: today,
+        })
+      )
+    );
+
+    const extKey = 'market:ext:' + today;
+    let ext = cacheGet(extKey);
+    if (!ext) {
+      ext = await marketQuery.fetchExternalPart(now);
+      cacheSet(extKey, ext, ext.errors.length ? MARKET_RETRY_MS : MARKET_TTL_MS);
+    }
+
+    res.json(marketQuery.buildMarketTable({ today, db: dbPart, ext }));
   } catch (err) {
     next(err);
   }

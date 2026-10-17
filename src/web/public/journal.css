@@ -235,3 +235,31 @@ tr.active-row { background: var(--sel-wash); font-weight: 600; }
 .snap-no { color: var(--muted); margin-right: 3px; font-size: 11px; }
 .snap-answers { display: flex; flex-direction: column; gap: 2px; }
 .snap-note { color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+/* 保有の表。銘柄名の下の保有開始、終値の下の日付 */
+#posTable .sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+/* 狭い幅では1銘柄をカードの形にする(横スクロールにしない)。項目名は data-label から出す */
+@media (max-width: 700px) {
+  #posTable thead { display: none; }
+  #posTable tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  #posTable td { border: 0; padding: 0; white-space: normal; text-align: left; }
+  #posTable td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); }
+  #posTable td.name { max-width: none; }
+  #posTable td.rec-cell { grid-column: 1 / -1; }
+}
+
+/* 判断フォームの「その他の項目(任意)」。開け閉めできる */
+details.more { border-top: 1px solid var(--border); padding-top: 8px; }
+details.more > summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+details.more > summary:hover { background: var(--hover-wash); }
+details.more .more-body { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+
+/* 判断カードの「その後」の小さな表(株価・TOPIX・差) */
+.dside dd.after { grid-column: 1 / -1; }
+.after-t { width: auto; border-collapse: collapse; font-size: 11px; }
+.after-t thead { position: static; }
+.after-t th, .after-t td { padding: 0 10px 0 0; border: 0; white-space: nowrap; position: static; background: none; }
+.after-t thead th { font-weight: 400; color: var(--muted); text-align: right; }
+.after-t thead th:first-child, .after-t tbody th { text-align: left; font-weight: 600; color: var(--text-secondary); }
+.after-t td { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.after-t td[colspan] { text-align: left; }

@@ -65,12 +65,13 @@ async function fetchTags(connection) {
             tm.tag_type,
             tm.major_code,
             tm.major_label_ja,
-            COUNT(ft.code) AS code_count
+            COUNT(ft.code) AS code_count,
+            tm.tag_short_ja
      FROM tag_master tm
      LEFT JOIN favorite_tag ft ON ft.tag_name = tm.tag_name
      WHERE tm.is_active = 1
      GROUP BY tm.tag_name, tm.tag_code, tm.tag_label_ja, tm.tag_type,
-              tm.major_code, tm.major_label_ja
+              tm.major_code, tm.major_label_ja, tm.tag_short_ja
      ORDER BY tm.tag_code NULLS LAST, tm.tag_name`
   );
   return r.rows.map((x) => ({
@@ -81,6 +82,7 @@ async function fetchTags(connection) {
     majorCode: x[4],
     majorLabel: x[5],
     count: x[6],
+    shortLabel: x[7],
   }));
 }
 
@@ -200,8 +202,9 @@ async function fetchPerformance(connection, opts) {
            b.trading_days,
            b.split_count,
            b.raw_p1,
-           (SELECT LISTAGG(f2.tag_name, ' ') WITHIN GROUP (ORDER BY f2.tag_name)
-            FROM favorite_tag f2 WHERE f2.code = b.code) AS all_tags
+           (SELECT LISTAGG(f2.tag_name, ' ') WITHIN GROUP (ORDER BY tm2.tag_code NULLS LAST, f2.tag_name)
+            FROM favorite_tag f2 LEFT JOIN tag_master tm2 ON tm2.tag_name = f2.tag_name
+            WHERE f2.code = b.code) AS all_tags
     FROM base b
     JOIN equity_master em ON em.code = b.code
     WHERE b.trading_days >= :minDays

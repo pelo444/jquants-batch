@@ -324,7 +324,7 @@
         '<td class="num-col dim">' + r.tradingDays + '</td>' +
         '<td class="dim">' + esc(r.market) + '</td>' +
         '<td class="dim">' + esc(r.sector33) + '</td>' +
-        '<td class="tags" title="' + esc(r.tags.join(' ')) + '">' + esc(r.tags.join(' ')) + '</td>' +
+        '<td class="tags" title="' + esc(tagText(r.tags, false)) + '">' + esc(tagText(r.tags, true)) + '</td>' +
         '</tr>';
     }).join('');
     $('resultBody').innerHTML = html;
@@ -359,12 +359,17 @@
     showTab('chart');
   }
 
+  /** チャートの見出し。件数は入力欄の値ではなく、実際に描く銘柄数(一覧の件数と入力欄の小さいほう) */
+  function chartCaptionText(order) {
+    var n = Number($('chartLimit').value) || 30;
+    var k = rows.length ? Math.min(n, rows.length) : n;
+    return '騰落率' + (order === 'asc' ? '下位' : '上位') + k + '件';
+  }
+
   function chartByOrder(order) {
     var p;
     try { p = buildParams(); } catch (e) { setStatus(e.message, true); return; }
-    var n = $('chartLimit').value || '30';
-    showChart(prepareChartUrl(p, order),
-      '騰落率' + (order === 'asc' ? '下位' : '上位') + n + '件');
+    showChart(prepareChartUrl(p, order), chartCaptionText(order));
   }
 
   function chartBySelection() {
@@ -396,9 +401,20 @@
       var f = $('chartFrame');
       if (!f.src && f.dataset.pending) {
         f.src = f.dataset.pending;
-        $('chartCaption').textContent = '騰落率上位' + ($('chartLimit').value || '30') + '件';
+        $('chartCaption').textContent = chartCaptionText('desc');
       }
     }
+  }
+
+  /** タグ名の並びを表示用にする。short=true は短縮表記(無ければ日本語名)、false は日本語名。どちらも無ければタグ名のまま */
+  function tagText(names, short) {
+    var by = {};
+    (meta ? meta.tags : []).forEach(function (t) { by[t.tagName] = t; });
+    return names.map(function (n) {
+      var t = by[n];
+      if (!t) return n;
+      return (short && t.shortLabel) || t.label || n;
+    }).join('・');
   }
 
   //---------------------------------------------------------------- CSV
@@ -410,7 +426,7 @@
     rows.forEach(function (r) {
       lines.push([
         r.code, r.name, r.changePct, r.p1, r.p2, r.diff, r.tradingDays,
-        r.splitCount, r.d1, r.d2, r.market, r.sector33, r.tags.join(' '),
+        r.splitCount, r.d1, r.d2, r.market, r.sector33, tagText(r.tags, true),
       ].map(function (v) {
         var s = String(v === null || v === undefined ? '' : v);
         return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;

@@ -48,10 +48,8 @@
 thead tr.grp th {
   text-align: center;
   border-bottom: 1px solid var(--border);
-  color: var(--muted); font-weight: 600; font-size: 11px;
-  top: 0;
+  color: var(--text-secondary); font-weight: 600; font-size: 12px;
 }
-thead tr.col th { top: 24px; }
 th.grp-start, td.grp-start { border-left: 1px solid var(--baseline); }
 
 /* ---------- 値の見せ方 ---------- */
@@ -136,6 +134,31 @@ tr.summary-row td {
 
 /* ---------- 銘柄詳細 ---------- */
 tbody tr.pick { cursor: pointer; }
+/* 点灯の表: 行をクリックすると③〜⑥の残りの項目が開く */
+tbody tr.expand { cursor: pointer; }
+tbody tr.expand:hover { background: var(--hover-wash); }
+tbody tr.expand.open { background: var(--open-wash); }
+tr.detail-row td { white-space: normal; vertical-align: top; padding: 2px 10px 8px; background: var(--open-wash); }
+/* 出来高・信用売残・空売り・大量保有の列。行を開いても列幅が変わらないよう幅を決める */
+td.rep-col { width: 15%; min-width: 150px; }
+.ditem { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; line-height: 1.6; }
+.ditem .dk { color: var(--text-secondary); }
+.ditem .dv { font-variant-numeric: tabular-nums; text-align: right; }
+/* 疑う・点灯の列は幅を決めてチップを折り返す。余った幅は数字の列に回る */
+td.doubt-col, td.sig-col { white-space: normal; }
+td.doubt-col { width: 210px; }
+td.sig-col { width: 180px; }
+td.doubt-col .doubt { max-width: 210px; }
+/* 確認順は1〜2桁の数字だけなので狭くする */
+#signalTable td.rank, #allTable td.rank { width: 56px; }
+/* コードは4桁固定なので狭くする */
+#signalTable td.code, #allTable td.code { width: 44px; }
+/* 銘柄名は狭くし、長い名前は省略せず2行に折り返す。余った幅は出来高〜大量保有の4列に回す */
+#signalTable td.name, #allTable td.name { width: 120px; max-width: 120px; white-space: normal; }
+/* 点灯の表は列が少ないので、列の区切りに縦罫を引く(グループの境目は濃い線のまま) */
+#signalTable th + th, #signalTable td + td,
+#allTable th + th, #allTable td + td { border-left: 1px solid var(--grid); }
+#signalTable .grp-start, #allTable .grp-start { border-left: 1px solid var(--baseline); }
 tbody tr.pick.active { background: var(--sel-wash); }
 .detail { margin-top: 14px; }
 .detail-head {

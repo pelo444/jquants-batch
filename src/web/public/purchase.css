@@ -31,16 +31,20 @@ tr.in-list td.name { font-weight: 400; }
 
 /* b) 参考情報 */
 .pane h2.ref-title, .ref-title { font-size: 13px; margin: 18px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+/* 参考情報も枠(.panel)に入れたので、見出しの上の余白は要らない */
+#refPane .ref-title { margin-top: 0; }
 .sym-legend { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
 #refTable th.grp { text-align: center; border-left: 1px solid var(--baseline); }
-#refTable th.no, #refTable td.sym { text-align: center; padding: 5px 4px; min-width: 30px; }
+#refTable td.sym { text-align: center; padding: 5px 4px; min-width: 30px; }
+/* 見出しは「札 + 短い名前」。名前は折り返して列を広げすぎない */
+#refTable th.no { text-align: center; padding: 5px 4px; min-width: 52px; max-width: 76px; white-space: normal; vertical-align: bottom; line-height: 1.5; }
 #refTable td.sym.first, #refTable th.first { border-left: 1px solid var(--baseline); }
 #refTable tr.main { cursor: pointer; }
 #refTable tr.main.open { background: var(--sel-wash); }
 .d-grp { margin: 6px 0 2px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-.d-item { display: grid; grid-template-columns: 26px 22px 140px 1fr; gap: 2px 8px; font-size: 12px; padding: 3px 0;
+.d-item { display: grid; grid-template-columns: 30px 22px 140px 1fr; gap: 2px 8px; font-size: 12px; padding: 3px 0;
   border-bottom: 1px dashed var(--border); }
-.d-item .d-no { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.d-item .d-no { text-align: right; }
 .d-item .d-label { font-weight: 600; }
 .d-lines div { font-variant-numeric: tabular-nums; }
 .d-lines .lbl { color: var(--muted); margin-right: 6px; }
@@ -54,4 +58,15 @@ tr.in-list td.name { font-weight: 400; }
 }
 
 .check-bar { margin-top: 10px; align-items: center; }
+/* 購入検討銘柄の「リストを保存」の行: 件数・未保存の表示とボタンを上下の中央でそろえる */
+#listBody > .row { align-items: center; }
+/* 外した銘柄(履歴)。注記の大きさで、横に5〜6列(画面が狭いと列が減る)。行数は件数しだい */
+.removed { margin-top: 10px; }
+.removed-title { margin-bottom: 2px; }
+.removed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0 16px; }
+.rm-item { display: flex; min-width: 0; font-variant-numeric: tabular-nums; }
+/* 日付は銘柄名のすぐ後ろに括弧で付ける。名前が長いときは名前だけを「…」で切る */
+.rm-code { flex: none; margin-right: 6px; }
+.rm-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rm-date { flex: none; }
 #refTable th.c-sel { font-size: 11px; }

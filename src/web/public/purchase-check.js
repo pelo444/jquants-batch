@@ -35,7 +35,8 @@
     if (v === null || v === undefined || isNaN(v)) return '—';
     return Number(v).toLocaleString('ja-JP', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
   }
-  function man(v) { return v === null || v === undefined || isNaN(v) ? '—' : num(v / 10000, 1) + '万円'; }
+  /** 金額は円単位・カンマ区切りで出す(売買記録の口座タブと同じ書き方) */
+  function yenAmt(v) { return v === null || v === undefined || isNaN(v) ? '—' : num(Math.round(v), 0) + '円'; }
   function yenP(v) { return v === null || v === undefined || isNaN(v) ? '—' : num(v, v < 1000 ? 1 : 0) + '円'; }
   function normCode(s) {
     var c = String(s).trim().toUpperCase();
@@ -91,16 +92,16 @@
     var buys = {};
     codes.forEach(function (c) {
       var el = $('buy_' + c);
-      if (!el) return;
-      var v = parseNum(el.value);
+      var raw = el ? el.value : (inBuys[c] != null ? inBuys[c] : '');
+      var v = parseNum(raw);
       if (isNaN(v)) throw new Error(short(c) + ' の買値は正の数で入れてください');
       if (v !== null) buys[c] = v;
     });
     var shares = {};
     codes.forEach(function (c) {
       var el = $('sh_' + c);
-      if (!el) return;
-      var t = String(el.value || '').replace(/[,，\s株]/g, '');
+      var raw = el ? el.value : (inShares[c] != null ? inShares[c] : DEFAULT_SHARES);
+      var t = String(raw || '').replace(/[,，\s株]/g, '');
       if (!t) return;
       var n = Number(t);
       if (!(Number.isInteger(n) && n > 0)) throw new Error(short(c) + ' の株数は正の整数で入れてください');
@@ -109,26 +110,27 @@
     return { stopPcts: stops, buys: buys, shares: shares };
   }
 
-  /** 銘柄ごとの買値と株数の欄。外した銘柄の欄も値を保つため、隠すだけにする */
+  /**
+   * 銘柄ごとの買値と株数。入力欄は 3 の表の「買値」「株数」の列にある(renderSizing)。
+   * 表は計算のたびに作り直し、外した銘柄は表に出ないので、入れた値はここに覚えておく
+   */
+  var inBuys = {};
+  var inShares = {};
   function renderBuyInputs(prevBuys, prevShares) {
-    $('buyRow').innerHTML = codes.map(function (c) {
-      var s = result && result.stocks.find(function (x) { return x.code === c; });
-      var name = s ? s.name : '';
-      var sh = prevShares && prevShares[c] != null ? prevShares[c] : DEFAULT_SHARES;
-      return '<div class="buy-item" data-buy="' + esc(c) + '"><span>' + esc(short(c)) + ' ' + esc(name || '') + '</span>' +
-        '<label>買値<input type="text" class="in-num" id="buy_' + esc(c) + '" inputmode="decimal" placeholder="' +
-        esc(s && s.lastClose ? '終値 ' + num(s.lastClose, s.lastClose < 1000 ? 1 : 0) : '直近終値') + '" value="' +
-        esc(prevBuys && prevBuys[c] != null ? prevBuys[c] : '') + '"></label>' +
-        '<label>株数<input type="text" class="in-num" id="sh_' + esc(c) + '" inputmode="numeric" value="' + esc(sh) + '"></label></div>';
-    }).join('');
-    Array.prototype.forEach.call($('buyRow').querySelectorAll('input'), function (el) {
-      el.addEventListener('keydown', function (e) { if (e.key === 'Enter') recalc(); });
+    inBuys = {};
+    inShares = {};
+    codes.forEach(function (c) {
+      if (prevBuys && prevBuys[c] != null) inBuys[c] = String(prevBuys[c]);
+      inShares[c] = String(prevShares && prevShares[c] != null ? prevShares[c] : DEFAULT_SHARES);
     });
-    syncBuyVisibility();
   }
-  function syncBuyVisibility() {
-    Array.prototype.forEach.call(document.querySelectorAll('[data-buy]'), function (el) {
-      el.hidden = isOut(el.getAttribute('data-buy'));
+  function bindBuyInputs() {
+    Array.prototype.forEach.call(document.querySelectorAll('#sizeTable input.in-cell'), function (el) {
+      el.addEventListener('keydown', function (e) { if (e.key === 'Enter') recalc(); });
+      el.addEventListener('input', function () {
+        var c = el.getAttribute('data-code');
+        if (el.getAttribute('data-kind') === 'buy') inBuys[c] = el.value; else inShares[c] = el.value;
+      });
     });
   }
 
@@ -166,6 +168,7 @@
       render(open);
     } catch (e) {
       flash('計算できませんでした: ' + e.message, true);
+      $('loading').hidden = true;   // 初回に失敗したときは「読み込み中…」を消し、上のエラーだけを残す
     } finally {
       $('recalcBtn').disabled = false;
       $('recalcBtn').textContent = '再計算';
@@ -253,7 +256,6 @@
         var k = cb.getAttribute('data-out') + '|' + OUT;
         if (cb.checked) answers[k] = '外す'; else delete answers[k];
         renderDirty();
-        syncBuyVisibility();
         recalc();
       });
     });
@@ -282,16 +284,19 @@
       '</tr></thead>';
     var body = sz.rows.map(function (r) {
       return '<tr><td class="code">' + esc(short(r.code)) + '</td><td class="name" title="' + esc(r.name) + '">' + esc(r.name) + '</td>' +
-        '<td class="num-col">' + yenP(r.buy) + (r.buyIsDefault ? '' : ' <span class="badge">指定</span>') + '</td>' +
-        '<td class="num-col">' + num(r.shares) + '株</td>' +
-        '<td class="num-col">' + man(r.yen) + '</td>' +
+        '<td class="num-col"><input type="text" class="in-num in-cell" id="buy_' + esc(r.code) + '" data-code="' + esc(r.code) +
+          '" data-kind="buy" inputmode="decimal" placeholder="終値 ' + esc(yenP(r.buy)) + '" value="' +
+          esc(inBuys[r.code] != null ? inBuys[r.code] : '') + '"></td>' +
+        '<td class="num-col"><input type="text" class="in-num in-cell" id="sh_' + esc(r.code) + '" data-code="' + esc(r.code) +
+          '" data-kind="shares" inputmode="numeric" value="' + esc(inShares[r.code] != null ? inShares[r.code] : r.shares) + '"></td>' +
+        '<td class="num-col">' + yenAmt(r.yen) + '</td>' +
         '<td class="num-col">' + (r.share != null ? num(r.share * 100, 1) + '%' : '—') + '</td>' +
         '<td class="num-col">' + (r.vol13 != null ? num(r.vol13, 1) + '%' : '—') + '</td>' +
-        '<td class="num-col">' + man(r.weekYen) + '</td>' +
+        '<td class="num-col">' + yenAmt(r.weekYen) + '</td>' +
         '<td class="num-col dim">' + (r.refShares != null ? num(r.refShares) + '株' : '—') + '</td>' +
         r.stops.map(function (x) {
           return '<td class="num-col grp">' + yenP(x.price) + '</td><td class="num-col">' + (x.timesWeek != null ? num(x.timesWeek, 1) + '倍' : '—') +
-            '</td><td class="num-col">' + man(x.lossYen) + '</td>';
+            '</td><td class="num-col">' + yenAmt(x.lossYen) + '</td>';
         }).join('') + '</tr>';
     }).join('');
     var t = sz.totals;
@@ -299,14 +304,14 @@
     var unused = result.premise.unusedYen;
     var over = unused != null && t.yen != null && t.yen > unused;
     var foot = '<tfoot><tr class="total"><td colspan="4">合計(全銘柄を損切りしたときの損失は右端)</td>' +
-      '<td class="num-col' + (over ? ' over' : '') + '">' + man(t.yen) + '</td><td></td><td></td><td class="num-col">' + man(t.weekYen) + '</td><td></td>' +
-      t.stopLoss.map(function (x) { return '<td class="grp"></td><td></td><td class="num-col">' + man(x.lossYen) + '</td>'; }).join('') +
+      '<td class="num-col' + (over ? ' over' : '') + '">' + yenAmt(t.yen) + '</td><td></td><td></td><td class="num-col">' + yenAmt(t.weekYen) + '</td><td></td>' +
+      t.stopLoss.map(function (x) { return '<td class="grp"></td><td></td><td class="num-col">' + yenAmt(x.lossYen) + '</td>'; }).join('') +
       '</tr></tfoot>';
     var h = '<div class="table-wrap short"><table id="sizeTable">' + head + '<tbody>' + body + '</tbody>' + foot + '</table></div>';
     if (over) {
-      h += '<p class="over-warn">買う額の合計 ' + man(t.yen) + ' が、まだ使っていない元手 ' + man(unused) + ' を ' + man(t.yen - unused) + ' 上回っています。</p>';
+      h += '<p class="over-warn">買う額の合計 ' + yenAmt(t.yen) + ' が、まだ使っていない元手 ' + yenAmt(unused) + ' を ' + yenAmt(t.yen - unused) + ' 上回っています。</p>';
     } else if (unused != null && t.yen != null) {
-      h += '<p class="note">まだ使っていない元手 ' + man(unused) + ' のうち ' + man(t.yen) + ' を使います(残り ' + man(unused - t.yen) + ')。</p>';
+      h += '<p class="note">まだ使っていない元手 ' + yenAmt(unused) + ' のうち ' + yenAmt(t.yen) + ' を使います(残り ' + yenAmt(unused - t.yen) + ')。</p>';
     }
     h += '<ul class="auto-lines">' +
       '<li>買う額 = 買値 × 株数。株数は既定で100株。単元未満で買うときは、その株数を入れる</li>' +
@@ -318,6 +323,7 @@
     h += qHtml(ALL, sz.sizeQuestion);
     h += sz.rows.map(function (r) { return qHtml(r.code, sz.stopQuestion, short(r.code) + ' ' + (r.name || '')); }).join('');
     $('sizeBox').innerHTML = h;
+    bindBuyInputs();
   }
 
   // 4 判断メモへ
@@ -365,8 +371,8 @@
     if (pct != null) p.set('stop', pct);
     if (row) {
       var total = result.sizing.totals.yen;
-      p.set('size', num(row.shares) + '株 × ' + yenP(row.buy) + ' = ' + man(row.yen) +
-        (total ? '(今回の合計 ' + man(total) + ' の ' + num(row.share * 100, 0) + '%)' : ''));
+      p.set('size', num(row.shares) + '株 × ' + yenP(row.buy) + ' = ' + yenAmt(row.yen) +
+        (total ? '(今回の合計 ' + yenAmt(total) + ' の ' + num(row.share * 100, 0) + '%)' : ''));
     }
     p.set('inv', (stop ? '株価: 買値 ' + yenP(row.buy) + ' から −' + pct + '%(' + yenP(stop.price) + ')で全部売る' :
       stopAns === '置かない' ? '株価: 損切りは置かない' : '株価: ') + '\n株価以外: \n時間: ');
@@ -422,6 +428,7 @@
     bindTextareas();
     bindChoices();
     renderDirty();
+    $('loading').hidden = true;
     $('body').hidden = false;
   }
 
@@ -460,7 +467,7 @@
     codes = (q.get('codes') || '').split(/[,\s]+/).map(normCode).filter(Boolean);
     codes = codes.filter(function (c, i) { return codes.indexOf(c) === i; });
     if (!listId || !codes.length) {
-      $('dataMeta').textContent = '';
+      $('loading').hidden = true;
       flash('リストと銘柄が指定されていません。銘柄購入の画面から開いてください', true);
       return;
     }

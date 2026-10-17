@@ -33,7 +33,8 @@ const QID_RE = /^(P-SEMI|R-AVOID|R-DIP|R-DOWNREV|R-SURGE|R-REBUY|R-OUT|S-SIZE|S-
 const f1 = (x) => (x == null ? '—' : x.toFixed(1));
 const f2 = (x) => (x == null ? '—' : x.toFixed(2));
 const sg = (x) => (x == null ? '—' : (x >= 0 ? '+' : '') + x.toFixed(1));
-const man = (x) => (x == null ? '—' : (x / 10000).toFixed(1) + '万円');
+// 金額は円単位・カンマ区切りで出す(売買記録の口座タブと同じ書き方)
+const yenAmt = (x) => (x == null ? '—' : Math.round(x).toLocaleString('ja-JP') + '円');
 const oku = (x) => (x == null ? '—' : Math.round(x / 1e6).toLocaleString('en-US'));
 
 /** 保有(タグ jnl_held)のうち半導体(タグ120/130)の銘柄コード */
@@ -218,9 +219,9 @@ async function runCheck(conn, p) {
   const capLines = [];
   if (cap && cap.current) {
     const fl = cap.flows || {};
-    capLines.push({ label: '元手', value: man(cap.current.amount), note: `${cap.current.effectiveDate} から` });
-    capLines.push({ label: '株に入れた正味の額', value: man(cap.netInvested), note: `取得額の累計 ${man(fl.buyTotal)} − 売却額の累計 ${man(fl.sellTotal)}` });
-    capLines.push({ label: 'まだ使っていない元手', value: man(cap.unused), note: '元手 − 株に入れた正味の額', key: true });
+    capLines.push({ label: '元手', value: yenAmt(cap.current.amount), note: `${cap.current.effectiveDate} から` });
+    capLines.push({ label: '株に入れた正味の額', value: yenAmt(cap.netInvested), note: `取得額の累計 ${yenAmt(fl.buyTotal)} − 売却額の累計 ${yenAmt(fl.sellTotal)}` });
+    capLines.push({ label: 'まだ使っていない元手', value: yenAmt(cap.unused), note: '元手 − 株に入れた正味の額', key: true });
   }
   const candSemi = kept.filter((s) => s.isSemi).map((s) => s.code);
   const semiAll = heldSemi ? Array.from(new Set([...heldSemi, ...candSemi])) : null;

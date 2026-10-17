@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>売買記録</title>
-<link rel="stylesheet" href="/style.css?v=20261016e">
+<link rel="stylesheet" href="/style.css?v=20261018b">
 <!-- ?v= は更新のたびに上げる。静的ファイルはブラウザに1時間キャッシュされるため(server.js の maxAge)、
      上げないと新しいHTMLに古いJSが組み合わさって、新しいボタンが反応しない -->
-<link rel="stylesheet" href="/journal.css?v=20261016c">
+<link rel="stylesheet" href="/journal.css?v=20261017d">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='2' width='10' height='12' rx='1.5' fill='none' stroke='%232a78d6' stroke-width='1.6'/%3E%3Cpath d='M5.5 6h5M5.5 9h5' stroke='%232a78d6' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -17,6 +17,7 @@
     <h1>売買記録</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
+    <a class="btn" href="/market">市場</a>
     <a class="btn" href="/">騰落率一覧</a>
     <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
@@ -67,37 +68,46 @@
         <div class="code-history" id="codeHistory" hidden aria-live="polite"></div>
         <label><span class="lbl">行動<span class="req">必須</span></span><select name="action" required></select></label>
         <label><span class="lbl">理由の分類<span class="req">必須</span></span><select name="reasonCat" required></select></label>
-        <label>情報源<select name="ideaSource"></select></label>
       </div>
       <label class="wide"><span class="lbl">理由<span class="req">必須</span></span>
         <textarea name="reasonText" rows="3" required placeholder="なぜ今この判断をするのか"></textarea></label>
       <label class="wide">次の行動への条件 <span class="hint">どうなったら、何をするか。株価・株価以外(決算など)・時間のそれぞれで</span>
         <textarea name="invalidation" rows="3" placeholder="例: 買値から −10% で全部売る / 次の決算で営業益の前年同期比が +10% を下回ったら半分売る / 3か月たっても買値 +5% に届かなければ全部売る"></textarea></label>
-      <div class="grid">
-        <label>想定リターン<span class="unit-wrap"><input type="number" name="expectRetPct" step="0.1" class="num"> %</span></label>
-        <label>想定期間<span class="unit-wrap"><input type="number" name="horizonWeeks" step="1" min="0" class="num"> 週</span></label>
-        <label>予定の損切り<span class="unit-wrap"><input type="number" name="plannedStopPct" step="0.1" min="0" class="num"> % 下</span></label>
-        <label>確信度
-          <span class="radios" id="confRadios"></span></label>
-      </div>
-      <label class="wide">サイズの考え<input type="text" name="sizeNote" placeholder="例: 資金の5%。ボラが高いので通常の半分"></label>
-      <div class="wide">
-        <span class="field-label">判断時の状態</span>
-        <span class="chips" id="emotionChips"></span>
-      </div>
-      <div class="wide qinline" data-qinline="decision">
-        <span class="field-label">調べたいこと <span class="unit">(判断と一緒に保存されます。銘柄と日付は判断から引き継ぎます)</span></span>
-        <div class="qinline-row">
-          <input type="text" class="qinline-text" placeholder="例: 同業他社の受注動向は? / この会社の過去の決算後の値動きは?">
-          <select class="qinline-assignee"><option value="SELF">自分で調べる</option><option value="CLAUDE">Claude に頼む</option></select>
-          <button class="btn" type="button" data-qinline-add="decision">追加</button>
-        </div>
-        <div class="qinline-list" data-qinline-list="decision"></div>
-      </div>
       <div class="submit-row">
         <button class="btn primary" type="submit">判断を記録する</button>
         <span class="status" id="decisionStatus"></span>
       </div>
+
+      <!-- 任意の項目。損失回避チェックから来たときと、記録を直すときに値があれば開いた状態にする -->
+      <details class="more" id="decisionMore">
+        <summary>その他の項目(任意)</summary>
+        <div class="more-body">
+          <div class="grid">
+            <label>情報源<select name="ideaSource"></select></label>
+          </div>
+          <div class="grid">
+            <label>想定リターン<span class="unit-wrap"><input type="number" name="expectRetPct" step="0.1" class="num"> %</span></label>
+            <label>想定期間<span class="unit-wrap"><input type="number" name="horizonWeeks" step="1" min="0" class="num"> 週</span></label>
+            <label>予定の損切り<span class="unit-wrap"><input type="number" name="plannedStopPct" step="0.1" min="0" class="num"> % 下</span></label>
+            <label>確信度
+              <span class="radios" id="confRadios"></span></label>
+          </div>
+          <label class="wide">サイズの考え<input type="text" name="sizeNote" placeholder="例: 資金の5%。ボラが高いので通常の半分"></label>
+          <div class="wide">
+            <span class="field-label">判断時の状態</span>
+            <span class="chips" id="emotionChips"></span>
+          </div>
+          <div class="wide qinline" data-qinline="decision">
+            <span class="field-label">調べたいこと <span class="unit">(判断と一緒に保存されます。銘柄と日付は判断から引き継ぎます)</span></span>
+            <div class="qinline-row">
+              <input type="text" class="qinline-text" placeholder="例: 同業他社の受注動向は? / この会社の過去の決算後の値動きは?">
+              <select class="qinline-assignee"><option value="SELF">自分で調べる</option><option value="CLAUDE">Claude に頼む</option></select>
+              <button class="btn" type="button" data-qinline-add="decision">追加</button>
+            </div>
+            <div class="qinline-list" data-qinline-list="decision"></div>
+          </div>
+        </div>
+      </details>
     </form>
 
     <h2>記録した判断
@@ -258,6 +268,6 @@
   </section>
 
 </div>
-<script src="/journal.js?v=20261016a"></script>
+<script src="/journal.js?v=20261017e"></script>
 </body>
 </html>

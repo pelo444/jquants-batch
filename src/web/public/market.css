@@ -1,0 +1,60 @@
+/* 市場(/market)。色は style.css の :root のトークンだけを使う */
+
+/* 1枚の表なので、枠の中で縦にスクロールさせず、ページごとスクロールする */
+.market-wrap { max-height: none; overflow: visible; }
+#marketTable thead { top: var(--topbar-h, 49px); }
+
+#marketTable th.c-label, #marketTable td.c-label { text-align: left; }
+#marketTable td.c-label, #marketTable td.c-name { color: var(--text-primary); }
+/* 項目名の2列目(終値・前日比・Zスコア) */
+#marketTable td.c-sub { color: var(--text-secondary); }
+/* 同じまとまりの名前の列は横線を消して、1つのセルに見せる */
+#marketTable td.c-name.nb { border-bottom-color: transparent; }
+#marketTable td.num-col { min-width: 64px; }
+
+/* まとまりの見出し行 */
+#marketTable tr.grp th {
+  background: var(--page); text-align: left; font-weight: 600;
+  color: var(--text-primary); padding-top: 10px;
+}
+#marketTable tr.grp .grp-note { font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 8px; white-space: normal; }
+#marketTable tbody tr.grp:hover { background: none; }
+
+/* Zスコアの絶対値が2以上の日(前日比のセルを背景色で強調。文字の太さ・大きさは変えない) */
+#marketTable td.hi { background: var(--sel-wash); }
+
+/* 指数・33業種の前日比: 上げ下げのうすい背景色。Zスコアの絶対値が2以上の日は同じ色を濃く
+   (濃い地では文字を基本の色にして読みやすくする。向きは符号と背景色で分かる) */
+#marketTable td.wash-up { background: var(--good-wash); }
+#marketTable td.wash-down { background: var(--critical-wash); }
+#marketTable td.wash-up.strong { background: var(--good-wash-strong); color: var(--text-primary); }
+#marketTable td.wash-down.strong { background: var(--critical-wash-strong); color: var(--text-primary); }
+
+/* 値が無いセル(取込待ちなど)。理由は title に持たせる */
+#marketTable td.na { color: var(--na-ink); }
+
+/* 広い幅: 日付の列を出す。狭い幅: 最新・前回比・期間前比の3列にまとめる */
+#marketTable .c-sum { display: none; }
+@media (max-width: 1100px) {
+  #marketTable .c-day { display: none; }
+  #marketTable .c-sum { display: table-cell; }
+  /* 前日比・前週比の行は、前回比の列と同じ内容なので出さない */
+  #marketTable tr.chg-row { display: none; }
+  #marketTable tr.lv-row { cursor: pointer; }
+  #marketTable tr.lv-row.open { background: var(--open-wash); }
+  #marketTable th, #marketTable td { padding: 5px 5px; }
+  #marketPanel { padding-left: 8px; padding-right: 8px; }
+  #marketTable td.c-label, #marketTable td.c-name, #marketTable td.c-sub { white-space: normal; }
+  #marketTable td.c-sub .sub-note { display: block; font-size: 11px; }
+  #marketTable td.num-col { min-width: 0; }
+}
+
+/* 狭い幅で行を押すと開く、日ごとの値 */
+.day-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 2px 14px; font-size: 12px;
+}
+.day-list > div { white-space: nowrap; }
+.day-list .dl-date { color: var(--text-secondary); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.day-list .dl-val { font-variant-numeric: tabular-nums; }
+.day-list .dl-sub { color: var(--muted); font-size: 11px; margin-left: 4px; }

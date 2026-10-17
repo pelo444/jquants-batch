@@ -208,10 +208,41 @@
    * cols: [{ key, label, grp, num:boolean, title, html(row), csv(row), sortVal(row) }]
    * opts: { pick:boolean, subRow(row)->html|null, order:[key,asc] }
    */
+  /** 表の見出しではグループ名の先頭の丸数字(①〜⑨)を外す。読む順番は列の並びで伝わる。CSV の列名はそのまま */
+  function grpLabel(s) {
+    return String(s).replace(/^[①-⑨]\s*/, '');
+  }
+
   function renderTable(tableEl, cols, rows, opts) {
     opts = opts || {};
     var sortKey = opts.sortKey || null;
     var sortAsc = !!opts.sortAsc;
+    // opts.mainKeys があるときは、その列だけを表に出し、残りは行をクリックすると開く段に出す
+    var detailCols = [];
+    if (opts.mainKeys) {
+      detailCols = cols.filter(function (c) { return opts.mainKeys.indexOf(c.key) < 0; });
+      cols = cols.filter(function (c) { return opts.mainKeys.indexOf(c.key) >= 0; });
+    }
+    var opened = {};
+
+    // 開いた段では、各グループの残りの項目を、そのグループの列(代表列)の真下に縦に並べる。
+    // 代表列 = 表に出している列のうち、そのグループで最初の列。代表列の無いグループは最後の列の下に出す
+    var repOf = {};      // 代表列の key → その下に出す列
+    detailCols.forEach(function (c) {
+      var rep = cols.filter(function (m) { return m.grp === c.grp; })[0] || cols[cols.length - 1];
+      (repOf[rep.key] = repOf[rep.key] || []).push(c);
+    });
+
+    function detailRowHtml(r) {
+      return '<tr class="detail-row">' + cols.map(function (m) {
+        var list = repOf[m.key] || [];
+        return '<td class="' + (list.length ? 'rep-col' : '') + '">' + list.map(function (c) {
+          return '<div class="ditem"><span class="dk"' + (c.title ? ' title="' + esc(c.title) + '"' : '') + '>' +
+            esc(c.label) + '</span><span class="dv">' +
+            (c.html ? c.html(r) : esc(r[c.key] === null || r[c.key] === undefined ? '' : r[c.key])) + '</span></div>';
+        }).join('') + '</td>';
+      }).join('') + '</tr>';
+    }
 
     function headHtml() {
       var groups = [];
@@ -222,7 +253,7 @@
       });
       var h1 = '<tr class="grp">' + groups.map(function (g, i) {
         return '<th colspan="' + g.n + '"' + (i > 0 ? ' class="grp-start"' : '') + '>' +
-          esc(g.name) + '</th>';
+          esc(grpLabel(g.name)) + '</th>';
       }).join('') + '</tr>';
 
       var gi = 0, left = groups[0] ? groups[0].n : 0;
@@ -247,13 +278,19 @@
       }
       return list.map(function (r) {
         var tds = cols.map(function (c) {
-          return '<td class="' + (c.num ? 'num-col ' : '') + (c.cls || '') + '">' +
+          return '<td class="' + (c.num ? 'num-col ' : '') + (c.cls || '') + (repOf[c.key] ? ' rep-col' : '') + '">' +
             (c.html ? c.html(r) : esc(r[c.key] === null || r[c.key] === undefined ? '' : r[c.key])) +
             '</td>';
         }).join('');
         var attrs = opts.pick ? ' class="pick' + (state.detailCode === r.code ? ' active' : '') +
           '" data-code="' + esc(r.code) + '"' : '';
+        if (detailCols.length) {
+          attrs = ' class="expand' + (opened[r.code] ? ' open' : '') + '" data-code="' + esc(r.code) + '"';
+        }
         var main = '<tr' + attrs + '>' + tds + '</tr>';
+        if (detailCols.length && opened[r.code]) {
+          main += detailRowHtml(r);
+        }
         var sub = opts.subRow ? opts.subRow(r) : null;
         if (sub) {
           main += '<tr class="summary-row"><td colspan="' + cols.length + '">' + sub + '</td></tr>';
@@ -295,6 +332,14 @@
       if (opts.pick) {
         var tr = ev.target.closest ? ev.target.closest('tr.pick') : null;
         if (tr && opts.onPick) opts.onPick(tr.getAttribute('data-code'));
+      }
+      if (detailCols.length) {
+        var er = ev.target.closest ? ev.target.closest('tr.expand') : null;
+        if (er) {
+          var code = er.getAttribute('data-code');
+          opened[code] = !opened[code];
+          paint();
+        }
       }
     };
     paint();
@@ -473,7 +518,7 @@
     var watch = scope === 'watchlist';
     var cols = codeCols('銘柄').concat([
       {
-        key: 'doubt', label: 'この点灯を疑う理由', grp: '① 疑う', sortable: false,
+        key: 'doubt', label: 'この点灯を疑う理由', grp: '① 疑う', sortable: false, cls: 'doubt-col',
         html: doubtCell,
         csv: function (r) {
           return doubtChips(r).map(function (c) { return c.label; }).join(' / ');
@@ -485,7 +530,7 @@
         html: function (r) { return esc(String(r.signalScore)); },
       },
       {
-        key: 'signals', label: '点灯したシグナル', grp: '② 点灯', sortable: false,
+        key: 'signals', label: '点灯したシグナル', grp: '② 点灯', sortable: false, cls: 'sig-col',
         html: signalsCell, csv: function (r) { return r.signals || ''; },
       },
 
@@ -631,6 +676,10 @@
     return null;
   }
 
+  /** 点灯の表に出す列。残りの列(③〜⑥の詳細)は行をクリックすると開く段に出す。CSV は全列のまま */
+  var SIGNAL_MAIN = ['code', 'coName', 'doubt', 'signalScore', 'signals',
+    'volVs20d', 'marginShrtVs13w', 'shortRatioPct', 'lvsRecentGrps'];
+
   var signalState = { cols: null, rows: [] };
 
   function renderSignals(d) {
@@ -641,11 +690,11 @@
       (n ? 'ウォッチ' + n + '銘柄のうち' : '') + '1つ以上点灯した行だけを出しています';
     $('signalCount').textContent =
       d.count + '件が点灯' + (n ? '(ウォッチ' + n + '銘柄中)' : '');
-    renderTable($('signalTable'), cols, d.rows, { subRow: signalSubRow });
+    renderTable($('signalTable'), cols, d.rows, { subRow: signalSubRow, mainKeys: SIGNAL_MAIN });
 
     $('signalNote').innerHTML = d.count === 0
       ? ''
-      : '⚠ の列を先に読んでから、点灯の材料(③〜⑥)を見てください。' +
+      : '⚠ の列を先に読んでから、点灯の材料(出来高・信用売残・空売り・大量保有)を見てください。この4つの残りの項目は、行をクリックするとそれぞれの列の下に開きます。' +
         '大量保有は行の下のサマリーで向きを必ず確認します(退出でも点灯します)。';
   }
 
@@ -753,7 +802,7 @@
       allState = { cols: signalCols('all'), rows: d.rows };
       cache.signalsAll = d;
       setStatus($('allStatus'), d.count + '件(2つ以上の同時点灯・上位100件)');
-      renderTable($('allTable'), allState.cols, d.rows, { subRow: signalSubRow });
+      renderTable($('allTable'), allState.cols, d.rows, { subRow: signalSubRow, mainKeys: SIGNAL_MAIN });
     }).catch(function (e) {
       setStatus($('allStatus'), e.message, true);
     }).then(function () {
@@ -1325,10 +1374,10 @@
       zeroBase: true,
       height: 250,
       series: [
-        { name: '海外', values: col('frgnOku'), mode: 'line', colorVar: '--series-1', digits: 0, unit: '億円' },
-        { name: '個人', values: col('indOku'), mode: 'line', colorVar: '--series-2', digits: 0, unit: '億円' },
-        { name: '信託銀行', values: col('trstBnkOku'), mode: 'line', colorVar: '--series-3', digits: 0, unit: '億円' },
-        { name: '事業法人', values: col('busCoOku'), mode: 'line', colorVar: '--series-4', digits: 0, unit: '億円' },
+        { name: '海外', values: col('frgnOku'), mode: 'line', colorVar: '--inv-1', digits: 0, unit: '億円' },
+        { name: '個人', values: col('indOku'), mode: 'line', colorVar: '--inv-2', digits: 0, unit: '億円' },
+        { name: '信託銀行', values: col('trstBnkOku'), mode: 'line', colorVar: '--inv-3', digits: 0, unit: '億円' },
+        { name: '事業法人', values: col('busCoOku'), mode: 'line', colorVar: '--inv-4', digits: 0, unit: '億円' },
       ],
     });
 

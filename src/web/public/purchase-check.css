@@ -5,8 +5,6 @@
   border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
-.buy-item { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-.buy-item input { width: 120px; }
 
 .card h3 { font-size: 13px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
 .tag-chip { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-weight: 400; }
@@ -53,10 +51,6 @@
 .memo-table td { padding: 4px 10px 4px 0; }
 .memo-actions { display: flex; gap: 8px; }
 /* 銘柄ごとの買値・株数、選ぶ形の問い(2026-10-14) */
-#buyRow .buy-item { flex-direction: row; align-items: flex-end; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-#buyRow .buy-item > span { align-self: center; min-width: 120px; }
-#buyRow .buy-item label { display: flex; flex-direction: column; gap: 3px; font-weight: 400; }
-#buyRow .buy-item input { width: 100px; }
 .choices { display: flex; flex-wrap: wrap; gap: 6px; }
 .choice { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border);
   background: var(--page); color: var(--text-primary); cursor: pointer; }
@@ -65,3 +59,8 @@
 /* 買う額の合計が、まだ使っていない元手を上回るとき(背景色で示す) */
 #sizeTable tr.total td.over { background: var(--critical-wash); color: var(--critical); }
 .over-warn { font-size: 12px; margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--critical-wash); color: var(--critical); }
+
+/* 読み込みが終わるまで本文の位置に出す1行 */
+.loading { margin: 24px 20px; font-size: 13px; color: var(--text-secondary); }
+/* 3 の表の中の買値・株数の入力欄 */
+#sizeTable input.in-cell { width: 92px; padding: 2px 6px; font-size: 12px; text-align: right; }

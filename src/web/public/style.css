@@ -19,16 +19,28 @@
   --border: rgba(138,126,138,0.30);     /* アッシュパープル 30% */
   --hover-wash: rgba(138,126,138,0.10); /* アッシュパープル 10% */
   --sel-wash: rgba(194,166,73,0.24);    /* マスタード 24%(強調の背景) */
+  --tag-wash: rgba(138,126,138,0.20);   /* アッシュパープル 20%(項目番号の札) */
+  --open-wash: rgba(107,112,92,0.14);   /* オリーブ 14%(開いた行。⚠ の辛子色と区別する) */
   --series-1: #6B705C;        /* オリーブドラブ(主ボタン・選んだタブ・リンク・系列1) */
   --series-2: #8A7E8A;        /* アッシュパープル */
   --series-3: #C2A649;        /* マスタード */
   --series-4: #A3432F;        /* 赤茶 */
+  /* 投資部門別ネットの4本の線(需給3階層)。彩度が高く、4色のどの組でも見分けられる色
+     (色覚の違いを模した差 ΔE 13 以上・通常の見え方の差 ΔE 27 以上、地の色とのコントラスト 3:1 以上を確認済み) */
+  --inv-1: #084FBA;           /* 青: 海外 */
+  --inv-2: #E8590C;           /* 橙: 個人 */
+  --inv-3: #109D7B;           /* 青緑: 信託銀行 */
+  --inv-4: #BF58FD;           /* 紫: 事業法人 */
   --on-accent: #ffffff;       /* series-1 の上の文字 */
   --link: #A0581A;            /* 文字のリンク(「条件を変更」など)。暖色にして目立たせる(地の色とのコントラスト 4.8) */
   --good: #4A6B3A;
   --good-mark: #6B8A4E;
   --critical: #A3432F;
   --critical-wash: rgba(163,67,47,0.12);
+  /* 市場ページの上げ下げのうすい背景色と、Zスコアの絶対値が2以上の日の濃い背景色 */
+  --good-wash: rgba(74,107,58,0.12);
+  --good-wash-strong: rgba(74,107,58,0.32);
+  --critical-wash-strong: rgba(163,67,47,0.32);
   --warning: #C2A649;                   /* ⚠ の枠 */
   --warning-wash: rgba(194,166,73,0.22);
   --warning-ink: #6E5A12;               /* ⚠ の文字(濃い辛子) */
@@ -135,6 +147,8 @@ input.num { width: 74px; text-align: right; font-variant-numeric: tabular-nums; 
   display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px 12px;
 }
 .sector-grid[hidden], .tag-groups[hidden] { display: none; }
+/* 騰落率一覧の条件パネル: 33業種・タグの一覧は画面の 4 割までにして、超えた分は一覧の中で縦にスクロールする */
+#filterPanel .sector-grid, #filterPanel .tag-groups { max-height: 40vh; overflow-y: auto; }
 .sector-item {
   display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 6px;
   border-radius: 4px; cursor: pointer;
@@ -183,8 +197,9 @@ input.num { width: 74px; text-align: right; font-variant-numeric: tabular-nums; 
 }
 table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
 th, td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+/* 見出しは thead ごと固定する。th ごとに固定すると、2段の見出しで rowspan の列だけ2段、ほかは1段で止まる */
+thead { position: sticky; top: 0; z-index: 2; }
 thead th {
-  position: sticky; top: 0; z-index: 2;
   background: var(--surface-1); color: var(--text-secondary);
   font-weight: 600; text-align: left; border-bottom: 1px solid var(--baseline);
 }
@@ -267,5 +282,16 @@ tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 
 
 @media (max-width: 720px) {
   .panel, .pane, .tabs, .flash { margin-left: 10px; margin-right: 10px; }
+  /* スマホ: 上部バーのリンクが1行に入らないので折り返す(横スクロールを出さない) */
+  .topbar { flex-wrap: wrap; padding: 8px 10px; gap: 6px 8px; }
+  .topbar .spacer { display: none; }
+  .topbar .meta { flex: 1 1 100%; order: 1; }
   .table-wrap { max-height: none; }
+}
+
+/* 項目番号の札。見出しと詳細で同じ見た目にして、対応を示す。文字の大きさ・太さは周りと同じ */
+.no-tag {
+  display: inline-block; min-width: 1.5em; padding: 0 4px; border-radius: 3px;
+  background: var(--tag-wash); color: var(--text-primary);
+  text-align: center; font-variant-numeric: tabular-nums;
 }

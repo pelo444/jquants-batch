@@ -367,10 +367,14 @@
       });
     });
     var rem = currentList.removed || [];
-    $('removedNote').textContent = rem.length
-      ? '外した銘柄(履歴): ' + rem.slice(0, 15).map(function (x) { return short(x.code) + '(' + x.removedAt.slice(5, 10) + ')'; }).join('、') +
-        (rem.length > 15 ? ' ほか' + (rem.length - 15) + '件' : '')
-      : '';
+    // 外した銘柄は注記の大きさで、横に5〜6列並べる。新しく外した順。全件出す
+    $('removedBox').hidden = rem.length === 0;
+    $('removedGrid').innerHTML = rem.map(function (x) {
+      return '<span class="rm-item" title="' + esc(short(x.code) + ' ' + (x.name || '')) + '">' +
+        '<span class="rm-code">' + esc(short(x.code)) + '</span>' +
+        '<span class="rm-name">' + esc(x.name || '') + '</span>' +
+        '<span class="rm-date">(' + esc((x.removedAt || '').slice(5, 10)) + ')</span></span>';
+    }).join('');
   }
 
   /** カンマ区切り欄を手で書き換えたとき: 新しいコードを手入力として足し、消えたコードを外す */
@@ -537,7 +541,7 @@
     var html = GROUPS.map(function (g) {
       return '<div class="d-grp">' + esc(g.label) + '</div>' + g.nos.map(function (no) {
         var it = byNo[no];
-        return '<div class="d-item"><span class="d-no">' + no + '</span><span>' + symHtml(it) + '</span>' +
+        return '<div class="d-item"><span class="d-no">' + noTag(no) + '</span><span>' + symHtml(it) + '</span>' +
           '<span class="d-label">' + esc(it.label) + '</span><div class="d-lines">' +
           it.lines.map(function (ln) { return '<div>' + lineHtml(no, ln) + '</div>'; }).join('') +
           (it.warn ? '<div class="d-warn">⚠ ' + esc(it.warn) + '</div>' : '') + '</div></div>';
@@ -555,7 +559,7 @@
       return '<th class="grp" colspan="' + g.nos.length + '">' + esc(g.label) + '</th>';
     }).join('') + '</tr>';
     var head2 = '<tr>' + GROUPS.map(function (g) {
-      return g.nos.map(function (no, i) { return '<th class="no' + (i === 0 ? ' first' : '') + '">' + no + '</th>'; }).join('');
+      return g.nos.map(function (no, i) { return '<th class="no' + (i === 0 ? ' first' : '') + '">' + noTag(no) + ' ' + esc(FUND_SHORT[no]) + '</th>'; }).join('');
     }).join('') + '</tr>';
     var colspan = 3 + 13;
     var body = data.rows.map(function (row, idx) {
@@ -580,6 +584,14 @@
 
   //------------------------------------------------------------------ b) テクニカル参考情報
   var TECH_IDS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '19'];
+  /** 見出しに出す短い名前(番号は札で添える) */
+  var FUND_SHORT = { 1: '年間増収益', 2: '四半期増収益', 3: '進捗率', 4: '来期予想', 5: '予想修正', 6: 'PER', 7: 'PBR',
+    8: '配当利回り', 9: 'PEG', 10: 'ROE', 11: '営業利益率', 12: '自己資本比率', 13: '営業CF' };
+  var TECH_SHORT = { '①': '200日線', '②': 'GC', '③': '乖離率', '④': 'ローソク足', '⑤': '出来高', '⑥': 'レジスタンス',
+    '⑦': 'RSI', '19': '信用倍率' };
+  /** テクニカルの番号は画面では T1〜T7 で出す(サーバーが返す id は ①〜⑦ のまま) */
+  var TECH_TAG = { '①': 'T1', '②': 'T2', '③': 'T3', '④': 'T4', '⑤': 'T5', '⑥': 'T6', '⑦': 'T7', '19': '19' };
+  function noTag(no) { return '<span class="no-tag">' + esc(String(TECH_TAG[no] || no)) + '</span>'; }
   function yenP(v) { return v === null || v === undefined || isNaN(v) ? '—' : num(v, v < 1000 ? 1 : 0) + '円'; }
   function sgn(v, d, unit) {
     if (v === null || v === undefined || isNaN(v)) return '—';
@@ -635,12 +647,12 @@
 
   function renderTechnicals(data) {
     var head = '<tr><th rowspan="2" class="c-sel" title="損失回避チェックに進める銘柄(最大5)">選ぶ</th><th rowspan="2">コード</th><th rowspan="2">銘柄名</th><th class="grp" colspan="8">T 値動き・需給</th></tr><tr>' +
-      TECH_IDS.map(function (id, i) { return '<th class="no' + (i === 0 ? ' first' : '') + '">' + id + '</th>'; }).join('') + '</tr>';
+      TECH_IDS.map(function (id, i) { return '<th class="no' + (i === 0 ? ' first' : '') + '">' + noTag(id) + ' ' + esc(TECH_SHORT[id]) + '</th>'; }).join('') + '</tr>';
     var body = data.rows.map(function (row, idx) {
       var byId = {};
       row.items.forEach(function (it) { byId[it.id] = it; });
       var detail = row.items.map(function (it) {
-        return '<div class="d-item"><span class="d-no">' + esc(it.id) + '</span><span>' + symHtml(it) + '</span>' +
+        return '<div class="d-item"><span class="d-no">' + noTag(it.id) + '</span><span>' + symHtml(it) + '</span>' +
           '<span class="d-label">' + esc(it.label) + '</span><div class="d-lines">' +
           it.lines.map(function (ln) { return '<div>' + techLineHtml(it.id, ln) + '</div>'; }).join('') +
           (it.warn ? '<div class="d-warn">⚠ ' + esc(it.warn) + '</div>' : '') + '</div></div>';
@@ -656,7 +668,7 @@
     $('refTable').innerHTML = '<thead>' + head + '</thead><tbody>' + body + '</tbody>';
     bindDetailToggle();
     $('refTitle').textContent = 'テクニカル参考情報';
-    $('refNote').textContent = data.rows.length + '銘柄。①200日線 ②GC ③5日・25日線の乖離 ④ローソク足 ⑤出来高 ⑥レジスタンス ⑦RSI 19 信用倍率';
+    $('refNote').textContent = data.rows.length + '銘柄';
     $('refPane').hidden = false;
   }
 
