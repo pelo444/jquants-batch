@@ -36,6 +36,12 @@
   }
   // 銘柄コードは4桁で出す(J-Quants の5桁 67520 → 6752。285A0 → 285A)。CSV はデータのままの5桁
   function short(code) { return code && code.length === 5 && code[4] === '0' ? code.slice(0, 4) : code; }
+  // 銘柄コードのセル。株予報Pro(IFIS)のその銘柄のアナリスト予想のページへのリンク(数字は取り込まず、開いて見るだけ)
+  function codeCell(code) {
+    var c = short(code);
+    return '<td class="code"><a class="ifis" href="' + esc('https://kabuyoho.jp/reportAnalyst?bcode=' + encodeURIComponent(c)) +
+      '" target="_blank" rel="noopener noreferrer" title="株予報Proのアナリスト予想を開く">' + esc(c) + '</a></td>';
+  }
 
   function isoToday() { return new Date().toISOString().slice(0, 10); }
 
@@ -314,7 +320,7 @@
         : '';
       return '<tr data-code="' + esc(r.code) + '"' + (selected.has(r.code) ? ' class="selected"' : '') + '>' +
         '<td class="c-sel"><input type="checkbox" class="rowcb"' + (selected.has(r.code) ? ' checked' : '') + '></td>' +
-        '<td class="code">' + esc(short(r.code)) + '</td>' +
+        codeCell(r.code) +
         '<td class="name" title="' + esc(r.name) + '">' + esc(r.name) + splitBadge + '</td>' +
         '<td class="num-col pct ' + pc + '">' + fmtPct(r.changePct) + '</td>' +
         '<td class="bar-cell">' + bar + '</td>' +

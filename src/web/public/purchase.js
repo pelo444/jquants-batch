@@ -32,6 +32,12 @@
     });
   }
   function short(code) { return code && code.length === 5 && code[4] === '0' ? code.slice(0, 4) : code; }
+  // 銘柄コードのセル。株予報Pro(IFIS)のその銘柄のアナリスト予想のページへのリンク(数字は取り込まず、開いて見るだけ)
+  function codeCell(code) {
+    var c = short(code);
+    return '<td class="code"><a class="ifis" href="' + esc('https://kabuyoho.jp/reportAnalyst?bcode=' + encodeURIComponent(c)) +
+      '" target="_blank" rel="noopener noreferrer" title="株予報Proのアナリスト予想を開く">' + esc(c) + '</a></td>';
+  }
   function num(v, d) {
     if (v === null || v === undefined || isNaN(v)) return '—';
     return Number(v).toLocaleString('ja-JP', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
@@ -205,7 +211,7 @@
 
   function cellHtml(r, key) {
     switch (key) {
-      case 'code': return '<td class="code">' + esc(short(r.code)) + '</td>';
+      case 'code': return codeCell(r.code);
       case 'name': return '<td class="name" title="' + esc(r.name) + '">' + esc(r.name) + '</td>';
       case 'market': return '<td class="dim">' + esc(r.market || '') + '</td>';
       case 'sector': return '<td class="dim">' + esc(r.sector || '') + '</td>';
@@ -565,7 +571,7 @@
     var body = data.rows.map(function (row, idx) {
       var byNo = {};
       row.items.forEach(function (it) { byNo[it.no] = it; });
-      return '<tr class="main" data-idx="' + idx + '">' + chkCell(row.code) + '<td class="code">' + esc(short(row.code)) + '</td>' +
+      return '<tr class="main" data-idx="' + idx + '">' + chkCell(row.code) + codeCell(row.code) +
         '<td class="name" title="' + esc(row.name) + '">' + esc(row.name) + '</td>' +
         GROUPS.map(function (g) {
           return g.nos.map(function (no, i) {
@@ -657,7 +663,7 @@
           it.lines.map(function (ln) { return '<div>' + techLineHtml(it.id, ln) + '</div>'; }).join('') +
           (it.warn ? '<div class="d-warn">⚠ ' + esc(it.warn) + '</div>' : '') + '</div></div>';
       }).join('') + '<div class="d-asof">' + esc(row.asOf && row.asOf.priceDate || '—') + ' までの日足(分割調整後)</div>';
-      return '<tr class="main" data-idx="' + idx + '">' + chkCell(row.code) + '<td class="code">' + esc(short(row.code)) + '</td>' +
+      return '<tr class="main" data-idx="' + idx + '">' + chkCell(row.code) + codeCell(row.code) +
         '<td class="name" title="' + esc(row.name) + '">' + esc(row.name) + '</td>' +
         TECH_IDS.map(function (id, i) {
           var it = byId[id];
@@ -716,7 +722,8 @@
   function bindDetailToggle() {
     bindChecks();
     Array.prototype.forEach.call($('refTable').querySelectorAll('tr.main'), function (tr) {
-      tr.addEventListener('click', function () {
+      tr.addEventListener('click', function (ev) {
+        if (ev.target.closest('a')) return;   // コードのリンクを押したときは開閉しない
         var d = $('refTable').querySelector('tr.detail[data-idx="' + tr.getAttribute('data-idx') + '"]');
         d.hidden = !d.hidden;
         tr.classList.toggle('open', !d.hidden);

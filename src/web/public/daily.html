@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>日々の確認</title>
+<link rel="stylesheet" href="/style.css?v=20261018d">
+<!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
+<link rel="stylesheet" href="/daily.css?v=20261018b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2.5' y='3' width='11' height='10.5' rx='1.5' fill='none' stroke='%236B705C' stroke-width='1.5'/%3E%3Cpath d='M5 7.5l2 2 4-4' fill='none' stroke='%236B705C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>日々の確認</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/daily" aria-current="page">日々の確認</a>
+    <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/demand">需給3階層</a>
+    <a class="btn" href="/purchase">銘柄購入</a>
+    <a class="btn" href="/journal">売買記録</a>
+  </header>
+
+  <div class="flash" id="flash" role="status" hidden></div>
+
+  <section class="panel" id="periodPanel">
+    <div class="period-row">
+      <div class="period-text">
+        <div id="periodText">読み込み中…</div>
+        <div class="note" id="dataDates"></div>
+      </div>
+      <button class="btn primary" id="seenBtn" type="button">確認した</button>
+    </div>
+    <div class="hist-banner" id="histBanner" hidden>
+      <span id="histText"></span>
+      <button class="btn" id="histBack" type="button">今に戻る</button>
+    </div>
+    <div class="period-ctl">
+      <label class="field-label inline">過去の確認
+        <select id="histSel"><option value="">—</option></select>
+      </label>
+      <label class="field-label inline">この日から見る
+        <input type="date" id="fromDate">
+      </label>
+      <button class="btn" id="fromBtn" type="button">表示</button>
+      <button class="link" id="sinceBtn" type="button" hidden>前回確認からに戻す</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-title" id="evTitle">出来事</h2>
+    <div class="table-wrap daily-wrap"><table id="evTable" class="cards"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-title" id="mvTitle">値動き</h2>
+    <div class="table-wrap daily-wrap"><table id="mvTable" class="cards"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-title" id="upTitle">これからの予定</h2>
+    <div class="table-wrap daily-wrap"><table id="upTable" class="cards"></table></div>
+  </section>
+
+</div>
+<script src="/daily.js?v=20261018e"></script>
+</body>
+</html>

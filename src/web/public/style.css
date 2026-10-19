@@ -213,6 +213,8 @@ th.c-sel, td.c-sel { width: 30px; text-align: center; padding-right: 0; }
 tbody tr:hover { background: var(--hover-wash); }
 tbody tr.selected { background: var(--sel-wash); }
 td.code { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+/* 銘柄コードから株予報Proのアナリスト予想を開くリンク */
+a.ifis, .daily-wrap a.ifis { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
 td.name { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 td.dim { color: var(--muted); }
 .pct.up { color: var(--good); }

@@ -16,6 +16,8 @@
  *      ルーティングは purchaseRoutes.js。設計は claude/purchase_flow_design.md。
  *   6. 市場(米国3指数・日経先物・日経平均・TOPIX・投資部門別・信用残・裁定残・33業種)を /market で1枚の表で見る
  *      データは marketQuery.js。設計は claude/market_page_design.md。
+ *   7. 日々の確認(保有・ウォッチ・検討中の銘柄の出来事・値動き・予定)を /daily で見る
+ *      データは dailyQuery.js。設計は claude/daily_page_design.md。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -40,6 +42,7 @@ const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
 const marketQuery = require('./marketQuery');
+const dailyQuery = require('./dailyQuery');
 const journalRoutes = require('./journalRoutes');
 const purchaseRoutes = require('./purchaseRoutes');
 const purchaseQuery = require('./purchaseQuery');
@@ -671,6 +674,81 @@ app.get('/api/demand/supplementary', async (req, res, next) => {
     );
     res.json({ count: rows.length, rows });
   } catch (err) {
+    next(err);
+  }
+});
+
+//==================================================================
+// 日々の確認 (/daily)
+//   保有・ウォッチ・検討中の銘柄の出来事・値動きと、これからの予定。前回「確認した」日時から今まで。
+//   データは dailyQuery.js、表は ddl/32_daily_seen.sql、設計は claude/daily_page_design.md。
+//   確認した日時で中身が変わるのでキャッシュしない。
+//==================================================================
+app.get(['/daily', '/daily/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'daily.html'));
+});
+
+app.get('/api/daily', async (req, res, next) => {
+  try {
+    const date = req.query.date ? parseDate(String(req.query.date), '日付') : null;
+    const out = await db.withConnection(async (conn) => {
+      const seen = await dailyQuery.fetchSeen(conn);
+      const seenOk = seen && !seen.missing ? seen : null;
+      let opts;
+      if (date) opts = { mode: 'date', fromDate: date };
+      else if (seenOk) opts = { mode: 'seen', sinceUtc: seenOk.utc, sinceJstDate: seenOk.jst.slice(0, 10) };
+      else opts = { mode: 'first' };
+      const d = await dailyQuery.fetchDaily(conn, opts);
+      d.seen = seenOk ? { jst: seenOk.jst } : null;
+      d.seenTableMissing = Boolean(seen && seen.missing);
+      return d;
+    });
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 過去の確認の一覧と、1件の内容(残した JSON をそのまま返す。画面は今と同じ描き方で出す)
+app.get('/api/daily/history', async (req, res, next) => {
+  try {
+    const rows = await db.withConnection((conn) => dailyQuery.fetchHistory(conn));
+    res.json({ rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/daily/history/:id', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) throw new BadRequest('確認の番号が不正です');
+    const item = await db.withConnection((conn) => dailyQuery.fetchHistoryItem(conn, id));
+    if (!item) {
+      res.status(404).json({ error: 'その確認はありません' });
+      return;
+    }
+    if (!item.payload) throw new BadRequest('この確認は内容が残っていません(ddl/33 を流す前に押した確認)');
+    res.type('application/json').send(`{"jst":${JSON.stringify(item.jst)},"payload":${item.payload}}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 「確認した」: 押したときに画面に出ていた内容(GET /api/daily の結果そのもの)を受け取って残す
+app.post('/api/daily/seen', express.json({ limit: '5mb' }), async (req, res, next) => {
+  try {
+    const p = req.body && req.body.payload;
+    if (!p || typeof p !== 'object' || !Array.isArray(p.events) || !Array.isArray(p.moves)) {
+      throw new BadRequest('画面の内容(payload)がありません');
+    }
+    const seen = await db.withConnection((conn) => dailyQuery.insertSeen(conn, JSON.stringify(p)));
+    res.json({ seen: seen && !seen.missing ? { jst: seen.jst } : null, payloadSaved: Boolean(seen && seen.payloadSaved) });
+  } catch (err) {
+    if (err && err.errorNum === 942) {
+      next(new BadRequest('確認した日時の表がありません。ddl/32_daily_seen.sql を GD_JQUANTS で流してください'));
+      return;
+    }
     next(err);
   }
 });

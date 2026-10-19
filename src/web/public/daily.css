@@ -1,0 +1,44 @@
+/* 日々の確認(/daily)。色は style.css の :root のトークンだけを使う */
+
+.period-row { display: flex; align-items: flex-start; gap: 16px; }
+.period-text { flex: 1 1 auto; min-width: 0; }
+#periodText { font-size: 13px; color: var(--text-primary); }
+.period-ctl { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.field-label.inline { flex-direction: row; align-items: center; gap: 8px; }
+
+/* 過去の確認を開いているときの帯(背景色で示す) */
+.hist-banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  background: var(--sel-wash); border-radius: 6px; padding: 6px 10px; font-size: 13px;
+}
+#histSel {
+  font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+}
+
+/* 表は枠の中で縦にスクロールさせず、ページごとスクロールする */
+.daily-wrap { max-height: none; overflow: visible; }
+.daily-wrap thead { position: static; }
+.daily-wrap td { vertical-align: top; }
+.daily-wrap td.content { white-space: normal; min-width: 280px; }
+.daily-wrap td.stock { max-width: 220px; }
+.daily-wrap .code4 { color: var(--text-secondary); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.daily-wrap .tags-cell .no-tag { margin-right: 4px; }
+.daily-wrap .empty-row td { color: var(--muted); text-align: left; }
+.daily-wrap .line + .line { margin-top: 2px; }
+
+/* 狭い幅: 表を1行1枚のカードにする(横スクロールを出さない) */
+@media (max-width: 720px) {
+  .period-row { flex-direction: column; align-items: stretch; }
+  table.cards thead { display: none; }
+  table.cards, table.cards tbody, table.cards tr, table.cards td { display: block; width: 100%; }
+  table.cards tr { border-bottom: 1px solid var(--baseline); padding: 6px 0; }
+  table.cards td { border-bottom: 0; padding: 2px 8px; white-space: normal; text-align: left; display: flex; gap: 10px; }
+  table.cards td::before {
+    content: attr(data-label); flex: 0 0 8.5em; color: var(--muted); font-size: 11px; padding-top: 1px;
+  }
+  table.cards td.num-col { text-align: left; }
+  table.cards td.content { min-width: 0; }
+  table.cards td.stock { max-width: none; }
+  table.cards .empty-row td::before { content: none; }
+}
