@@ -42,10 +42,14 @@ const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
 const marketQuery = require('./marketQuery');
+const eventsQuery = require('./eventsQuery');
+const referenceQuery = require('./referenceQuery');
 const dailyQuery = require('./dailyQuery');
 const journalRoutes = require('./journalRoutes');
 const purchaseRoutes = require('./purchaseRoutes');
 const purchaseQuery = require('./purchaseQuery');
+const { fetchMarginChecks } = require('./marginCheck');
+const stockLookup = require('./stockLookup');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 
@@ -208,19 +212,41 @@ function parseSectors(value, knownSectors) {
 }
 
 /**
+ * 銘柄コードの直接指定(騰落率一覧の「銘柄コード」タブ)。カンマ区切り。
+ * 全角のカンマ・読点・空白・改行も区切りとして受ける(貼り付けたときのため)。4桁は5桁に揃える。
+ * 指定 stocks= は /chart の codes=(表でチェックした銘柄をそのまま描く)と意味が違うので名前を分けている。
+ */
+const STOCKS_MAX = 300;
+function parseStocks(value) {
+  const list = String(value || '').split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) throw new BadRequest('銘柄コードを1つ以上入力してください');
+  const bad = list.filter((c) => !/^[0-9A-Za-z]{4,5}$/.test(c));
+  if (bad.length) throw new BadRequest(`銘柄コードの形が不正です: ${bad.join(', ')}`);
+  const uniq = Array.from(new Set(list.map(normalizeCode)));
+  if (uniq.length > STOCKS_MAX) throw new BadRequest(`一度に指定できる銘柄コードは${STOCKS_MAX}件までです(指定: ${uniq.length}件)`);
+  return uniq;
+}
+
+/**
  * 騰落率一覧・チャートの対象の指定を解釈する。
- * all=1(全銘柄) / sectors=(33業種コード) / tags=(タグ名) のどれか1つ。
+ * all=1(全銘柄) / stocks=(銘柄コード) / sectors=(33業種コード) / tags=(タグ名) のどれか1つ。
  */
 function parseTarget(query, meta) {
   const allStocks = query.all === '1' || query.all === 'true';
-  if (allStocks) return { allStocks, sectors: [], tags: [] };
+  if (allStocks) return { allStocks, stocks: [], sectors: [], tags: [] };
+  if (query.stocks !== undefined) {
+    return { allStocks, stocks: parseStocks(query.stocks), sectors: [], tags: [] };
+  }
   if (query.sectors) {
     const known = new Set(meta.sectors.map((s) => s.code));
-    return { allStocks, sectors: parseSectors(query.sectors, known), tags: [] };
+    return { allStocks, stocks: [], sectors: parseSectors(query.sectors, known), tags: [] };
   }
   const knownTags = new Set(meta.tags.map((t) => t.tagName));
-  return { allStocks, sectors: [], tags: parseTags(query.tags, knownTags) };
+  return { allStocks, stocks: [], sectors: [], tags: parseTags(query.tags, knownTags) };
 }
+
+/** 4桁で出す(67520 → 6752)。画面の表示と同じ */
+function shortCode(c) { return c.length === 5 && c[4] === '0' ? c.slice(0, 4) : c; }
 
 function normalizeCode(raw) {
   const c = String(raw).trim().toUpperCase();
@@ -340,35 +366,77 @@ app.get('/api/prev-trading-date', async (req, res, next) => {
   }
 });
 
+//---------------------------------------------------------- 企業名から銘柄コードを引く
+// 騰落率一覧の「銘柄コード」タブと、銘柄購入の購入検討銘柄の欄で使う。
+// 上場中の銘柄マスタを丸ごとメモリに持ち(数千行)、打つたびの検索はメモリ上で行う(stockLookup.js 冒頭)。
+const STOCK_NAMES_TTL_MS = 6 * 60 * 60 * 1000;
+app.get('/api/stock-lookup', async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').slice(0, 50);
+    const limit = parseInt0(req.query.limit, 'limit', 1, 50, stockLookup.LIMIT_DEFAULT);
+    const index = await withCache('stock-names', STOCK_NAMES_TTL_MS, async () =>
+      stockLookup.buildIndex(await db.withConnection((conn) => stockLookup.fetchStockNames(conn)))
+    );
+    res.json(stockLookup.search(index, q, limit));
+  } catch (err) {
+    next(err);
+  }
+});
+
 //---------------------------------------------------------- 騰落率一覧
 app.get('/api/performance', async (req, res, next) => {
   try {
     const meta = await getMeta();
-    const { allStocks, sectors, tags } = parseTarget(req.query, meta);
+    const { allStocks, stocks, sectors, tags } = parseTarget(req.query, meta);
     const { from, to, notice } = resolvePeriod(req.query, meta.latestDate, TABLE_MAX_YEARS);
     const minDays = parseInt0(req.query.minDays, '最低営業日数', 0, 3000, 0);
     const excludeFund = parseBool(req.query.excludeFund, true);
     const excludeDelisted = parseBool(req.query.excludeDelisted, true);
 
     const key = JSON.stringify([
-      'perf', allStocks, sectors.slice().sort(), tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
+      'perf', allStocks, stocks.slice().sort(), sectors.slice().sort(), tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
     ]);
     let rows = cacheGet(key);
     if (!rows) {
       rows = await db.withConnection((conn) =>
         webQuery.fetchPerformance(conn, {
-          tags, sectors, allStocks, from, to, minDays, excludeFund, excludeDelisted,
+          tags, sectors, stocks, allStocks, from, to, minDays, excludeFund, excludeDelisted,
         })
       );
       cacheSet(key, rows);
     }
 
+    // 銘柄コード指定で一覧に出なかったもの(コードの誤り・ETF等や上場廃止の除外・期間中に株価が無い など)
+    if (stocks.length) {
+      const got = new Set(rows.map((r) => r.code));
+      const missing = stocks.filter((c) => !got.has(c));
+      if (missing.length) {
+        notice.push(`一覧に出なかった銘柄コード: ${missing.map(shortCode).join(', ')}(コードの誤り、オプションの除外、期間中の株価なし のどれか)`);
+      }
+    }
+
     res.json({
-      params: { tags, sectors, allStocks, from, to, minDays, excludeFund, excludeDelisted },
+      params: { tags, sectors, stocks, allStocks, from, to, minDays, excludeFund, excludeDelisted },
       notice,
       count: rows.length,
       rows,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//---------------------------------------------------------- 33業種のグラフ
+// 騰落率一覧の「33業種のグラフ」タブ。東証業種別株価指数の期間騰落率と TOPIX(webQuery.fetchSectorPerformance)
+app.get('/api/sector-performance', async (req, res, next) => {
+  try {
+    const meta = await getMeta();
+    const { from, to, notice } = resolvePeriod(req.query, meta.latestDate, TABLE_MAX_YEARS);
+    const data = await withCache(JSON.stringify(['sectorPerf', from, to]), CACHE_TTL_MS, () =>
+      db.withConnection((conn) => webQuery.fetchSectorPerformance(conn, { from, to }))
+    );
+    if (data.sectors.length === 0) notice.push(`${from} 〜 ${to} に東証業種別株価指数の値がありません`);
+    res.json({ params: { from, to }, notice, topix: data.topix, sectors: data.sectors });
   } catch (err) {
     next(err);
   }
@@ -404,19 +472,19 @@ app.get('/chart', async (req, res, next) => {
       }
       source = `選択した${codes.length}銘柄`;
     } else {
-      const { allStocks, sectors, tags } = parseTarget(req.query, meta);
+      const { allStocks, stocks, sectors, tags } = parseTarget(req.query, meta);
       const minDays = parseInt0(req.query.minDays, '最低営業日数', 0, 3000, 0);
       const excludeFund = parseBool(req.query.excludeFund, true);
       const excludeDelisted = parseBool(req.query.excludeDelisted, true);
 
       const key = JSON.stringify([
-        'perf', allStocks, sectors.slice().sort(), tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
+        'perf', allStocks, stocks.slice().sort(), sectors.slice().sort(), tags.slice().sort(), from, to, minDays, excludeFund, excludeDelisted,
       ]);
       let perf = cacheGet(key);
       if (!perf) {
         perf = await db.withConnection((conn) =>
           webQuery.fetchPerformance(conn, {
-            tags, sectors, allStocks, from, to, minDays, excludeFund, excludeDelisted,
+            tags, sectors, stocks, allStocks, from, to, minDays, excludeFund, excludeDelisted,
           })
         );
         cacheSet(key, perf);
@@ -431,6 +499,8 @@ app.get('/chart', async (req, res, next) => {
       source =
         (allStocks
           ? '全銘柄'
+          : stocks.length
+            ? `銘柄コード指定(${stocks.length}件)`
           : sectors.length
             ? `33業種: ${sectors.map((c) => (meta.sectors.find((s) => s.code === c) || {}).name || c).join(' / ')}`
             : `タグ: ${tags.map((n) => {
@@ -532,10 +602,17 @@ app.get('/api/demand/meta', async (req, res, next) => {
 // シグナルは最新値で判定するので、どれか1つでも取込が止まっていると静かに誤判定する。
 app.get('/api/demand/freshness', async (req, res, next) => {
   try {
-    const rows = await withCache('demand:freshness', CACHE_TTL_MS, () =>
-      db.withConnection((conn) => demandQuery.fetchFreshness(conn))
+    // 信用残の要確認(marginCheck.js)も一緒に返す。週の値は週の最後の申込日を使うので、
+    // 要確認の日が週の最後のうちは、3階層の信用残を使う列がその日の値になる
+    const out = await withCache('demand:freshness', CACHE_TTL_MS, () =>
+      db.withConnection(async (conn) => {
+        const today = marketQuery.ymdIn(new Date(), marketQuery.TZ_JP);
+        const rows = await demandQuery.fetchFreshness(conn);
+        const checks = await fetchMarginChecks(conn, marketQuery.addDays(today, -14));
+        return { rows, marginChecks: checks.filter((c) => c.kind === 'jump') };
+      })
     );
-    res.json({ rows });
+    res.json(out);
   } catch (err) {
     next(err);
   }
@@ -761,6 +838,8 @@ app.post('/api/daily/seen', express.json({ limit: '5mb' }), async (req, res, nex
 const MARKET_TTL_MS = 10 * 60 * 1000;
 // Yahoo が取れなかったときは、10分待たせずに1分で取り直す
 const MARKET_RETRY_MS = 60 * 1000;
+// 日経先物の現在値は、開いた時点の値段を見たいので1分(2026-10-19 ユーザー判断)
+const MARKET_LIVE_TTL_MS = 60 * 1000;
 
 app.get(['/market', '/market/'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'market.html'));
@@ -790,7 +869,89 @@ app.get('/api/market', async (req, res, next) => {
       cacheSet(extKey, ext, ext.errors.length ? MARKET_RETRY_MS : MARKET_TTL_MS);
     }
 
-    res.json(marketQuery.buildMarketTable({ today, db: dbPart, ext }));
+    let live = cacheGet('market:live');
+    if (!live) {
+      live = await marketQuery.fetchLivePart(now);
+      cacheSet('market:live', live, MARKET_LIVE_TTL_MS);
+    }
+
+    res.json(marketQuery.buildMarketTable({ today, db: dbPart, ext, live }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+//==================================================================
+// 参考情報 (/reference)
+//   1つのテーマを1枚の表で出す。テーマと決めごとは src/web/referenceQuery.js の冒頭。
+//   設計は Project の claude/reference_page_design.md
+//==================================================================
+const REFERENCE_TTL_MS = 10 * 60 * 1000;
+
+function referenceMeta() {
+  return withCache('reference:meta', REFERENCE_TTL_MS, () => db.withConnection((conn) => referenceQuery.fetchMeta(conn)));
+}
+
+app.get(['/reference', '/reference/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'reference.html'));
+});
+
+app.get('/api/reference/meta', async (req, res, next) => {
+  try {
+    res.json(await referenceMeta());
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/reference', async (req, res, next) => {
+  try {
+    const meta = await referenceMeta();
+    const theme = String(req.query.theme || '');
+    if (!referenceQuery.THEMES.some((t) => t.key === theme)) throw new BadRequest(`テーマが不正です: "${theme}"`);
+    const date = req.query.date ? parseDate(String(req.query.date), '日付') : meta.latestDate;
+    if (!date) throw new BadRequest('株価がまだありません');
+    let sectors = [];
+    if (req.query.sectors) {
+      const known = new Set(meta.sectors.map((s) => s.code));
+      sectors = Array.from(new Set(String(req.query.sectors).split(',').map((s) => s.trim()).filter(Boolean)));
+      const unknown = sectors.filter((s) => !known.has(s));
+      if (unknown.length) throw new BadRequest(`存在しない業種コードです: ${unknown.join(', ')}`);
+    }
+    const n = parseInt0(req.query.n, '業種ごとの件数', 1, 50, 5);
+    const minStreak = parseInt0(req.query.minStreak, '最低連続日数', 2, referenceQuery.STREAK_WINDOW, 5);
+    const minTv = Number(req.query.minTv === undefined || req.query.minTv === '' ? 1 : req.query.minTv);
+    if (!Number.isFinite(minTv) || minTv < 0 || minTv > 10000) throw new BadRequest('売買代金の下限は 0〜10000(億円)で指定してください');
+    const includeTbd = parseBool(req.query.includeTbd, false);
+    const opts = { theme, date, sectors, n, minStreak, minTv, includeTbd };
+    const key = 'reference:' + JSON.stringify(opts);
+    const data = await withCache(key, REFERENCE_TTL_MS, () =>
+      db.withConnection((conn) => referenceQuery.fetchReference(conn, opts)));
+    res.json({ params: opts, ...data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+//==================================================================
+// 材料 (/events)
+//   縦長の月間カレンダー。数字と見出しは src/loadEventCalendar.js が DB に取り込んだもの(Mac で毎日1回)。
+//   設計は Project の claude/event_calendar_design.md
+//==================================================================
+const EVENTS_TTL_MS = 10 * 60 * 1000;
+
+app.get(['/events', '/events/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'events.html'));
+});
+
+app.get('/api/events', async (req, res, next) => {
+  try {
+    const todayUs = marketQuery.ymdIn(new Date(), 'America/New_York');
+    const period = eventsQuery.resolvePeriod(req.query, todayUs.slice(0, 7));
+    const data = await withCache(`events:${period.from}:${period.to}`, EVENTS_TTL_MS, () =>
+      db.withConnection((conn) => eventsQuery.fetchEvents(conn, period))
+    );
+    res.json(eventsQuery.buildCalendar(period, data, todayUs));
   } catch (err) {
     next(err);
   }

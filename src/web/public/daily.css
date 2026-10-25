@@ -42,3 +42,7 @@
   table.cards td.stock { max-width: none; }
   table.cards .empty-row td::before { content: none; }
 }
+
+/* 信用残の要確認(marginCheck.js) */
+#mvTable td.mwarn { background: var(--warning-wash); }
+#mvTable td.mwarn .sym-warn { margin-right: 3px; }

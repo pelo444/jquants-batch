@@ -86,7 +86,11 @@ const PARAMS = {
   shortChgTh: 0.015,     // 持ち越し合計の増加幅(小数。0.015 = 1.5pt)で点灯させる
   shortChgDays: 28,      // 増加幅を測る日数(この日数前の持ち越し合計と比べる)
   shortStaleDays: 180,   // 計算日からこれを過ぎた報告は合計に入れない(失効)
-  // 第三階層 3(全銘柄版)の流動性フィルタ
+  // S5 小型株の新規大量保有(2026-10-21 追加)
+  //   直近 lvsDaysTh 日以内に新規の大量保有報告書(書類種別 1・4)が出た、
+  //   時価総額がこれ以下の銘柄。機関投資家の買い対象になりにくい規模として 100億円
+  smallCapMax: 10000000000, // 時価総額の上限(円)
+  // 第三階層 3(全銘柄版)の流動性フィルタ。S5 の銘柄にはかけない
   minTurnover20d: 50000000, // 20日平均売買代金の下限(円)
 };
 
@@ -100,10 +104,15 @@ const CALIBRATED_AT = '2026-09-16';
  * measured: false … まだ測っていない。公表スケジュールからの推定でしかないので、
  *                   画面では判定を出さずに日付だけ見せる。
  *                   **推定を実測と同じ顔で出さないこと。**
+ * unit: '営業日' … 遅れを営業日(TRADING_CALENDAR の HOL_DIV 1・2)で数える。
+ *                  省略時は暦の日数('日')。連休で遅れが伸びるデータは営業日で数える。
  */
 const FRESHNESS_LIMITS = {
   '株価(出来高)':        { maxDays: 3,  measured: true,  note: '日次' },
-  '信用取引残高':        { maxDays: 11, measured: true,  note: '週次(申込日=金曜)・公表は翌週第2営業日ごろ。2026-09-25申込分から日次' },
+  // 2026-10-24 較正: 9/28〜10/22 申込分の実測で、申込日の分は毎回「次の営業日の18:30」の日次バッチで入った。
+  // 遅れは日本時間の今日までの営業日数で 0〜2(朝〜18:30 は2、取込後と土日は1)。連休でも伸びない。
+  // 暦の日数だと 2027年GW に8日まで伸び、ふつうの週の停止を見逃すため営業日で数える。
+  '信用取引残高':        { maxDays: 2,  unit: '営業日', measured: true,  note: '日次(2026-09-25申込分から)。申込日の分は次の営業日の夕方に入る' },
   '空売り残高報告':      { maxDays: 3,  measured: true,  note: '随時(残高割合0.5%以上の報告のみ)' },
   '大量保有報告書':      { maxDays: 3,  measured: true,  note: '随時(EDINET)' },
   '投資部門別情報':      { maxDays: null, measured: false, note: '週次。正常範囲は未実測' },
@@ -258,8 +267,15 @@ async function fetchFreshness(connection) {
      FROM equity_price_daily
      UNION ALL
      SELECT '信用取引残高', 'both',
-            TO_CHAR(MAX(app_date), 'YYYY-MM-DD'), TRUNC(SYSDATE) - MAX(app_date)
-     FROM equity_margin_interest
+            TO_CHAR(m.mx, 'YYYY-MM-DD'),
+            -- 営業日で数える(FRESHNESS_LIMITS の unit)。最新の申込日より後で、日本時間の今日までの営業日数
+            CASE WHEN m.mx IS NULL THEN NULL ELSE
+              (SELECT COUNT(*) FROM trading_calendar c
+               WHERE c.hol_div IN ('1', '2')
+               AND   c.calendar_date >  m.mx
+               AND   c.calendar_date <= TRUNC(CAST(SYSTIMESTAMP AT TIME ZONE 'Asia/Tokyo' AS DATE)))
+            END
+     FROM (SELECT MAX(app_date) AS mx FROM equity_margin_interest) m
      UNION ALL
      SELECT '空売り残高報告', 'signal',
             TO_CHAR(MAX(calc_date), 'YYYY-MM-DD'), TRUNC(SYSDATE) - MAX(calc_date)
@@ -287,6 +303,7 @@ async function fetchFreshness(connection) {
     return {
       ...r,
       maxDays: limit.maxDays,
+      unit: limit.unit || '日',
       measured: limit.measured,
       note: limit.note,
       // 判定は実測の範囲があるものだけ。無いものは 'unknown'(画面で色を付けない)
@@ -994,6 +1011,8 @@ async function fetchPseudoFloat(connection) {
  *                       大量保有の全期間スナップショット(LVS_GRP_CNT 等)も付ける。
  * scope = 'all'       … 東証プライム/スタンダード/グロース かつ 20日平均売買代金が
  *                       min_turnover_20d 以上。2つ以上の同時点灯だけを返す(上位100件)。
+ *                       S5(小型株の新規大量保有)の銘柄は売買代金の下限をかけずに
+ *                       全件返す(2026-10-21)。
  *                       **全銘柄 × 15か月の信用残を走査するので重い。毎日流さない。**
  *                       全期間スナップショットは作らない(全4,215銘柄・65,311件を
  *                       提出者グループへ畳む必要があり、絞り込みの1本目としては重い)。
@@ -1024,7 +1043,25 @@ function buildSignalSql(scope) {
 WITH ${watch ? `target AS (
     SELECT f.code FROM favorite_master f WHERE f.is_watching = 1
 ),
-` : ''}px AS (
+` : ''}lvs_new AS (
+    -- S5 の材料: 直近 :lvsDaysTh 日以内に「新規の」大量保有報告書を出した提出者グループ。
+    --   新規 = LARGE_HLDG_TYPE_CODE 1(大量保有報告書)・4(同・特例対象株券等)。
+    --   変更報告書(2・3・5)と訂正(6)は数えない。
+    --   lvs_recent_grp はグループごとに最新1件へ畳むので、新規の直後に変更報告を
+    --   出したグループの「新規」がそこでは消える。書類種別で別に数える。
+    SELECT l.code,
+           COUNT(DISTINCT NVL(h.hldr_edinet_code, h.hldr_name))   AS new_grps,
+           MAX(l.sub_date)                                         AS new_last_sub_date
+    FROM large_volume_shareholder l
+    JOIN large_volume_shareholder_holder h
+      ON h.doc_id = l.doc_id
+     AND h.hldr_seq = 1
+    WHERE l.sub_date >= TRUNC(SYSDATE) - :lvsDaysTh
+      AND l.large_hldg_type_code IN ('1', '4')
+      ${lvsTargetFilter}
+    GROUP BY l.code
+),
+px AS (
     SELECT p.code, p.price_date, p.close_price, p.volume,
            -- 直近日を含めず、その前の20営業日の平均。直近日を含めると
            -- 急増した当日の出来高が平均を押し上げ、倍率が鈍る
@@ -1052,7 +1089,36 @@ px_latest AS (
      AND emf.delisted_flag = 'N'
      AND emf.market_name IN ('プライム', 'スタンダード', 'グロース')`}
     WHERE px.rn = 1
-      ${watch ? '' : 'AND px.avg_turnover_20d >= :minTurnover20d'}
+      ${watch ? '' : `-- 流動性フィルタは S5 の候補(新規の大量保有報告書が出た銘柄)にはかけない
+      AND (px.avg_turnover_20d >= :minTurnover20d
+           OR EXISTS (SELECT 1 FROM lvs_new n WHERE n.code = px.code))`}
+),
+mcap_fs AS (
+    -- 時価総額 = 最新の終値 × 株式数(購入の流れ purchaseQuery.js と同じ出し方)。
+    --   株式数は最新の決算短信の期末発行済株式数 − 期末自己株式数。
+    --   決算短信の後に株式分割があれば AdjFactor の積で割って今の株数に直す
+    SELECT code, disc_date, shares FROM (
+        SELECT f.code, f.disc_date, f.sh_out_fy - NVL(f.tr_sh_fy, 0) AS shares,
+               ROW_NUMBER() OVER (PARTITION BY f.code
+                                  ORDER BY f.disc_date DESC, f.disc_no DESC) AS r
+        FROM financial_summary f
+        WHERE f.sh_out_fy IS NOT NULL
+          AND EXISTS (SELECT 1 FROM px_latest x WHERE x.code = f.code)
+    )
+    WHERE r = 1
+),
+mcap_spl AS (
+    SELECT fs.code, EXP(SUM(LN(NULLIF(p.adj_factor, 0)))) AS prodf
+    FROM mcap_fs fs
+    JOIN equity_price_daily p
+      ON p.code = fs.code AND p.price_date > fs.disc_date AND p.adj_factor <> 1
+    GROUP BY fs.code
+),
+mcap AS (
+    SELECT x.code, x.close_price * fs.shares / NVL(spl.prodf, 1) AS market_cap
+    FROM px_latest x
+    JOIN mcap_fs fs        ON fs.code  = x.code
+    LEFT JOIN mcap_spl spl ON spl.code = x.code
 ),
 mgn_wk AS (
     -- 【必ず週次に畳んでから窓を取る】
@@ -1244,7 +1310,12 @@ flags AS (
            NVL(lvs_recent.recent_material, 0)                            AS lvs_recent_material,
            lvs_recent.last_sub_date                                      AS lvs_last_sub_date,
            lvs_recent.recent_summary                                     AS lvs_recent_summary,
-${watch ? `           NVL(lvs_snap.grp_cnt, 0)                                      AS lvs_grp_cnt,
+           NVL(lvs_new.new_grps, 0)                                      AS lvs_new_grps,
+           lvs_new.new_last_sub_date                                     AS lvs_new_last_sub_date,
+           ROUND(mcap.market_cap / 100000000, 1)                         AS market_cap_oku,
+${watch ? '' : `           CASE WHEN px_latest.avg_turnover_20d >= :minTurnover20d
+                THEN 'Y' ELSE 'N' END                                    AS liquid_flag,
+`}${watch ? `           NVL(lvs_snap.grp_cnt, 0)                                      AS lvs_grp_cnt,
            ROUND(lvs_snap.total_ratio * 100, 2)                          AS lvs_total_pct,
            NVL(lvs_snap.grp_cnt_noratio, 0)                              AS lvs_grp_cnt_noratio,
            NVL(lvs_snap.grp_cnt_stale, 0)                                AS lvs_grp_cnt_stale,
@@ -1273,7 +1344,12 @@ ${watch ? `           NVL(lvs_snap.grp_cnt, 0)                                  
            -- S4: 空売り残高(持ち越し合計)が :shortChgDays 前より :shortChgTh 以上増えた。
            --   水準で測ると銘柄が固定される(Appier は2%超が104週中102週)ので増加幅で測る
            CASE WHEN NVL(sp.shrt_ratio, 0) - NVL(sp.shrt_ratio_prev, 0) >= :shortChgTh
-                THEN 1 ELSE 0 END                                        AS sig_short
+                THEN 1 ELSE 0 END                                        AS sig_short,
+           -- S5: 小型株の新規大量保有。直近 :lvsDaysTh 日以内に新規の大量保有報告書が出て、
+           --   時価総額が :smallCapMax 以下。時価総額が出せない銘柄は点灯させない
+           CASE WHEN lvs_new.new_grps > 0
+                 AND mcap.market_cap <= :smallCapMax
+                THEN 1 ELSE 0 END                                        AS sig_small_new
     FROM ${watch ? `equity_master em
     JOIN target ON target.code = em.code
     LEFT JOIN px_latest   ON px_latest.code   = em.code` : `px_latest
@@ -1281,36 +1357,56 @@ ${watch ? `           NVL(lvs_snap.grp_cnt, 0)                                  
     LEFT JOIN mgn         ON mgn.code         = ${watch ? 'em.code' : 'px_latest.code'}
     LEFT JOIN sp          ON sp.code          = ${watch ? 'em.code' : 'px_latest.code'}
     LEFT JOIN lvs_recent  ON lvs_recent.code  = ${watch ? 'em.code' : 'px_latest.code'}
+    LEFT JOIN lvs_new     ON lvs_new.code     = ${watch ? 'em.code' : 'px_latest.code'}
+    LEFT JOIN mcap        ON mcap.code        = ${watch ? 'em.code' : 'px_latest.code'}
 ${watch ? `    LEFT JOIN lvs_snap    ON lvs_snap.code    = em.code
     WHERE em.delisted_flag = 'N'` : ''}
+),
+ranked AS (
+    -- 全銘柄版: 2つ以上の同時点灯(流動性フィルタを通った銘柄)は上位100件まで。
+    --   S5 の行は件数で切らずに全部残す(S5 だけの行は確認順が1で、順位で切ると消える)
+    SELECT f.*,
+           f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short + f.sig_small_new AS signal_score,
+           ROW_NUMBER() OVER (
+               PARTITION BY f.sig_small_new
+               ORDER BY f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short + f.sig_small_new DESC,
+                        f.vol_vs_20d DESC NULLS LAST, f.code)                AS rk
+    FROM flags f
+    WHERE ${watch
+      ? 'f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short + f.sig_small_new > 0'
+      : `(f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short >= 2 AND f.liquid_flag = 'Y')
+       OR f.sig_small_new = 1`}
 )
 SELECT code, co_name, market_name, sector33_name,
-       sig_volume + sig_margin + sig_lvs + sig_short                 AS signal_score,
+       signal_score,
        -- 点灯したシグナルを1列にまとめる。
        -- 【文言にしきい値を書かないこと】params を変えた瞬間に嘘になる
+       -- 【文言に空白を入れないこと】画面は空白で区切ってチップにする
        RTRIM(
-         CASE WHEN sig_volume = 1 THEN '出来高急増 '     END ||
-         CASE WHEN sig_margin = 1 THEN '売残の増加 '     END ||
-         CASE WHEN sig_lvs    = 1 THEN '大量保有提出 '   END ||
-         CASE WHEN sig_short  = 1 THEN '空売り残高の増加 ' END
+         CASE WHEN sig_volume    = 1 THEN '出来高急増 '     END ||
+         CASE WHEN sig_margin    = 1 THEN '売残の増加 '     END ||
+         CASE WHEN sig_lvs       = 1 THEN '大量保有提出 '   END ||
+         CASE WHEN sig_short     = 1 THEN '空売り残高の増加 ' END ||
+         CASE WHEN sig_small_new = 1 THEN '小型株の新規大量保有 ' END
        )                                                             AS signals,
-       sig_volume, sig_margin, sig_lvs, sig_short,
+       sig_volume, sig_margin, sig_lvs, sig_short, sig_small_new,
        TO_CHAR(price_date, 'YYYY-MM-DD')                             AS price_date,
        close_price, volume, avg_vol_20d, avg_vol_n, vol_vs_20d,
-       avg_turnover_20d_mil, split_flag,
+       avg_turnover_20d_mil, split_flag, market_cap_oku,
        TO_CHAR(margin_date, 'YYYY-MM-DD')                            AS margin_date,
        margin_ratio, margin_shrt_dtc, margin_shrt_vs_13w, margin_shrt_vs_med52,
        margin_shrt_n_13w, margin_shrt_vol, margin_season_warn,
        TO_CHAR(lvs_last_sub_date, 'YYYY-MM-DD')                      AS lvs_last_sub_date,
        lvs_recent_docs, lvs_recent_grps, lvs_recent_material, lvs_recent_summary,
+       lvs_new_grps,
+       TO_CHAR(lvs_new_last_sub_date, 'YYYY-MM-DD')                  AS lvs_new_last_sub_date,
 ${watch ? `       lvs_grp_cnt, lvs_total_pct, lvs_grp_cnt_noratio, lvs_grp_cnt_stale,
 ` : ''}       short_calc_date,
        short_days_since, short_status, short_ratio_pct, short_ratio_chg_pt,
        reporter_count, short_stale_cnt
-FROM flags
-WHERE sig_volume + sig_margin + sig_lvs + sig_short ${watch ? '> 0' : '>= 2'}
-ORDER BY signal_score DESC, vol_vs_20d DESC NULLS LAST
-${watch ? '' : 'FETCH FIRST 100 ROWS ONLY'}`;
+FROM ranked
+${watch ? '' : 'WHERE sig_small_new = 1 OR rk <= 100'}
+ORDER BY signal_score DESC, vol_vs_20d DESC NULLS LAST`;
 }
 
 const SIGNAL_BINDS = {
@@ -1322,6 +1418,7 @@ const SIGNAL_BINDS = {
   lvsMinRatio: PARAMS.lvsMinRatio,
   lvsMinChg: PARAMS.lvsMinChg,
   shortChgTh: PARAMS.shortChgTh,
+  smallCapMax: PARAMS.smallCapMax,
   ...SP_BINDS(),
 };
 

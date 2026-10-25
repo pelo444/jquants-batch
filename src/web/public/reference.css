@@ -1,0 +1,42 @@
+/* 参考情報(/reference)。色は style.css の :root のトークンだけを使う */
+
+.ref-form { display: flex; flex-direction: column; gap: 12px; }
+.ref-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
+.ref-theme select {
+  font: inherit; font-size: 13px; padding: 5px 8px; min-width: 0; max-width: 100%;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+}
+.ref-theme { flex: 0 1 auto; min-width: 0; }
+.ref-opts input[type="date"] {
+  font: inherit; font-size: 13px; padding: 4px 8px;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+}
+.ref-opts .num { width: 80px; }
+
+/* 直近の TOPIX の前日比(押すとその日を日付に入れる) */
+.ref-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.ref-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ref-chips .chip { font-variant-numeric: tabular-nums; }
+
+.ref-sectors summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+.field-head-inline { font-weight: 600; }
+.ref-sector-actions { margin: 6px 0; }
+#refPanel .sector-grid { max-height: 40vh; overflow-y: auto; }
+
+/* 表。ページごと縦にスクロールする */
+.ref-wrap { max-height: none; overflow: auto; }
+#refTable td.num-col { min-width: 60px; }
+#refTable tr.grp th {
+  background: var(--page); text-align: left; font-weight: 600; color: var(--text-primary); padding-top: 10px;
+}
+#refTable tr.grp .grp-note { font-weight: 400; font-size: 11px; color: var(--text-secondary); margin-left: 10px; }
+#refTable tbody tr.grp:hover { background: none; }
+#refTable tr.none td { color: var(--muted); }
+#refTable td.rank { color: var(--muted); }
+
+/* 結果の上のお知らせ(営業日の読み替え・TOPIX の向きが合わない日など)。表の枠とそろえる */
+#resultPane .flash { margin: 0 0 8px; }
+
+/* 決算発表の予定: 日付未定のチェック(ほかの入力と下端をそろえる) */
+.ref-tbd { font-size: 12px; color: var(--text-secondary); padding-bottom: 6px; }
+#refTable td.changed { color: var(--warning-ink); }

@@ -30,8 +30,16 @@
 #marketTable td.wash-up.strong { background: var(--good-wash-strong); color: var(--text-primary); }
 #marketTable td.wash-down.strong { background: var(--critical-wash-strong); color: var(--text-primary); }
 
+/* 日経先物の現在値の行。値は最新の列だけ */
+#marketTable td.live-cell { white-space: nowrap; }
+#marketTable .live-chg { margin-left: 6px; }
+#marketTable td.live-off { color: var(--muted); }
+
 /* 値が無いセル(取込待ちなど)。理由は title に持たせる */
 #marketTable td.na { color: var(--na-ink); }
+/* 信用残の要確認(marginCheck.js) */
+#marketTable td.mwarn { background: var(--warning-wash); }
+#marketTable td.mwarn .sym-warn { margin-right: 3px; }
 
 /* 広い幅: 日付の列を出す。狭い幅: 最新・前回比・期間前比の3列にまとめる */
 #marketTable .c-sum { display: none; }

@@ -1,0 +1,35 @@
+/* 材料(/events)。色は style.css の :root のトークンだけを使う */
+
+input[type="month"] {
+  font: inherit; font-size: 13px; padding: 5px 8px;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary);
+}
+
+/* 月ごとの表。ページごと縦にスクロールし、横に入りきらないときは表の枠の中で横にスクロールする */
+.events-wrap { max-height: none; }
+.events-table td { vertical-align: top; }
+.events-table th.c-date, .events-table td.c-date { text-align: left; }
+.events-table th .unit { display: block; font-weight: 400; }
+/* 数字の列の見出しは折り返して、備考の幅を残す */
+.events-table th.num-col { white-space: normal; vertical-align: bottom; min-width: 64px; max-width: 92px; }
+.events-table th.c-date, .events-table th.c-cpi, .events-table th.c-notes { vertical-align: bottom; }
+.events-table td.num-col { min-width: 66px; }
+.events-table td.num-col .chg { color: var(--text-secondary); }
+
+/* 土日(米国の市場が休みの日) */
+.events-table tr.wkend td { background: var(--page); }
+.events-table tr.wkend td.c-date { color: var(--muted); }
+
+/* CPI(発表日の行だけ) */
+.events-table td.c-cpi { min-width: 120px; }
+
+/* 備考 */
+.events-table td.c-notes { white-space: normal; min-width: 380px; max-width: 640px; }
+.events-table .note + .note { margin-top: 3px; }
+.events-table .note .n-label { color: var(--text-secondary); margin-right: 6px; white-space: nowrap; }
+.events-table .note a { color: var(--link); text-decoration: none; }
+.events-table .note a:hover { text-decoration: underline; }
+.events-table .note .n-src { color: var(--muted); margin-left: 6px; white-space: nowrap; }
+
+.events-month { margin-top: 0; }

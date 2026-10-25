@@ -13,6 +13,8 @@
  *     D より後の最初の国内営業日の列に置く(金曜の終値 → 月曜の列)。
  *     その列が今日より先になるとき(土日に見たとき)は、今日の列を足してそこに置く。
  *   - 米国・日経先物は取引中の足を出さない(終わった取引の終値だけ)。
+ *   - ただし日経先物は、ページを開いた時点の値段を「現在値」の行に別に出す(最新の列だけ。2026-10-19 ユーザー要望)。
+ *     比べる相手は取引の終わった直前の足の終値。取引していない時間は「取引時間外」。
  *
  * 【外のデータ】
  *   米国3指数と日経先物は Yahoo Finance の非公式 API から取る(J-Quants に無い / 先物は Premium のみ)。
@@ -21,11 +23,16 @@
  *
  * 【日経平均】
  *   指数そのものは DB に無い。Yahoo Finance(^N225)から取り、売買日の列に置く(列はずらさない)。
- *   DB の日経225オプションの原証券価格は取込が1日遅れる(当日分は次の取込日の夕方)ため使わない
+ *   DB の日経225オプションの原証券価格は取込が1日遅れる(当日分は次の取込日の夕方)ため主には使わない
  *   (2026-10-17 ユーザー判断)。
+ *   ただし Yahoo の日足は、ある日だけ終値が空(null)のことがある(2026-10-21 分で発生)。
+ *   その日は DB の原証券価格で補う(2026-10-22 ユーザー判断)。原証券価格は Yahoo の終値と一致することを
+ *   10/14〜10/20 で確認済み。補うのは lookFrom 以降(表の期間と前日比のため)。1年分は約3秒かかるので、
+ *   Zスコアの過去1年には使わない。Yahoo がまるごと取れなかったときも、DB にある日は表示する。
  */
 
 const oracledb = require('oracledb');
+const { fetchMarginChecks } = require('./marginCheck');
 
 const TZ_JP = 'Asia/Tokyo';
 const INVESTOR_SECTION = 'TokyoNagoya'; // 市場区分再編をまたいで続く系列(/demand のマクロと同じ)
@@ -109,7 +116,7 @@ async function fetchDbPart(connection, { lookFrom, weekFrom, histFrom, to }) {
   const dateRange = (col) =>
     `${col} BETWEEN TO_DATE(:f, 'YYYY-MM-DD') AND TO_DATE(:t, 'YYYY-MM-DD')`;
 
-  const [calendar, topix, margin, investor, arb, sectIdx, sectIdxNames, shortRatio, sectors] =
+  const [calendar, topix, margin, investor, arb, sectIdx, sectIdxNames, shortRatio, sectors, n225Und] =
     await Promise.all([
       selectRows(connection,
         `SELECT TO_CHAR(calendar_date, 'YYYY-MM-DD') AS d
@@ -176,11 +183,21 @@ async function fetchDbPart(connection, { lookFrom, weekFrom, histFrom, to }) {
           WHERE sector33_code <> '9999'
           GROUP BY sector33_code
           ORDER BY sector33_code`, {}),
+      // 日経平均の補い: 日経225オプションの原証券価格(同じ日はどの銘柄も同じ値)
+      selectRows(connection,
+        `SELECT TO_CHAR(trade_date, 'YYYY-MM-DD') AS d, MAX(underlying_price) AS v
+           FROM index_option_price_daily
+          WHERE ${dateRange('trade_date')}
+            AND underlying_price IS NOT NULL
+          GROUP BY trade_date`, range),
     ]);
+
+  // 信用残の要確認の日(判定は marginCheck.js)。前回比・期間前比に使う日も含めるため lookFrom から
+  const marginChecks = await fetchMarginChecks(connection, lookFrom);
 
   return {
     calendar: calendar.map((r) => r.d),
-    topix, margin, investor, arb, sectIdx, sectIdxNames, shortRatio, sectors,
+    topix, margin, investor, arb, sectIdx, sectIdxNames, shortRatio, sectors, marginChecks, n225Und,
   };
 }
 
@@ -228,6 +245,49 @@ async function fetchYahooDaily(symbol, nowMs) {
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
+/**
+ * 1銘柄の、今の値段(Yahoo の chart API の meta)。
+ *   regularMarketPrice … 最新の値段 / regularMarketTime … その時刻(秒)
+ *   currentTradingPeriod.regular … 今の取引の始まりと終わり(秒)
+ * 取引中かどうかは「今が取引の始まり〜終わりの間」か「最新の値段が LIVE_FRESH_MS 以内」のどちらかで決める
+ * (先物の取引時間を Yahoo がどう持っているか確かめられていないため、両方で見る)。
+ */
+const LIVE_FRESH_MS = 20 * 60 * 1000;
+async function fetchYahooQuote(symbol, nowMs) {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
+    encodeURIComponent(symbol) + '?range=1d&interval=1d';
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(YAHOO_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`${symbol}: HTTP ${res.status}`);
+  const body = await res.json();
+  const result = body && body.chart && body.chart.result && body.chart.result[0];
+  const meta = result && result.meta;
+  if (!meta || !Number.isFinite(meta.regularMarketPrice)) {
+    const desc = body && body.chart && body.chart.error && body.chart.error.description;
+    throw new Error(`${symbol}: ${desc || '形式が想定と違う'}`);
+  }
+  const timeMs = Number.isFinite(meta.regularMarketTime) ? meta.regularMarketTime * 1000 : null;
+  const reg = meta.currentTradingPeriod && meta.currentTradingPeriod.regular;
+  const inPeriod = Boolean(reg && nowMs >= reg.start * 1000 && nowMs < reg.end * 1000);
+  const fresh = timeMs != null && nowMs - timeMs < LIVE_FRESH_MS;
+  return {
+    price: meta.regularMarketPrice,
+    time: timeMs != null ? new Date(timeMs).toISOString() : null,
+    inSession: inPeriod || fresh,
+  };
+}
+
+/** 日経先物の現在値。取れなかったら niy: null と理由 */
+async function fetchLivePart(nowMs) {
+  try {
+    return { niy: await fetchYahooQuote('NIY=F', nowMs), errors: [] };
+  } catch (err) {
+    return { niy: null, errors: [`日経先物の現在値を取得できませんでした(${err.message})`] };
+  }
+}
+
 async function fetchExternalPart(nowMs) {
   const out = {};
   const errors = [];
@@ -248,8 +308,9 @@ async function fetchExternalPart(nowMs) {
  * @param {string} p.today       今日(日本時間)
  * @param {object} p.db          fetchDbPart の結果
  * @param {object} p.ext         fetchExternalPart の結果
+ * @param {object} [p.live]      fetchLivePart の結果(日経先物の現在値)
  */
-function buildMarketTable({ today, db, ext }) {
+function buildMarketTable({ today, db, ext, live }) {
   const from = periodStart(today);
   const days = db.calendar.slice(); // 期間より前を含む国内営業日(昇順)
 
@@ -290,6 +351,17 @@ function buildMarketTable({ today, db, ext }) {
     for (const b of bars) if (b.date >= days[0]) m.set(b.date, b.close);
     return m;
   };
+  // 日経平均で Yahoo の終値が空の日を、DB の原証券価格で補う(冒頭の【日経平均】)
+  const fillN225 = (m) => {
+    const out = m ? new Map(m) : new Map();
+    for (const r of db.n225Und || []) {
+      const v = num(r.v);
+      if (r.d >= days[0] && !out.has(r.d) && v != null && Number.isFinite(v)) out.set(r.d, v);
+    }
+    // 補った日が途中に入るので、日付順に並べ直す(前日比は Map の並び順で計算する)
+    const sorted = new Map(Array.from(out).sort((a, b) => (a[0] < b[0] ? -1 : 1)));
+    return sorted.size ? sorted : m;
+  };
   // 米国・先物の前日比は、列に置く前の足の並びで計算する(列が重なる日があっても前の取引日との比になる)
   const foreignChg = (bars) => {
     const m = new Map();
@@ -307,7 +379,7 @@ function buildMarketTable({ today, db, ext }) {
   const idxDefs = [
     ...US_SYMBOLS.map((s) => ({ key: s.key, label: s.label, map: foreignMaps[s.key],
       chgMap: foreignChg(ext.series[s.key]), na: s.key === 'niy' ? NA_NOTE.niy : NA_NOTE.us })),
-    { key: 'n225', label: '日経平均', map: jpMap(ext.series.n225), na: NA_NOTE.n225 },
+    { key: 'n225', label: '日経平均', map: fillN225(jpMap(ext.series.n225)), na: NA_NOTE.n225 },
     { key: 'topix', label: 'TOPIX', map: toMap(db.topix, (r) => r.d, (r) => num(r.v)), na: NA_NOTE.db },
   ];
   for (const d of idxDefs) {
@@ -321,6 +393,15 @@ function buildMarketTable({ today, db, ext }) {
     rows.push({ group: 'idx', key: d.key + '_chg', label: d.label + ' 前日比(%)', name: '', sub: '前日比(%)',
       fmt: 'chgpct', kind: 'change', daily: true, map: chgMap, na: d.na, hi });
     rows.push(sigmaRow('idx', d.key, d.label, chgMap, sigma, d.na));
+    if (d.key === 'niy') {
+      // 現在値の行(最新の列だけ)。比べる相手は取引の終わった直前の足の終値
+      const bars = ext.series.niy;
+      const last = bars && bars.length ? bars[bars.length - 1] : null;
+      const q = live ? live.niy : null;
+      rows.push({ group: 'idx', key: 'niy_live', label: d.label + ' 現在値', name: '', sub: '現在値',
+        kind: 'live', daily: true, map: new Map(), quote: q, prevClose: last,
+        na: live ? '取得できなかった' : '取得していない' });
+    }
   }
 
   // 2. 投資部門別(公表日の列、億円。元の単位は千円)
@@ -332,12 +413,14 @@ function buildMarketTable({ today, db, ext }) {
   }
 
   // 3. 信用・裁定
+  //    信用残の3行には要確認の印(marginCheck.js)。jump の日はセル、最新・前回比・期間前比はその日を使うとき
+  const mchk = new Map((db.marginChecks || []).map((c) => [c.date, c]));
   rows.push({ group: 'mgn', key: 'mgn_long', label: '信用買残(億円)', fmt: 'oku', kind: 'level', daily: true,
-    chg: 'diff', na: NA_NOTE.db, map: toMap(db.margin, (r) => r.d, (r) => num(r.lv) / 1e8) });
+    chg: 'diff', na: NA_NOTE.db, mchk, map: toMap(db.margin, (r) => r.d, (r) => num(r.lv) / 1e8) });
   rows.push({ group: 'mgn', key: 'mgn_short', label: '信用売残(億円)', fmt: 'oku', kind: 'level', daily: true,
-    chg: 'diff', na: NA_NOTE.db, map: toMap(db.margin, (r) => r.d, (r) => num(r.sv) / 1e8) });
+    chg: 'diff', na: NA_NOTE.db, mchk, map: toMap(db.margin, (r) => r.d, (r) => num(r.sv) / 1e8) });
   rows.push({ group: 'mgn', key: 'mgn_ratio', label: '信用倍率(倍)', fmt: 'ratio', kind: 'level', daily: true,
-    chg: 'diff', na: NA_NOTE.db,
+    chg: 'diff', na: NA_NOTE.db, mchk,
     map: toMap(db.margin, (r) => r.d, (r) => (num(r.sv) ? num(r.lv) / num(r.sv) : null)) });
   rows.push({ group: 'mgn', key: 'arb', label: '裁定残高 買い−売り(億円)', fmt: 'oku', kind: 'level',
     daily: false, chg: 'diff', map: toMap(db.arb, (r) => r.d, (r) => num(r.v)) });
@@ -379,8 +462,14 @@ function buildMarketTable({ today, db, ext }) {
   const baseDate = days.filter((d) => d < from).pop() || null;
 
   const out = rows.map((r) => {
+    if (r.kind === 'live') return liveRow(r, colDates);
     const cells = colDates.map((d) => {
-      if (r.map.has(d)) return r.hi && r.hi.has(d) ? { v: r.map.get(d), hi: true } : { v: r.map.get(d) };
+      if (r.map.has(d)) {
+        const c = r.hi && r.hi.has(d) ? { v: r.map.get(d), hi: true } : { v: r.map.get(d) };
+        const mc = r.mchk && r.mchk.get(d);
+        if (mc && mc.kind === 'jump') c.warn = mc.text;
+        return c;
+      }
       // 週次の行は、公表の無い日は空白(欠測ではない)
       if (!r.daily) return { v: null, blank: true };
       // 今日の列は、まだ出ていない(朝・取引中・休日)だけなので空白
@@ -402,6 +491,12 @@ function buildMarketTable({ today, db, ext }) {
       row.latestHi = row.latest != null && Math.abs(row.latest) >= HI_SIGMA;
     }
     if (r.latestHi) row.latestHi = true;
+    if (r.mchk && row.latestDate) {
+      // 最新が jump → 最新・前回比・期間前比すべて疑う。最新が back → 前回比だけ(相手が jump の日)
+      const mc = r.mchk.get(row.latestDate);
+      if (mc && mc.kind === 'jump') { row.latestWarn = mc.text; row.prevWarn = mc.text; row.baseWarn = mc.text; }
+      if (mc && mc.kind === 'back') row.prevWarn = mc.text;
+    }
     // 投資部門別は週ごとの差引なので、期間前の週との差は出さない(画面では —)
     if (r.group === 'inv') row.baseDiff = null;
     return row;
@@ -413,8 +508,33 @@ function buildMarketTable({ today, db, ext }) {
     baseDate,
     columns: colDates.map((d) => ({ date: d, extra: !days.includes(d) })),
     rows: out,
-    errors: ext.errors,
+    errors: ext.errors.concat(live ? live.errors : []),
+    // 信用残の要確認(画面の上に出す)。表の列の日付と、期間前比の基準日より後の分
+    notices: (db.marginChecks || [])
+      .filter((c) => c.kind === 'jump' && (!baseDate || c.date > baseDate) && c.date <= today)
+      .map((c) => c.text),
     fetchedAt: ext.fetchedAt,
+  };
+}
+
+/** 日経先物の現在値の行。値は最新の列だけ。取引していない時間は off */
+function liveRow(r, colDates) {
+  const q = r.quote;
+  const off = Boolean(q && !q.inSession);
+  const price = q && !off ? q.price : null;
+  const pc = r.prevClose;
+  const chg = price != null && pc && pc.close ? (price / pc.close - 1) * 100 : null;
+  const cells = colDates.map((d, i) => {
+    if (i !== colDates.length - 1) return { v: null, blank: true };
+    if (off) return { v: null, off: true };
+    if (price == null) return { v: null, na: r.na };
+    return { v: price, live: true, chg };
+  });
+  return {
+    group: r.group, key: r.key, label: r.label, name: r.name, sub: r.sub, fmt: 'idx', kind: 'live', cells,
+    liveTime: q ? q.time : null, liveOff: off,
+    prevClose: pc ? pc.close : null, prevCloseDate: pc ? pc.date : null,
+    latest: price, prevDiff: chg, baseDiff: null,
   };
 }
 
@@ -509,6 +629,7 @@ function summarize(map, from, chg) {
 module.exports = {
   fetchDbPart,
   fetchExternalPart,
+  fetchLivePart,
   buildMarketTable,
   periodStart,
   addDays,

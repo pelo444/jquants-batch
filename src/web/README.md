@@ -117,6 +117,7 @@ firewalld で開ける必要はありません。開けないでください。
 | GET | `/healthz` | 死活監視。`{"ok":true}` を返す |
 | GET | `/api/meta` | タグ一覧・最新営業日・上限値 |
 | GET | `/api/performance` | 騰落率一覧（JSON） |
+| GET | `/api/stock-lookup?q=` | 企業名の一部・英語名・コードの先頭から銘柄を探す（上場中のみ、先頭20件。銘柄マスタは6時間メモリに保持） |
 | GET | `/chart` | チャートHTML（iframe用） |
 | GET | `/demand` | 需給3階層の画面 |
 | GET | `/api/demand/*` | 需給3階層のデータ（一覧は `docs/DEMAND_WEB.md` 2章） |

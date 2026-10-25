@@ -392,21 +392,21 @@
     return String(name || '').replace('(出来高)', '').replace('(手動取込)', '');
   }
 
-  function renderFreshness(rows) {
+  function renderFreshness(rows, marginChecks) {
     var late = rows.filter(function (r) { return r.state === 'late'; });
     // 1つのデータ = 名前・日付・○日前 の3つのセル。広い幅では列(横並び)、狭い幅では行(縦並び)になる(demand.css)
     $('freshnessList').innerHTML = rows.map(function (r) {
       var cls = 'fc' + (r.state === 'late' ? ' late' : '');
       var title = r.note +
         (r.measured && r.maxDays !== null
-          ? '(実測にもとづく正常範囲: 0〜' + r.maxDays + '日)'
+          ? '(実測にもとづく正常範囲: 0〜' + r.maxDays + (r.unit || '日') + ')'
           : '(正常範囲は未実測。公表スケジュールからの目安です。日付だけを見てください)');
       var t = ' title="' + esc(title) + '"';
       return '<span class="' + cls + ' fc-name"' + t + '>' + esc(freshLabel(r.dataName)) + '</span>' +
         '<span class="' + cls + ' fc-date"' + t + '>' +
           (r.latest ? esc(String(r.latest).slice(5)) : na('このテーブルに1件もデータがありません')) + '</span>' +
         '<span class="' + cls + ' fc-days"' + t + '>' + (r.daysBehind === null || r.daysBehind === undefined
-          ? '' : esc(r.daysBehind) + '日前') + '</span>';
+          ? '' : esc(r.daysBehind) + esc(r.unit || '日') + '前') + '</span>';
     }).join('');
 
     var head = $('freshness').querySelector('.freshness-head span');
@@ -417,6 +417,17 @@
         ')。シグナルを読む前に取込を確認してください。</strong>';
     } else {
       head.textContent = '';
+    }
+    // 信用残の要確認(marginCheck.js)。週の値は週の最後の申込日を使うので、その日が週の最後のうちは影響する
+    var mw = $('marginWarn');
+    if (marginChecks && marginChecks.length) {
+      mw.innerHTML = marginChecks.map(function (c) {
+        return '<span class="sym-warn">⚠</span> ' + esc(c.text) +
+          '。この日がその週の最後の申込日のうちは、3階層の信用残を使う値がこの日の値になります';
+      }).join('<br>');
+      mw.hidden = false;
+    } else {
+      mw.hidden = true;
     }
   }
 
@@ -631,6 +642,16 @@
         key: 'lvsLastSubDate', label: '最終提出', grp: '⑥ 大量保有',
         html: function (r) { return dateCell(r.lvsLastSubDate, 'lvsNone'); },
       },
+      {
+        key: 'lvsNewGrps', label: 'うち新規', grp: '⑥ 大量保有', num: true,
+        title: '直近に新規の大量保有報告書(変更報告書ではないもの)を出した提出者グループ数',
+        html: function (r) { return numCell(r.lvsNewGrps, 0, 'generic'); },
+      },
+      {
+        key: 'marketCapOku', label: '時価総額', grp: '⑥ 大量保有', num: true,
+        title: '最新の終値 × (期末発行済株式数 − 期末自己株式数)。億円',
+        html: function (r) { return numCell(r.marketCapOku, 1, 'fin', '億'); },
+      },
     ]);
 
     // 全銘柄版は全期間スナップショットを作らないので、この4列がそもそも返ってこない
@@ -678,7 +699,7 @@
 
   /** 点灯の表に出す列。残りの列(③〜⑥の詳細)は行をクリックすると開く段に出す。CSV は全列のまま */
   var SIGNAL_MAIN = ['code', 'coName', 'doubt', 'signalScore', 'signals',
-    'volVs20d', 'marginShrtVs13w', 'shortRatioPct', 'lvsRecentGrps'];
+    'volVs20d', 'marginShrtVs13w', 'shortRatioPct', 'lvsRecentGrps', 'marketCapOku'];
 
   var signalState = { cols: null, rows: [] };
 
@@ -801,7 +822,7 @@
     api('/api/demand/signals/all').then(function (d) {
       allState = { cols: signalCols('all'), rows: d.rows };
       cache.signalsAll = d;
-      setStatus($('allStatus'), d.count + '件(2つ以上の同時点灯・上位100件)');
+      setStatus($('allStatus'), d.count + '件(2つ以上の同時点灯・上位100件と、小型株の新規大量保有の全件)');
       renderTable($('allTable'), allState.cols, d.rows, { subRow: signalSubRow, mainKeys: SIGNAL_MAIN });
     }).catch(function (e) {
       setStatus($('allStatus'), e.message, true);
@@ -1441,7 +1462,7 @@
   //================================================================ 鮮度の読み込み
   function loadFreshness() {
     api('/api/demand/freshness').then(function (d) {
-      renderFreshness(d.rows);
+      renderFreshness(d.rows, d.marginChecks || []);
     }).catch(function (e) {
       $('freshnessList').innerHTML = '<span class="status error">' + esc(e.message) + '</span>';
     });

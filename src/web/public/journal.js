@@ -177,7 +177,7 @@
     if (!r.positions.length) {
       $('posTable').innerHTML = '<tbody><tr><td class="dim">保有はありません。「約定の取込」タブで楽天証券のCSVを取り込んでください。</td></tr></tbody>';
     } else {
-      // 13列を10列にまとめる: 口座と種別は1列、終値の日は終値の下、保有開始は銘柄名の下。
+      // 15列を12列にまとめる: 口座と種別は1列、終値の日は終値の下、保有開始は銘柄名の下。
       // 価格は小数があるときだけ小数1桁を出す(1,308.0 と出さない)。狭い幅では1銘柄をカードの形にする(journal.css)
       var price = function (v) { return v === null || v === undefined ? '—' : num(v, v % 1 ? 1 : 0); };
       // 終値の日は、一番多い日付を列見出しに1回だけ出す。それと違う日付の銘柄だけ、終値の下に日付を出す
@@ -188,7 +188,10 @@
       $('posTable').innerHTML =
         '<thead><tr><th>口座・種別</th><th>コード</th><th>銘柄・保有開始</th><th class="num-col">数量</th>' +
         '<th class="num-col">平均取得単価</th><th class="num-col" title="' + esc(mainDate || '') + ' の終値">' + esc(closeHead) + '</th>' +
-        '<th class="num-col">評価額</th><th class="num-col">含み損益</th><th class="num-col">損益率</th><th>判断・メモ</th></tr></thead><tbody>' +
+        '<th class="num-col">評価額</th><th class="num-col">含み損益</th><th class="num-col">損益率</th>' +
+        '<th class="num-col" title="直近13週の週次リターンの標準偏差。1週間に普段どれくらい動くか">ボラティリティ(週)</th>' +
+        '<th class="num-col" title="損益率 ÷ ボラティリティ(週)。1週間の普段の値動きの何倍か">普段の何週分</th>' +
+        '<th>判断・メモ</th></tr></thead><tbody>' +
         r.positions.map(function (p) {
           return '<tr><td data-label="口座">' + esc(p.account) + ' <span class="kind">' + esc(LABELS.kind[p.kind]) + '</span></td>' +
             '<td class="code" data-label="コード">' + esc(short(p.code)) + '</td><td class="name" data-label="銘柄">' + esc(p.name || '') +
@@ -199,6 +202,8 @@
               (p.closeDate !== mainDate ? '<div class="sub">' + esc(p.closeDate || '終値なし') + '</div>' : '') + '</td>' +
             '<td class="num-col" data-label="評価額">' + yen(p.value) + '</td><td class="num-col" data-label="含み損益">' + signed(p.pnl, 0) + '</td>' +
             '<td class="num-col" data-label="損益率">' + signed(p.pnlPct, 1, '%') + '</td>' +
+            '<td class="num-col" data-label="ボラティリティ(週)">' + (p.vol13w === null || p.vol13w === undefined ? '—' : num(p.vol13w, 1) + '%') + '</td>' +
+            '<td class="num-col" data-label="普段の何週分">' + signed(p.pnlInVol, 1, '週分') + '</td>' +
             '<td class="rec-cell"><button class="link" data-decide="' + esc(p.code) + '" type="button" title="この銘柄の判断を記録する">記録</button>' +
             recCount('decisions', p.code, p.records.decisions, '判断') + recCount('notes', p.code, p.records.notes, 'メモ') + '</td></tr>';
         }).join('') + '</tbody>';

@@ -108,11 +108,12 @@
         h += `<tr class="grp"><th colspan="${nCols}">${esc(g.title)}` +
           (g.note ? `<span class="grp-note">${esc(g.note)}</span>` : '') + '</th></tr>';
       }
+      if (r.kind === 'live') { h += liveRowHtml(r); return; }
       const cls = r.kind === 'change' ? 'chg-row' : r.kind === 'sigma' ? 'sg-row' : 'lv-row';
       if (r.sub != null) {
         // 名前は1行目だけ。次の行が同じまとまり(名前が空)なら、名前の列の横線を消して1つに見せる
         const nx = data.rows[i + 1];
-        const cont = nx && nx.group === r.group && nx.sub != null && nx.name === '';
+        const cont = nx && nx.group === r.group && nx.sub != null && nx.name === '';  // 現在値の行も同じまとまり
         h += `<tr class="${cls}" data-i="${i}"><td class="c-name${cont ? ' nb' : ''}">${esc(r.name)}</td>` +
           `<td class="c-sub">${subHtml(r.sub)}</td>`;
       } else {
@@ -125,10 +126,12 @@
             : '<td class="num-col c-day"></td>';
         } else {
           const dc = r.kind === 'change' || r.kind === 'sigma' || r.group === 'sect' ? dirClass(c.v, r) : '';
-          const t = c.title ? ` title="${esc(c.title)}"` : '';
+          const tt = c.warn || c.title;
+          const t = tt ? ` title="${esc(tt)}"` : '';
           // 指数・33業種の前日比は上げ下げにうすい背景色(Zスコアの絶対値が2以上なら濃く)。空売り比率の前日差は辛子色
           const bg = isChgRow(r) ? wash(c.v, c.hi) : (c.hi ? ' hi' : '');
-          h += `<td class="num-col c-day${dc}${bg}"${t}>${esc(fmt(c.v, r.fmt))}</td>`;
+          // 信用残の要確認の日(marginCheck.js)は ⚠ を添える
+          h += `<td class="num-col c-day${dc}${bg}${c.warn ? ' mwarn' : ''}"${t}>${warnMark(c.warn)}${esc(fmt(c.v, r.fmt))}</td>`;
         }
       }
       if (r.kind === 'level') {
@@ -138,9 +141,10 @@
         const bgLatest = r.group === 'sect' ? wash(r.latest, r.latestHi) : '';
         const bgPrev = r.group === 'idx' ? wash(r.prevDiff, r.latestHi) : (r.group === 'short' && r.latestHi ? ' hi' : '');
         const bgBase = r.group === 'idx' || r.group === 'sect' ? wash(r.baseDiff, false) : '';
-        h += `<td class="num-col c-sum${r.group === 'sect' ? dirClass(r.latest, r) : ''}${bgLatest}"${latestTitle}>${r.latest == null ? '—' : esc(fmt(r.latest, r.fmt))}</td>` +
-          `<td class="num-col c-sum${dirClass(r.prevDiff, r)}${bgPrev}">${esc(fmtDiff(r.prevDiff, r))}</td>` +
-          `<td class="num-col c-sum${dirClass(r.baseDiff, r)}${bgBase}">${esc(fmtDiff(r.baseDiff, r))}</td>`;
+        const wt = (w) => (w ? ` title="${esc(w)}"` : '');
+        h += `<td class="num-col c-sum${r.group === 'sect' ? dirClass(r.latest, r) : ''}${bgLatest}${r.latestWarn ? ' mwarn' : ''}"${r.latestWarn ? wt(r.latestWarn) : latestTitle}>${warnMark(r.latestWarn)}${r.latest == null ? '—' : esc(fmt(r.latest, r.fmt))}</td>` +
+          `<td class="num-col c-sum${dirClass(r.prevDiff, r)}${bgPrev}${r.prevWarn ? ' mwarn' : ''}"${wt(r.prevWarn)}>${warnMark(r.prevWarn)}${esc(fmtDiff(r.prevDiff, r))}</td>` +
+          `<td class="num-col c-sum${dirClass(r.baseDiff, r)}${bgBase}${r.baseWarn ? ' mwarn' : ''}"${wt(r.baseWarn)}>${warnMark(r.baseWarn)}${esc(fmtDiff(r.baseDiff, r))}</td>`;
       } else if (r.kind === 'sigma') {
         const latestTitle = r.latestDate ? ` title="${esc(dayLabel(r.latestDate))} の値"` : '';
         h += `<td class="num-col c-sum${dirClass(r.latest, r)}"${latestTitle}>` +
@@ -152,6 +156,37 @@
     });
     h += '</tbody>';
     $('marketTable').innerHTML = h;
+  }
+
+  /**
+   * 日経先物の現在値の行。値は最新の列だけ(取引の終わった直前の足の終値からの変化を添える)。
+   * 取引していない時間は「取引時間外」。狭い幅では 最新 = 現在値 / 前回比 = 直前の終値からの% / 期間前比 = —
+   */
+  function liveRowHtml(r) {
+    const sub = !r.liveOff && r.latest != null && r.liveTime ? `現在値(${hhmm(r.liveTime)} 時点)` : '現在値';
+    const base = r.prevClose != null
+      ? `直前の終値 ${fmt(r.prevClose, 'idx')}(現地 ${shortDate(r.prevCloseDate)})からの変化` : '';
+    let h = `<tr class="live-row"><td class="c-name"></td><td class="c-sub">${subHtml(sub)}</td>`;
+    for (const c of r.cells) {
+      if (c.off) h += '<td class="num-col c-day live-off">取引時間外</td>';
+      else if (c.v == null) {
+        h += c.na ? `<td class="num-col c-day na" title="${esc(c.na)}">—</td>` : '<td class="num-col c-day"></td>';
+      } else {
+        const chg = c.chg == null ? ''
+          : ` <span class="live-chg${dirClass(c.chg, r)}">${esc(signRounded(c.chg, 2))}%</span>`;
+        h += `<td class="num-col c-day live-cell${wash(c.chg, false)}" title="${esc(base)}">${esc(fmt(c.v, 'idx'))}${chg}</td>`;
+      }
+    }
+    const latest = r.liveOff ? '取引時間外' : r.latest == null ? '—' : fmt(r.latest, 'idx');
+    h += `<td class="num-col c-sum${r.liveOff ? ' live-off' : ''}">${esc(latest)}</td>` +
+      `<td class="num-col c-sum${dirClass(r.prevDiff, r)}${wash(r.prevDiff, false)}" title="${esc(base)}">${esc(fmtDiff(r.prevDiff, r))}</td>` +
+      '<td class="num-col c-sum">—</td></tr>';
+    return h;
+  }
+
+  /** 信用残の要確認の印(文言は title に入れる) */
+  function warnMark(w) {
+    return w ? '<span class="sym-warn" aria-label="要確認">⚠</span>' : '';
   }
 
   /** 狭い幅で行を押したときの、日ごとの値 */
@@ -168,8 +203,9 @@
           : '前週比 ' + fmt(chg.cells[i].v, 'signed');
       }
       if (cell.title) sub = (sub ? sub + ' ' : '') + cell.title;
+      if (cell.warn) sub = (sub ? sub + ' ' : '') + '要確認';
       h += `<div><span class="dl-date">${esc(dayLabel(c.date))}</span>` +
-        `<span class="dl-val">${cell.v == null ? '—' : esc(fmt(cell.v, r.fmt))}</span>` +
+        `<span class="dl-val">${warnMark(cell.warn)}${cell.v == null ? '—' : esc(fmt(cell.v, r.fmt))}</span>` +
         (sub ? `<span class="dl-sub">${esc(sub)}</span>` : '') + '</div>';
     });
     return h + '</div>';
@@ -218,6 +254,10 @@
       if (body.errors && body.errors.length) {
         $('flash').textContent = body.errors.join(' / ');
         $('flash').hidden = false;
+      }
+      if (body.notices && body.notices.length) {
+        $('notice').textContent = '⚠ ' + body.notices.join(' / ');
+        $('notice').hidden = false;
       }
       render();
       syncTopbar();

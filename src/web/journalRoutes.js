@@ -299,10 +299,12 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
       const first = trades.length ? trades[0].tradeDate : '2000-01-01';
       const splits = await jq.fetchSplits(c, codes, first);
       const { positions, realized, warnings } = computePositions(trades, splits);
-      const quotes = await jq.fetchQuotes(c, Array.from(new Set(positions.map((p) => p.code))));
+      const heldCodes = Array.from(new Set(positions.map((p) => p.code)));
+      const quotes = await jq.fetchQuotes(c, heldCodes);
+      const vols = await jq.fetchVolatility(c, heldCodes);
       const cap = await capital.fetchCapital(c).catch(() => null);
       const counts = await jq.fetchRecordCounts(c);
-      return { positions, realized, warnings, quotes, counts, capital: cap, tradeCount: trades.length };
+      return { positions, realized, warnings, quotes, vols, counts, capital: cap, tradeCount: trades.length };
     });
 
     let totalValue = 0;
@@ -324,10 +326,17 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
         totalValue += value;
         totalCost += p.cost;
       }
+      const pnlPct = pnl !== null && p.cost ? (pnl / p.cost) * 100 : null;
+      const v = out.vols.get(p.code);
+      const vol13w = v ? v.vol13w : null;
       return {
         ...p, name: p.name || (q && q.name) || null, close, closeDate: q ? q.date : null, value, pnl,
         records: out.counts.get(p.code) || { decisions: 0, notes: 0 },
-        pnlPct: pnl !== null && p.cost ? (pnl / p.cost) * 100 : null,
+        pnlPct,
+        // ボラティリティ: 直近13週の週次リターンの標準偏差(%)
+        vol13w,
+        // 損益率が1週間の普段の値動きの何倍か(損益率 ÷ ボラティリティ)
+        pnlInVol: pnlPct !== null && vol13w ? pnlPct / vol13w : null,
       };
     });
     res.json({

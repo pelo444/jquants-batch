@@ -192,3 +192,6 @@ details.sub[open] > summary { margin-bottom: 6px; }
   #macroCharts .chart-card { margin-right: 0; }
   .table-wrap.tall { max-height: none; }
 }
+
+/* 信用残の要確認(marginCheck.js)。鮮度の枠の中なので左右の余白は枠に合わせる */
+.freshness .margin-warn { margin: 8px 0 0; }

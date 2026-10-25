@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>株価タグ分析</title>
-<link rel="stylesheet" href="/style.css?v=20261018d">
+<link rel="stylesheet" href="/style.css?v=20261023b">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12L6 7l3 3 5-7' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -14,9 +14,11 @@
     <h1>株価タグ分析</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
-    <a class="btn" href="/daily">日々の確認</a>
     <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/events">材料</a>
+    <a class="btn" href="/daily">日々の確認</a>
     <a class="btn" href="/" aria-current="page">騰落率一覧</a>
+    <a class="btn" href="/reference">参考情報</a>
     <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
     <a class="btn" href="/journal">売買記録</a>
@@ -32,21 +34,32 @@
     <div class="field">
       <div class="field-head">
         <label>銘柄の絞り込み<span class="req" id="tagReq">必須</span></label>
-        <span class="field-actions">
+        <span class="field-actions" id="targetActions">
           <label class="opt allstocks-opt">
-            <input type="checkbox" id="optAllStocks">
+            <input type="checkbox" id="optAllStocks" checked autocomplete="off">
             絞り込みなし(全銘柄)
           </label>
           <button class="link" id="tagClear" type="button">選択を外す</button>
         </span>
       </div>
-      <!-- 33業種かタグのどちらか一方で絞る(開いているタブの選択だけを使う。銘柄購入と同じ) -->
+      <!-- 33業種・タグ・銘柄コードのどれか1つで絞る(開いているタブの選択だけを使う。銘柄購入と同じ)。
+           「33業種のグラフ」は銘柄の一覧の代わりに、東証業種別株価指数の期間騰落率の横棒を出す(2026-10-23) -->
       <nav class="tabs inner" id="targetTabs">
         <button class="tab" data-target="sector" aria-selected="false" type="button">33業種</button>
         <button class="tab" data-target="tag" aria-selected="true" type="button">タグ</button>
+        <button class="tab" data-target="code" aria-selected="false" type="button">銘柄コード</button>
+        <button class="tab" data-target="sectorChart" aria-selected="false" type="button">33業種のグラフ</button>
       </nav>
       <div id="sectorBox" class="sector-grid" hidden></div>
       <div id="tagGroups" class="tag-groups"></div>
+      <div id="codeBox" class="code-box" hidden>
+        <input type="text" id="codeInput" class="code-input" placeholder="例: 7203, 6758, 8306" autocomplete="off" spellcheck="false">
+        <span class="unit">4桁の銘柄コードをカンマ区切りで(285A のような英字入りも可)</span>
+        <div class="lookup" data-target="codeInput"></div>
+      </div>
+      <div id="sectorChartBox" class="sector-chart-box" hidden>
+        <span class="unit">東証業種別株価指数の期間の騰落率を、高い順に横棒で出します。細い棒はその業種の銘柄の騰落率の中央値、点線は TOPIX の騰落率です。中央値は、期間の最初と最後の営業日に株価がある上場中の銘柄(ETF・REIT 等を除く)で計算します。</span>
+      </div>
     </div>
 
     <div class="field">
@@ -67,7 +80,7 @@
       </div>
     </div>
 
-    <div class="field">
+    <div class="field" id="optsField">
       <div class="field-head"><label>オプション</label></div>
       <div class="opts">
         <label class="opt">
@@ -139,6 +152,15 @@
     </p>
   </section>
 
+  <section class="pane" id="paneSector" hidden>
+    <div class="result-bar">
+      <span class="result-count" id="sectorCaption"></span>
+      <span class="spacer"></span>
+      <span class="sc-legend"><i class="sw idx"></i>指数<i class="sw med"></i>銘柄の中央値</span>
+    </div>
+    <div class="sector-chart" id="sectorChart"></div>
+  </section>
+
   <section class="pane" id="paneChart" hidden>
     <div class="result-bar">
       <span class="result-count" id="chartCaption"></span>
@@ -149,11 +171,12 @@
   </section>
 
   <div class="empty" id="empty">
-    33業種かタグと、期間を選んで「表示」を押してください。
+    銘柄の絞り込み(初期値は全銘柄)と期間を選んで「表示」を押してください。
   </div>
 
 </div>
 <!-- ?v= は app.js を更新したら上げる(静的ファイルはブラウザに1時間キャッシュされる) -->
-<script src="/app.js?v=20261018b"></script>
+<script src="/app.js?v=20261023b"></script>
+<script src="/codeLookup.js?v=20261021a"></script>
 </body>
 </html>

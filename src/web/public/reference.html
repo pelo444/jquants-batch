@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>参考情報</title>
+<link rel="stylesheet" href="/style.css?v=20261020a">
+<!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため) -->
+<link rel="stylesheet" href="/reference.css?v=20261021a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='3' width='12' height='10' rx='1.5' fill='none' stroke='%236B705C' stroke-width='1.4'/%3E%3Cpath d='M2 6.5h12M6 6.5V13' stroke='%236B705C' stroke-width='1.2'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>参考情報</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/events">材料</a>
+    <a class="btn" href="/daily">日々の確認</a>
+    <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/reference" aria-current="page">参考情報</a>
+    <a class="btn" href="/demand">需給3階層</a>
+    <a class="btn" href="/purchase">銘柄購入</a>
+    <a class="btn" href="/journal">売買記録</a>
+  </header>
+
+  <div class="flash error" id="flash" role="status" hidden></div>
+
+  <section class="panel" id="refPanel">
+    <form id="refForm" class="ref-form">
+      <div class="ref-row">
+        <label class="field-label ref-theme">テーマ
+          <select id="theme"></select>
+        </label>
+        <button class="btn primary" id="runBtn" type="submit">表示</button>
+        <span class="status" id="status"></span>
+      </div>
+
+      <div class="ref-row ref-opts">
+        <label class="field-label">日付
+          <input type="date" id="date">
+        </label>
+        <label class="field-label" data-for="sector">業種ごとの件数
+          <input type="number" id="n" class="num" min="1" max="50" value="5">
+        </label>
+        <label class="field-label" data-for="streak">最低連続日数
+          <input type="number" id="minStreak" class="num" min="2" max="60" value="5">
+        </label>
+        <label class="field-label" data-for="sector streak" title="指定日の売買代金。売買の少ない小型株が上位を埋めるのを避ける">売買代金の下限(億円)
+          <input type="number" id="minTv" class="num" min="0" step="0.5" value="1">
+        </label>
+        <label class="opt ref-tbd" data-for="schedule">
+          <input type="checkbox" id="includeTbd">
+          日付未定も出す
+        </label>
+      </div>
+
+      <div class="ref-recent" id="recentBox" data-for="sector" hidden>
+        <span class="unit" id="recentLabel"></span>
+        <span class="ref-chips" id="recentChips"></span>
+      </div>
+
+      <details class="ref-sectors" id="sectorDetails">
+        <summary><span class="field-head-inline">業種</span> <span class="unit" id="sectorSummary">すべて</span></summary>
+        <div class="ref-sector-actions">
+          <button class="link" type="button" id="sectorAll">すべて外す(=すべての業種)</button>
+        </div>
+        <div class="sector-grid" id="sectorBox"></div>
+      </details>
+    </form>
+  </section>
+
+  <section class="pane" id="resultPane" hidden>
+    <h2 id="resultTitle"></h2>
+    <div class="flash" id="notice" role="status" hidden></div>
+    <div class="table-wrap ref-wrap"><table id="refTable"></table></div>
+    <p class="note" id="resultNote"></p>
+  </section>
+
+  <div class="empty" id="empty">テーマを選んで「表示」を押してください。</div>
+
+</div>
+<script src="/reference.js?v=20261021a"></script>
+</body>
+</html>

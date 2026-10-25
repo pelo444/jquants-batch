@@ -97,6 +97,7 @@ async function fetchTags(connection) {
  * @param {import('oracledb').Connection} connection
  * @param {object} opts
  * @param {string[]} opts.tags          タグ名の配列(OR条件)。allStocksがtrueの場合は無視される
+ * @param {string[]} [opts.stocks=[]]   銘柄コード(5桁)の配列。指定したときは33業種・タグより優先する(画面ではどれか1つだけを送る)
  * @param {string[]} [opts.sectors=[]]  33業種コードの配列(OR条件)。指定したときはタグより優先する(画面ではどちらか一方だけを送る)
  * @param {boolean}  [opts.allStocks=false]  trueの場合はタグで絞らず上場銘柄全体を対象にする
  * @param {string}   opts.from          'YYYY-MM-DD'
@@ -110,6 +111,7 @@ async function fetchPerformance(connection, opts) {
   const {
     tags,
     sectors = [],
+    stocks = [],
     allStocks = false,
     from,
     to,
@@ -119,7 +121,8 @@ async function fetchPerformance(connection, opts) {
   } = opts;
 
   const hasSectors = Array.isArray(sectors) && sectors.length > 0;
-  if (!allStocks && !hasSectors && (!Array.isArray(tags) || tags.length === 0)) {
+  const hasStocks = Array.isArray(stocks) && stocks.length > 0;
+  if (!allStocks && !hasStocks && !hasSectors && (!Array.isArray(tags) || tags.length === 0)) {
     return [];
   }
 
@@ -131,6 +134,14 @@ async function fetchPerformance(connection, opts) {
   let targetSql;
   if (allStocks) {
     targetSql = `SELECT em.code FROM equity_master em`;
+  } else if (hasStocks) {
+    const codePlaceholders = stocks
+      .map((c, i) => {
+        binds[`c${i}`] = c;
+        return `:c${i}`;
+      })
+      .join(', ');
+    targetSql = `SELECT em.code FROM equity_master em WHERE em.code IN (${codePlaceholders})`;
   } else if (hasSectors) {
     const secPlaceholders = sectors
       .map((s, i) => {
@@ -233,9 +244,123 @@ async function fetchPerformance(connection, opts) {
   }));
 }
 
+//------------------------------------------------------------------
+// 33業種のグラフ(騰落率一覧の「33業種のグラフ」タブ)
+//------------------------------------------------------------------
+
+/**
+ * 東証業種別株価指数(33業種、INDEX_PRICE_DAILY の 0040〜0060)と TOPIX(0000)の期間騰落率。
+ * 起点・期間末の決め方は銘柄の騰落率一覧(fetchPerformance)と同じ:
+ * 期間内の最初の営業日の終値 → 最後の営業日の終値。指数なので分割の調整は無い。
+ * 指数コードは 0040〜0049, 004A〜004F, 0050〜0059, 005A〜005F, 0060 と英字を含むが、
+ * 文字列の BETWEEN で 33本ちょうどになる(2026-10-23 実データで確認)。
+ * @param {import('oracledb').Connection} connection
+ * @param {{from: string, to: string}} opts
+ */
+async function fetchSectorPerformance(connection, { from, to }) {
+  const r = await connection.execute(
+    `SELECT p.index_code,
+            MAX(m.index_name),
+            TO_CHAR(MIN(p.price_date), 'YYYY-MM-DD'),
+            TO_CHAR(MAX(p.price_date), 'YYYY-MM-DD'),
+            MIN(p.close_price) KEEP (DENSE_RANK FIRST ORDER BY p.price_date),
+            MAX(p.close_price) KEEP (DENSE_RANK LAST  ORDER BY p.price_date)
+       FROM index_price_daily p
+       LEFT JOIN index_master m ON m.index_code = p.index_code
+      WHERE p.price_date BETWEEN TO_DATE(:dFrom, 'YYYY-MM-DD') AND TO_DATE(:dTo, 'YYYY-MM-DD')
+        AND p.close_price IS NOT NULL
+        AND (p.index_code = '0000' OR p.index_code BETWEEN '0040' AND '0060')
+      GROUP BY p.index_code`,
+    { dFrom: from, dTo: to }
+  );
+  const med = await connection.execute(SECTOR_MEDIAN_SQL, { dFrom: from, dTo: to });
+  return shapeSectorPerformance(r.rows, med.rows);
+}
+
+/**
+ * 33業種ごとの銘柄の騰落率の中央値(2026-10-23 ユーザー要望。指数は時価総額の大きい銘柄に引っ張られるため並べて見る)。
+ * - 期間は TOPIX の期間内の最初と最後の営業日(d1・d2)。両日に終値がある銘柄だけを数える(指数と同じ区間にそろえる)
+ * - 分割の調整: d1 の終値に、d1 より後〜d2 の ADJ_FACTOR の積を掛けてから比べる
+ * - 対象は騰落率一覧の初期値と同じ(ETF・REIT 等 = 17業種 99、上場廃止、TOKYO PRO MARKET を除く)。業種 9999 は除く
+ * - 走査を軽くするため、d1・d2 の行と ADJ_FACTOR が 1 でない行だけを読む(半年で 0.4 秒、2026-10-23)
+ */
+const SECTOR_MEDIAN_SQL = `
+  WITH cal AS (
+      SELECT MIN(price_date) AS d1, MAX(price_date) AS d2
+        FROM index_price_daily
+       WHERE index_code = '0000' AND close_price IS NOT NULL
+         AND price_date BETWEEN TO_DATE(:dFrom, 'YYYY-MM-DD') AND TO_DATE(:dTo, 'YYYY-MM-DD')
+  ),
+  px AS (
+      SELECT p.code,
+             MAX(CASE WHEN p.price_date = cal.d1 THEN p.close_price END) AS c1,
+             MAX(CASE WHEN p.price_date = cal.d2 THEN p.close_price END) AS c2,
+             EXP(SUM(CASE WHEN p.price_date > cal.d1 THEN LN(NULLIF(p.adj_factor, 0)) END)) AS f
+        FROM equity_price_daily p CROSS JOIN cal
+       WHERE p.price_date BETWEEN cal.d1 AND cal.d2
+         AND (p.price_date IN (cal.d1, cal.d2) OR p.adj_factor <> 1)
+       GROUP BY p.code
+  )
+  SELECT MAX(em.sector33_name),
+         COUNT(*),
+         MEDIAN((px.c2 / (px.c1 * NVL(px.f, 1)) - 1) * 100),
+         SUM(CASE WHEN px.c2 / (px.c1 * NVL(px.f, 1)) > 1 THEN 1 ELSE 0 END)
+    FROM px JOIN equity_master em ON em.code = px.code
+   WHERE px.c1 > 0 AND px.c2 IS NOT NULL
+     AND NVL(em.sector17_code, '0') <> '99'
+     AND em.delisted_flag = 'N'
+     AND (em.market_name IS NULL OR em.market_name <> 'TOKYO PRO MARKET')
+     AND em.sector33_code <> '9999'
+   GROUP BY em.sector33_code`;
+
+/**
+ * fetchSectorPerformance の行を画面用にする(純粋関数)。
+ * TOPIX を分け、業種名から「東証業種別 」を除き、騰落率の高い順に並べる(同じなら指数コード順)。
+ * 起点と期間末が同じ日(期間内の営業日が1日だけ)の指数は騰落率を出せないので null にして末尾に回す。
+ * 銘柄の中央値は業種名で突き合わせる。銘柄マスタは半角の中黒「･」(電気･ガス業 など6業種)、指数名は全角「・」なのでそろえる。
+ * @param {Array<[string, string, string, string, number, number]>} rows
+ *   [指数コード, 指数名, 起点日, 期間末日, 起点の終値, 期間末の終値]
+ * @param {Array<[string, number, number, number]>} [medianRows]
+ *   [業種名, 銘柄数, 騰落率の中央値(%), 上昇した銘柄数]
+ */
+function shapeSectorPerformance(rows, medianRows = []) {
+  const norm = (n) => String(n || '').replace(/･/g, '・');
+  const med = new Map(medianRows.map(([nm, n, m, up]) => [norm(nm), { n, m, up }]));
+  const toItem = ([code, name, d1, d2, p1, p2]) => ({
+    code,
+    name: String(name || code).replace(/^東証業種別\s*/, ''),
+    d1, d2, p1, p2,
+    changePct: d1 !== d2 && p1 > 0 ? Math.round((p2 / p1 - 1) * 10000) / 100 : null,
+  });
+  const withMedian = (it) => {
+    const m = it.d1 !== it.d2 ? med.get(norm(it.name)) : null;
+    return Object.assign(it, {
+      medianPct: m && m.m !== null ? Math.round(m.m * 100) / 100 : null,
+      stockCount: m ? m.n : 0,
+      upCount: m ? m.up : 0,
+    });
+  };
+  let topix = null;
+  const sectors = [];
+  rows.forEach((x) => {
+    if (x[0] === '0000') topix = toItem(x);
+    else sectors.push(withMedian(toItem(x)));
+  });
+  sectors.sort((a, b) => {
+    if (a.changePct === null || b.changePct === null) {
+      if (a.changePct === b.changePct) return a.code < b.code ? -1 : 1;
+      return a.changePct === null ? 1 : -1;
+    }
+    return b.changePct - a.changePct || (a.code < b.code ? -1 : 1);
+  });
+  return { topix, sectors };
+}
+
 module.exports = {
   fetchLatestPriceDate,
   fetchPrevTradingDate,
   fetchTags,
   fetchPerformance,
+  fetchSectorPerformance,
+  shapeSectorPerformance,
 };

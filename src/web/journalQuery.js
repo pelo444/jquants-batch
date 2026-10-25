@@ -219,6 +219,47 @@ async function fetchQuotes(conn, codes) {
   return out;
 }
 
+/**
+ * 保有タブのボラティリティ: 直近13週の週次リターンの標準偏差(%)。
+ *
+ * 損切り幅・ポジションサイズの検証(claude/vol_baseline_and_vol_scaled_stop_backtest.md)と同じ定義。
+ * 週ごとの最終営業日の終値を分割調整し、前週比のリターンを13本取って標準偏差を取る。
+ * いま進行中の週は、その週の最新の終値を週の終値として数える。
+ * 13本そろわない銘柄(上場直後など)は出さない(Map に入れない)。
+ *
+ * @returns {Map<string, {vol13w:number, weeks:number}>}
+ */
+async function fetchVolatility(conn, codes) {
+  const out = new Map();
+  if (!codes.length) return out;
+  for (const part of chunks(codes, 500)) {
+    const { sql, binds } = inBinds('c', part);
+    const r = await conn.execute(
+      `WITH d AS (
+         SELECT p.code, p.price_date, p.close_price,
+                NVL(EXP(SUM(LN(NULLIF(p.adj_factor, 0))) OVER (
+                      PARTITION BY p.code ORDER BY p.price_date
+                      ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)), 1) AS cum,
+                ROW_NUMBER() OVER (PARTITION BY p.code, TRUNC(p.price_date, 'IW')
+                                   ORDER BY p.price_date DESC) AS rn
+         FROM equity_price_daily p
+         WHERE p.code IN (${sql}) AND p.close_price IS NOT NULL
+           AND p.price_date >= TRUNC(SYSDATE) - 140),
+       w AS (SELECT code, TRUNC(price_date, 'IW') AS wk, close_price * cum AS adj FROM d WHERE rn = 1),
+       r AS (SELECT code, adj / LAG(adj) OVER (PARTITION BY code ORDER BY wk) - 1 AS r1,
+                    ROW_NUMBER() OVER (PARTITION BY code ORDER BY wk DESC) AS k
+             FROM w)
+       SELECT code, STDDEV(r1) * 100 AS vol, COUNT(r1) AS n
+       FROM r WHERE k <= 13 GROUP BY code`,
+      binds, OBJ
+    );
+    for (const x of r.rows) {
+      if (x.N >= 13 && x.VOL !== null) out.set(x.CODE, { vol13w: x.VOL, weeks: x.N });
+    }
+  }
+  return out;
+}
+
 /** 銘柄コードの確認(画面の入力補助) */
 async function lookupCode(conn, code) {
   const r = await conn.execute(
@@ -622,7 +663,7 @@ async function noteExists(conn, id) {
 
 module.exports = {
   ACTIONS, REASONS, SOURCES, VERDICTS, ASSIGNEES, Q_STATUSES,
-  importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, lookupCode, fetchRecordCounts,
+  importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, fetchVolatility, lookupCode, fetchRecordCounts,
   insertDecision, insertReview, fetchDecisions, decisionExists, fetchDecisionSnapshot,
   insertNote, updateNote, deleteNote, deleteImage, fetchNotes, fetchImage, updateTranscription, exportUntranscribed,
   upsertSnapshot, deleteSnapshot, fetchSnapshots,

@@ -7,6 +7,8 @@
 --   S2 売残の増加      信用売残 ÷ 自分の過去13週平均売残 >= しきい値
 --   S3 大量保有の動き  直近14日以内に大量保有報告書が提出された
 --   S4 空売り残高の増加 空売り残高(持ち越し合計)が28日前より一定幅以上増えた
+--   S5 小型株の新規大量保有 直近14日以内に新規の大量保有報告書(書類種別1・4)が出て、
+--                         時価総額が100億円以下(2026-10-21 追加)
 --
 -- 複数が同時に点灯した銘柄を SIGNAL_SCORE の降順で並べる。
 --
@@ -162,10 +164,11 @@
 --
 -- 【DAYS_BEHIND の正常な範囲(2026-09-14 実測)】
 --   株価・空売り残高報告・大量保有報告書 … 0〜3日。これを超えたらバッチを疑う。
---   信用取引残高 … **0〜11日が正常**。週次(申込日=金曜)で、公表は翌週の第2営業日ごろ。
---     実測では 2026-09-14(月)時点で最新が 2026-09-04(金)申込分、DAYS_BEHIND = 10 だった。
---     9/11(金)申込分は 9/16 ごろに来る。**10日遅れをバッチの停止と読み違えないこと。**
---     2026-09-25 申込分以降は日次化されるので、この目安はそこで変わる。
+--   信用取引残高 … **0〜2営業日が正常。この行だけ営業日で数える。**
+--     2026-09-25 申込分から日次。申込日の分は次の営業日18:30の日次バッチで入る
+--     (2026-10-24 に 9/28〜10/22 申込分で実測)。朝〜18:30 は2、取込後と土日は1。
+--     暦の日数だと連休で伸びる(2027年GWは8日)ため、TRADING_CALENDAR の営業日で数える。
+--     3営業日以上ならバッチの停止を疑う。
 --
 -- ただし DAYS_BEHIND が小さいことは「そのデータが新しい」ことしか言わない。
 -- 銘柄ごとの最終報告が古いこと(空売り・大量保有に固有)は 2 の
@@ -178,8 +181,14 @@ SELECT '株価(出来高)'      AS data_name,
 FROM equity_price_daily
 UNION ALL
 SELECT '信用取引残高',
-       TO_CHAR(MAX(app_date), 'YYYY-MM-DD'), TRUNC(SYSDATE) - MAX(app_date)
-FROM equity_margin_interest
+       TO_CHAR(m.mx, 'YYYY-MM-DD'),
+       CASE WHEN m.mx IS NULL THEN NULL ELSE
+         (SELECT COUNT(*) FROM trading_calendar c
+          WHERE c.hol_div IN ('1', '2')
+          AND   c.calendar_date >  m.mx
+          AND   c.calendar_date <= TRUNC(CAST(SYSTIMESTAMP AT TIME ZONE 'Asia/Tokyo' AS DATE)))
+       END
+FROM (SELECT MAX(app_date) AS mx FROM equity_margin_interest) m
 UNION ALL
 SELECT '空売り残高報告',
        TO_CHAR(MAX(calc_date), 'YYYY-MM-DD'), TRUNC(SYSDATE) - MAX(calc_date)
@@ -234,7 +243,8 @@ WITH params AS (
            0.005 AS short_min_ratio,   -- S4: 空売り残高の報告義務基準(0.5%)。これ未満は終了報告
            0.015 AS short_chg_th,      -- S4: 持ち越し合計の増加幅(小数。0.015 = 1.5pt)。2026-09-16 較正
            28    AS short_chg_days,    -- S4: 増加幅を測る日数(この日数前の持ち越し合計と比べる)
-           180   AS short_stale_days   -- S4: 計算日からこれを過ぎた報告は合計に入れない(失効)
+           180   AS short_stale_days,  -- S4: 計算日からこれを過ぎた報告は合計に入れない(失効)
+           10000000000 AS small_cap_max -- S5: 時価総額の上限(円)。100億円。2026-10-21 追加
     FROM dual
 ),
 target AS (
@@ -243,6 +253,25 @@ target AS (
     WHERE f.is_watching = 1
     -- タグで絞る場合はここを差し替える:
     -- SELECT t.code FROM favorite_tag t WHERE t.tag_name IN ('130_semi_equip_material')
+),
+lvs_new AS (
+    -- S5 の材料: 直近 lvs_days_th 日以内に「新規の」大量保有報告書を出した提出者グループ。
+    --   新規 = LARGE_HLDG_TYPE_CODE 1(大量保有報告書)・4(同・特例対象株券等)。
+    --   変更報告書(2・3・5)と訂正(6)は数えない。
+    --   lvs_recent_grp はグループごとに最新1件へ畳むので、新規の直後に変更報告を
+    --   出したグループの「新規」がそこでは消える。書類種別で別に数える。
+    SELECT l.code,
+           COUNT(DISTINCT NVL(h.hldr_edinet_code, h.hldr_name))   AS new_grps,
+           MAX(l.sub_date)                                         AS new_last_sub_date
+    FROM large_volume_shareholder l
+    JOIN large_volume_shareholder_holder h
+      ON h.doc_id = l.doc_id
+     AND h.hldr_seq = 1
+    CROSS JOIN params pp
+    WHERE l.sub_date >= TRUNC(SYSDATE) - pp.lvs_days_th
+      AND l.large_hldg_type_code IN ('1', '4')
+      AND EXISTS (SELECT 1 FROM target t WHERE t.code = l.code)
+    GROUP BY l.code
 ),
 px AS (
     SELECT p.code,
@@ -267,6 +296,33 @@ px AS (
 px_latest AS (
     SELECT code, price_date, close_price, volume, avg_vol_20d, avg_vol_n, split_flag
     FROM px WHERE rn = 1
+),
+mcap_fs AS (
+    -- 時価総額 = 最新の終値 × 株式数(購入の流れ src/web/purchaseQuery.js と同じ出し方)。
+    --   株式数は最新の決算短信の期末発行済株式数 − 期末自己株式数。
+    --   決算短信の後に株式分割があれば AdjFactor の積で割って今の株数に直す
+    SELECT code, disc_date, shares FROM (
+        SELECT f.code, f.disc_date, f.sh_out_fy - NVL(f.tr_sh_fy, 0) AS shares,
+               ROW_NUMBER() OVER (PARTITION BY f.code
+                                  ORDER BY f.disc_date DESC, f.disc_no DESC) AS r
+        FROM financial_summary f
+        WHERE f.sh_out_fy IS NOT NULL
+          AND EXISTS (SELECT 1 FROM px_latest x WHERE x.code = f.code)
+    )
+    WHERE r = 1
+),
+mcap_spl AS (
+    SELECT fs.code, EXP(SUM(LN(NULLIF(p.adj_factor, 0)))) AS prodf
+    FROM mcap_fs fs
+    JOIN equity_price_daily p
+      ON p.code = fs.code AND p.price_date > fs.disc_date AND p.adj_factor <> 1
+    GROUP BY fs.code
+),
+mcap AS (
+    SELECT x.code, x.close_price * fs.shares / NVL(spl.prodf, 1) AS market_cap
+    FROM px_latest x
+    JOIN mcap_fs fs        ON fs.code  = x.code
+    LEFT JOIN mcap_spl spl ON spl.code = x.code
 ),
 mgn_wk AS (
     -- 【必ず週次に畳んでから窓を取る】
@@ -518,6 +574,9 @@ flags AS (
            NVL(lvs_recent.recent_material, 0)                            AS lvs_recent_material,
            lvs_recent.last_sub_date                                      AS lvs_last_sub_date,
            lvs_recent.recent_summary                                     AS lvs_recent_summary,
+           NVL(lvs_new.new_grps, 0)                                      AS lvs_new_grps,
+           lvs_new.new_last_sub_date                                     AS lvs_new_last_sub_date,
+           ROUND(mcap.market_cap / 100000000, 1)                         AS market_cap_oku,
            NVL(lvs_snap.grp_cnt, 0)                                      AS lvs_grp_cnt,
            ROUND(lvs_snap.total_ratio * 100, 2)                          AS lvs_total_pct,
            NVL(lvs_snap.grp_cnt_noratio, 0)                              AS lvs_grp_cnt_noratio,
@@ -615,7 +674,12 @@ flags AS (
            -- S4: 空売り残高(持ち越し合計)が short_chg_days 前より short_chg_th 以上増えた。
            --   水準ではなく変化で測る理由はファイル冒頭の 2026-09-16 の節
            CASE WHEN NVL(sp.shrt_ratio, 0) - NVL(sp.shrt_ratio_prev, 0) >= p.short_chg_th
-                THEN 1 ELSE 0 END                                        AS sig_short
+                THEN 1 ELSE 0 END                                        AS sig_short,
+           -- S5: 小型株の新規大量保有。直近 lvs_days_th 日以内に新規の大量保有報告書が出て、
+           --   時価総額が small_cap_max 以下。時価総額が出せない銘柄は点灯させない
+           CASE WHEN lvs_new.new_grps > 0
+                 AND mcap.market_cap <= p.small_cap_max
+                THEN 1 ELSE 0 END                                        AS sig_small_new
     FROM equity_master em
     JOIN target ON target.code = em.code
     CROSS JOIN params p
@@ -624,19 +688,22 @@ flags AS (
     LEFT JOIN sp          ON sp.code          = em.code
     LEFT JOIN lvs_recent  ON lvs_recent.code  = em.code
     LEFT JOIN lvs_snap    ON lvs_snap.code    = em.code
+    LEFT JOIN lvs_new     ON lvs_new.code     = em.code
+    LEFT JOIN mcap        ON mcap.code        = em.code
     WHERE em.delisted_flag = 'N'
 )
 SELECT code,
        co_name,
        market_name,
-       sig_volume + sig_margin + sig_lvs + sig_short                 AS signal_score,
+       sig_volume + sig_margin + sig_lvs + sig_short + sig_small_new AS signal_score,
        -- 点灯したシグナルを1列にまとめる。HTML側でバッジにする想定。
        -- 【文言にしきい値を書かないこと】params を変えた瞬間に嘘になる
        RTRIM(
          CASE WHEN sig_volume = 1 THEN '出来高急増 '     END ||
          CASE WHEN sig_margin = 1 THEN '売残の増加 '     END ||
          CASE WHEN sig_lvs    = 1 THEN '大量保有提出 '   END ||
-         CASE WHEN sig_short  = 1 THEN '空売り残高の増加 ' END
+         CASE WHEN sig_short  = 1 THEN '空売り残高の増加 ' END ||
+         CASE WHEN sig_small_new = 1 THEN '小型株の新規大量保有 ' END
        )                                                             AS signals,
        -- S1 の材料
        TO_CHAR(price_date, 'YYYY-MM-DD')                             AS price_date,
@@ -672,9 +739,13 @@ SELECT code,
        short_ratio_pct,
        short_ratio_chg_pt,
        reporter_count,
-       short_stale_cnt
+       short_stale_cnt,
+       -- S5 の材料
+       lvs_new_grps,
+       TO_CHAR(lvs_new_last_sub_date, 'YYYY-MM-DD')                  AS lvs_new_last_sub_date,
+       market_cap_oku
 FROM flags
-WHERE sig_volume + sig_margin + sig_lvs + sig_short > 0
+WHERE sig_volume + sig_margin + sig_lvs + sig_short + sig_small_new > 0
 ORDER BY signal_score DESC, vol_vs_20d DESC NULLS LAST;
 
 
@@ -683,7 +754,8 @@ ORDER BY signal_score DESC, vol_vs_20d DESC NULLS LAST;
 --
 -- ウォッチリストの外から候補を拾うための版。2 と判定ロジックは同じで、
 -- 対象を「東証プライム/スタンダード/グロース かつ 20日平均売買代金が一定以上」に
--- 差し替えてある。
+-- 差し替えてある。ただし S5(小型株の新規大量保有)の銘柄は売買代金の下限をかけずに
+-- 全件出す(2026-10-21)。
 --
 -- 流動性フィルタを入れる理由: 出来高が普段ほぼ0の銘柄は、数千株の売買で
 -- 簡単に「20日平均の2倍」を超える。フィルタ無しだとその手の銘柄で埋まる。
@@ -707,8 +779,27 @@ WITH params AS (
            0.015      AS short_chg_th,
            28         AS short_chg_days,
            180        AS short_stale_days,
-           50000000   AS min_turnover_20d   -- 20日平均売買代金の下限(円)。5000万円
+           10000000000 AS small_cap_max,    -- S5: 時価総額の上限(円)。100億円。2026-10-21 追加
+           50000000   AS min_turnover_20d   -- 20日平均売買代金の下限(円)。5000万円。S5 の銘柄にはかけない
     FROM dual
+),
+lvs_new AS (
+    -- S5 の材料: 直近 lvs_days_th 日以内に「新規の」大量保有報告書を出した提出者グループ。
+    --   新規 = LARGE_HLDG_TYPE_CODE 1(大量保有報告書)・4(同・特例対象株券等)。
+    --   変更報告書(2・3・5)と訂正(6)は数えない。
+    --   lvs_recent_grp はグループごとに最新1件へ畳むので、新規の直後に変更報告を
+    --   出したグループの「新規」がそこでは消える。書類種別で別に数える。
+    SELECT l.code,
+           COUNT(DISTINCT NVL(h.hldr_edinet_code, h.hldr_name))   AS new_grps,
+           MAX(l.sub_date)                                         AS new_last_sub_date
+    FROM large_volume_shareholder l
+    JOIN large_volume_shareholder_holder h
+      ON h.doc_id = l.doc_id
+     AND h.hldr_seq = 1
+    CROSS JOIN params pp
+    WHERE l.sub_date >= TRUNC(SYSDATE) - pp.lvs_days_th
+      AND l.large_hldg_type_code IN ('1', '4')
+    GROUP BY l.code
 ),
 px AS (
     SELECT p.code,
@@ -738,7 +829,36 @@ px_latest AS (
      AND em.delisted_flag = 'N'
      AND em.market_name IN ('プライム', 'スタンダード', 'グロース')
     WHERE px.rn = 1
-      AND px.avg_turnover_20d >= params.min_turnover_20d
+      -- 流動性フィルタは S5 の候補(新規の大量保有報告書が出た銘柄)にはかけない
+      AND (px.avg_turnover_20d >= params.min_turnover_20d
+           OR EXISTS (SELECT 1 FROM lvs_new n WHERE n.code = px.code))
+),
+mcap_fs AS (
+    -- 時価総額 = 最新の終値 × 株式数(購入の流れ src/web/purchaseQuery.js と同じ出し方)。
+    --   株式数は最新の決算短信の期末発行済株式数 − 期末自己株式数。
+    --   決算短信の後に株式分割があれば AdjFactor の積で割って今の株数に直す
+    SELECT code, disc_date, shares FROM (
+        SELECT f.code, f.disc_date, f.sh_out_fy - NVL(f.tr_sh_fy, 0) AS shares,
+               ROW_NUMBER() OVER (PARTITION BY f.code
+                                  ORDER BY f.disc_date DESC, f.disc_no DESC) AS r
+        FROM financial_summary f
+        WHERE f.sh_out_fy IS NOT NULL
+          AND EXISTS (SELECT 1 FROM px_latest x WHERE x.code = f.code)
+    )
+    WHERE r = 1
+),
+mcap_spl AS (
+    SELECT fs.code, EXP(SUM(LN(NULLIF(p.adj_factor, 0)))) AS prodf
+    FROM mcap_fs fs
+    JOIN equity_price_daily p
+      ON p.code = fs.code AND p.price_date > fs.disc_date AND p.adj_factor <> 1
+    GROUP BY fs.code
+),
+mcap AS (
+    SELECT x.code, x.close_price * fs.shares / NVL(spl.prodf, 1) AS market_cap
+    FROM px_latest x
+    JOIN mcap_fs fs        ON fs.code  = x.code
+    LEFT JOIN mcap_spl spl ON spl.code = x.code
 ),
 mgn_wk AS (
     -- 週次に畳んでから窓を取る理由は 2 の同名 CTE のコメント参照(日次化への備え)
@@ -931,6 +1051,11 @@ flags AS (
            NVL(lvs_recent.recent_material, 0)                            AS lvs_recent_material,
            lvs_recent.last_sub_date                                      AS lvs_last_sub_date,
            lvs_recent.recent_summary                                     AS lvs_recent_summary,
+           NVL(lvs_new.new_grps, 0)                                      AS lvs_new_grps,
+           lvs_new.new_last_sub_date                                     AS lvs_new_last_sub_date,
+           ROUND(mcap.market_cap / 100000000, 1)                         AS market_cap_oku,
+           CASE WHEN px_latest.avg_turnover_20d >= p.min_turnover_20d
+                THEN 'Y' ELSE 'N' END                                    AS liquid_flag,
            CASE WHEN px_latest.avg_vol_20d > 0
                  AND px_latest.avg_vol_n >= p.min_avg_vol_n
                  AND px_latest.volume >= px_latest.avg_vol_20d * p.vol_mult_th
@@ -944,24 +1069,45 @@ flags AS (
                 THEN 1 ELSE 0 END                                        AS sig_margin,
            CASE WHEN lvs_recent.recent_material > 0 THEN 1 ELSE 0 END    AS sig_lvs,
            CASE WHEN NVL(sp.shrt_ratio, 0) - NVL(sp.shrt_ratio_prev, 0) >= p.short_chg_th
-                THEN 1 ELSE 0 END                                        AS sig_short
+                THEN 1 ELSE 0 END                                        AS sig_short,
+           -- S5: 小型株の新規大量保有。直近 lvs_days_th 日以内に新規の大量保有報告書が出て、
+           --   時価総額が small_cap_max 以下。時価総額が出せない銘柄は点灯させない
+           CASE WHEN lvs_new.new_grps > 0
+                 AND mcap.market_cap <= p.small_cap_max
+                THEN 1 ELSE 0 END                                        AS sig_small_new
     FROM px_latest
     JOIN equity_master em ON em.code = px_latest.code
     CROSS JOIN params p
     LEFT JOIN mgn        ON mgn.code        = px_latest.code
     LEFT JOIN sp         ON sp.code         = px_latest.code
     LEFT JOIN lvs_recent ON lvs_recent.code = px_latest.code
+    LEFT JOIN lvs_new    ON lvs_new.code    = px_latest.code
+    LEFT JOIN mcap       ON mcap.code       = px_latest.code
+),
+ranked AS (
+    -- 2つ以上の同時点灯(流動性フィルタを通った銘柄)は上位100件まで。
+    --   S5 の行は件数で切らずに全部残す(S5 だけの行は確認順が1で、順位で切ると消える)
+    SELECT f.*,
+           f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short + f.sig_small_new AS signal_score,
+           ROW_NUMBER() OVER (
+               PARTITION BY f.sig_small_new
+               ORDER BY f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short + f.sig_small_new DESC,
+                        f.vol_vs_20d DESC NULLS LAST, f.code)                AS rk
+    FROM flags f
+    WHERE (f.sig_volume + f.sig_margin + f.sig_lvs + f.sig_short >= 2 AND f.liquid_flag = 'Y')
+       OR f.sig_small_new = 1
 )
 SELECT code,
        co_name,
        market_name,
        sector33_name,
-       sig_volume + sig_margin + sig_lvs + sig_short                     AS signal_score,
+       signal_score,
        RTRIM(
          CASE WHEN sig_volume = 1 THEN '出来高急増 '     END ||
          CASE WHEN sig_margin = 1 THEN '売残の増加 '     END ||
          CASE WHEN sig_lvs    = 1 THEN '大量保有提出 '   END ||
-         CASE WHEN sig_short  = 1 THEN '空売り残高の増加 ' END
+         CASE WHEN sig_short  = 1 THEN '空売り残高の増加 ' END ||
+         CASE WHEN sig_small_new = 1 THEN '小型株の新規大量保有 ' END
        )                                                                 AS signals,
        TO_CHAR(price_date, 'YYYY-MM-DD')                                 AS price_date,
        close_price,
@@ -987,11 +1133,13 @@ SELECT code,
        lvs_recent_docs,
        lvs_recent_grps,
        lvs_recent_material,
-       lvs_recent_summary
-FROM flags
-WHERE sig_volume + sig_margin + sig_lvs + sig_short >= 2   -- 2つ以上の同時点灯に絞る
-ORDER BY signal_score DESC, vol_vs_20d DESC NULLS LAST
-FETCH FIRST 100 ROWS ONLY;
+       lvs_recent_summary,
+       lvs_new_grps,
+       TO_CHAR(lvs_new_last_sub_date, 'YYYY-MM-DD')                      AS lvs_new_last_sub_date,
+       market_cap_oku
+FROM ranked
+WHERE sig_small_new = 1 OR rk <= 100
+ORDER BY signal_score DESC, vol_vs_20d DESC NULLS LAST;
 
 
 --------------------------------------------------------------------------------

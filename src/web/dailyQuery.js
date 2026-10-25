@@ -21,6 +21,7 @@
 const oracledb = require('oracledb');
 const { computePositions } = require('./journalPositions');
 const jq = require('./journalQuery');
+const { fetchMarginChecks } = require('./marginCheck');
 
 const OBJ = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 const TZ_JP = 'Asia/Tokyo';
@@ -192,8 +193,13 @@ async function fetchDaily(conn, p) {
 
   const names = new Map();
   const dataDates = await fetchDataDates(conn);
+  // 信用残の要確認の日(判定は marginCheck.js)。最新の申込日がそうなら画面の上に出す
+  const marginChecks = await fetchMarginChecks(conn, addDays(today, -30));
+  const mchk = new Map(marginChecks.map((c) => [c.date, c]));
+  const latestCheck = dataDates.margin ? mchk.get(dataDates.margin) : null;
+  const marginNotice = latestCheck && latestCheck.kind === 'jump' ? latestCheck.text : null;
   if (!codes.length) {
-    return { today, mode, fromDate, baseDate, latestDate, dataDates, targets: [], events: [], moves: [],
+    return { today, mode, fromDate, baseDate, latestDate, dataDates, marginNotice, targets: [], events: [], moves: [],
       upcoming: { until: null, items: [] } };
   }
 
@@ -209,7 +215,7 @@ async function fetchDaily(conn, p) {
   events.push(...await marginAlertEvents(conn, b, evFilter, evBinds));
   events.sort((x, y) => (x.date === y.date ? x.code.localeCompare(y.code) : (x.date < y.date ? 1 : -1)));
 
-  const moves = await priceMoves(conn, b, codes, { baseDate, latestDate, topix });
+  const moves = await priceMoves(conn, b, codes, { baseDate, latestDate, topix, mchk });
   const evCount = new Map();
   for (const e of events) evCount.set(e.code, (evCount.get(e.code) || 0) + 1);
   for (const m of moves) m.events = evCount.get(m.code) || 0;
@@ -227,7 +233,7 @@ async function fetchDaily(conn, p) {
       r.held = t.held; r.watch = t.watch; r.lists = t.lists;
     }
   }
-  return { today, mode, fromDate, baseDate, latestDate, dataDates, targets: tgt, events, moves, upcoming };
+  return { today, mode, fromDate, baseDate, latestDate, dataDates, marginNotice, targets: tgt, events, moves, upcoming };
 }
 
 /** 各データの最新日 */
@@ -405,7 +411,7 @@ async function marginAlertEvents(conn, b, evFilter, evBinds) {
 }
 
 //------------------------------------------------------------------ 値動き
-async function priceMoves(conn, b, codes, { baseDate, latestDate, topix }) {
+async function priceMoves(conn, b, codes, { baseDate, latestDate, topix, mchk = new Map() }) {
   const px = await rows(conn,
     `SELECT code, TO_CHAR(price_date, 'YYYY-MM-DD') AS d, close_price AS c, volume AS v, adj_factor AS af
        FROM equity_price_daily
@@ -457,13 +463,19 @@ async function priceMoves(conn, b, codes, { baseDate, latestDate, topix }) {
     }
     const m = mByCode.get(code) || [];
     const m1 = m[m.length - 1];
-    const m0 = m[m.length - 2];
+    // 前日比の相手は、要確認(jump)の日を飛ばした直前の申込日。最新そのものが jump なら印を付ける
+    //   (判定は marginCheck.js。例: 10/20 が jump なら、10/21 の前日比は 10/19 と比べる)
+    const isJump = (d) => { const c = mchk.get(d); return Boolean(c && c.kind === 'jump'); };
+    const m0 = m1 ? m.slice(0, -1).filter((x) => !isJump(x.D)).pop() : undefined;
+    const lastCheck = m1 ? mchk.get(m1.D) : null;
     const pct = (a, z) => (a == null || z == null || Number(z) === 0 ? null : (a / z - 1) * 100);
     return {
       code, close, closeDate: last ? last.D : null, ret,
       vsTopix: ret != null && topixRet != null ? ret - topixRet : null,
       volRatio,
       marginDate: m1 ? m1.D : null,
+      marginPrevDate: m0 ? m0.D : null,
+      marginWarn: lastCheck && lastCheck.kind === 'jump' ? lastCheck.text : null,
       longChg: m1 && m0 ? pct(m1.LONG_VOL, m0.LONG_VOL) : null,
       shortChg: m1 && m0 ? pct(m1.SHRT_VOL, m0.SHRT_VOL) : null,
       marginRatio: m1 && Number(m1.SHRT_VOL) > 0 ? m1.LONG_VOL / m1.SHRT_VOL : null,

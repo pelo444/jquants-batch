@@ -11,7 +11,8 @@
   var selected = new Set(); // チェックした銘柄コード
   var sortKey = 'changePct';
   var sortAsc = false;
-  var targetTab = 'tag';    // 絞り込みのタブ('sector' | 'tag')。開いているほうの選択だけを使う
+  var targetTab = 'tag';    // 絞り込みのタブ('sector' | 'tag' | 'code' | 'sectorChart')。開いているタブの選択だけを使う。
+                            // 'sectorChart' は銘柄の一覧ではなく33業種の横棒グラフを出す
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -66,6 +67,9 @@
     var shown;
     if (params.allStocks) {
       shown = '全銘柄(絞り込みなし)';
+    } else if (params.stocks && params.stocks.length) {
+      var cs = params.stocks.map(short);
+      shown = '銘柄コード: ' + cs.slice(0, 6).join(', ') + (cs.length > 6 ? ' ほか' + (cs.length - 6) : '');
     } else if (params.sectors && params.sectors.length) {
       var names = {};
       (meta ? meta.sectors : []).forEach(function (s) { names[s.code] = s.name; });
@@ -176,6 +180,18 @@
     });
     $('sectorBox').hidden = name !== 'sector';
     $('tagGroups').hidden = name !== 'tag';
+    $('codeBox').hidden = name !== 'code';
+    $('sectorChartBox').hidden = name !== 'sectorChart';
+    // 33業種のグラフは銘柄を選ばないので、「絞り込みなし(全銘柄)」「選択を外す」「必須」とオプション(銘柄の除外条件)は使わない
+    $('targetActions').hidden = name === 'sectorChart';
+    $('optsField').classList.toggle('disabled', name === 'sectorChart');
+    $('tagReq').hidden = name === 'sectorChart' || $('optAllStocks').checked;
+    if (name === 'code' && !$('optAllStocks').checked) $('codeInput').focus();
+  }
+
+  /** 入力欄の銘柄コード。カンマ(全角・読点も)・空白で区切る。形の検査はサーバーで行う */
+  function enteredCodes() {
+    return $('codeInput').value.split(/[,，、\s]+/).map(function (c) { return c.trim(); }).filter(Boolean);
   }
 
   function selectedTags() {
@@ -212,10 +228,19 @@
 
   //---------------------------------------------------------------- 取得と描画
   function buildParams() {
+    if (targetTab === 'sectorChart') {
+      throw new Error('「33業種のグラフ」のタブを開いている間は銘柄の一覧・チャートを出せません。ほかのタブに切り替えてください');
+    }
     var allStocks = $('optAllStocks').checked;
     var p = new URLSearchParams();
     if (allStocks) {
       p.set('all', '1');
+    } else if (targetTab === 'code') {
+      var codes = enteredCodes();
+      if (codes.length === 0) {
+        throw new Error('銘柄コードを1つ以上入力するか、「絞り込みなし(全銘柄)」にチェックしてください');
+      }
+      p.set('stocks', codes.join(','));
     } else if (targetTab === 'sector') {
       var secs = selectedSectors();
       if (secs.length === 0) {
@@ -238,6 +263,7 @@
   }
 
   function run() {
+    if (targetTab === 'sectorChart') { runSector(); return; }
     var p;
     try { p = buildParams(); } catch (e) { setStatus(e.message, true); return; }
 
@@ -264,6 +290,7 @@
         renderTable();
 
         $('empty').hidden = true;
+        $('paneSector').hidden = true;
         $('tabs').hidden = false;
         showTab('table');
 
@@ -281,6 +308,93 @@
       })
       .catch(function (e) { setStatus(e.message, true); })
       .finally(function () { $('runBtn').disabled = false; });
+  }
+
+  //---------------------------------------------------------------- 33業種のグラフ
+  // 東証業種別株価指数の期間騰落率(期間内の最初の営業日の終値 → 最後の営業日の終値)を高い順の横棒で出す。
+  // 横軸は0とすべての値(TOPIX・銘柄の中央値を含む)が入る幅。0の線は実線、TOPIX の騰落率は点線。
+  // 各行は太い棒 = 指数、その下の細い棒 = その業種の銘柄の騰落率の中央値(2026-10-23 追加)
+  function runSector() {
+    var from = $('dFrom').value, to = $('dTo').value;
+    if (!from || !to) { setStatus('開始日と終了日を入れてください', true); return; }
+    var p = new URLSearchParams();
+    p.set('from', from);
+    p.set('to', to);
+
+    setStatus('取得中…');
+    $('runBtn').disabled = true;
+    fetch('/api/sector-performance?' + p.toString())
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+          return j;
+        });
+      })
+      .then(function (j) {
+        renderSectorChart(j);
+        $('empty').hidden = true;
+        $('tabs').hidden = true;
+        $('paneTable').hidden = true;
+        $('paneChart').hidden = true;
+        $('paneSector').hidden = false;
+        $('summaryText').textContent =
+          '33業種のグラフ(東証業種別株価指数)　/　' + j.params.from + ' 〜 ' + j.params.to;
+        collapseFilter(true);
+        setStatus(j.notice && j.notice.length ? j.notice.join(' ') : '');
+      })
+      .catch(function (e) { setStatus(e.message, true); })
+      .finally(function () { $('runBtn').disabled = false; });
+  }
+
+  function renderSectorChart(j) {
+    var secs = j.sectors || [];
+    var topix = j.topix && j.topix.changePct !== null ? j.topix : null;
+    var vals = secs.map(function (s) { return s.changePct; }).filter(function (v) { return v !== null; });
+    var medVals = secs.map(function (s) { return s.medianPct; }).filter(function (v) { return v !== null && v !== undefined; });
+    if (topix) vals.push(topix.changePct);
+    vals = vals.concat(medVals);
+    var lo = Math.min.apply(null, [0].concat(vals));
+    var hi = Math.max.apply(null, [0].concat(vals));
+    if (hi - lo < 0.01) { hi = lo + 1; }
+    var x = function (v) { return (v - lo) / (hi - lo) * 100; };
+    var x0 = x(0);
+    var lines = '<b class="sc-zero" style="left:' + x0.toFixed(2) + '%"></b>' +
+      (topix ? '<b class="sc-topix" style="left:' + x(topix.changePct).toFixed(2) + '%"></b>' : '');
+
+    // 見出しの行: 0 と TOPIX の線のラベル。端に寄ったときははみ出さないよう寄せる
+    function label(text, pos, cls) {
+      var align = pos < 12 ? 'translateX(0)' : (pos > 88 ? 'translateX(-100%)' : 'translateX(-50%)');
+      return '<span class="sc-label ' + cls + '" style="left:' + pos.toFixed(2) + '%;transform:' + align + '">' + esc(text) + '</span>';
+    }
+    var head = '<div class="sc-row sc-head"><span></span><span class="sc-bar">' +
+      (topix ? label('TOPIX ' + fmtPct(topix.changePct), x(topix.changePct), 'topix') : '') +
+      '</span><span class="sc-colhead">指数</span><span class="sc-colhead">中央値</span></div>';
+
+    function barOf(v, cls) {
+      if (v === null || v === undefined || v === 0) return '';
+      var left = v > 0 ? x0 : x(v);
+      var w = Math.abs(x(v) - x0);
+      return '<i class="' + cls + ' ' + (v > 0 ? 'up' : 'down') + '" style="left:' + left.toFixed(2) + '%;width:' + w.toFixed(2) + '%"></i>';
+    }
+
+    var body = secs.map(function (s) {
+      var v = s.changePct, m = s.medianPct;
+      var tip = s.name + '\n指数 ' + (s.d1 || '') + ' ' + fmtNum(s.p1, 2) + ' → ' + (s.d2 || '') + ' ' + fmtNum(s.p2, 2) +
+        '\n銘柄 ' + (s.stockCount || 0) + '社(上昇 ' + (s.upCount || 0) + '社)の中央値 ' + fmtPct(m);
+      return '<div class="sc-row" title="' + esc(tip) + '">' +
+        '<span class="sc-name">' + esc(s.name) + '</span>' +
+        '<span class="sc-bar">' + barOf(v, 'idx') + barOf(m, 'med') + lines + '</span>' +
+        '<span class="sc-val pct ' + pctClass(v) + '">' + fmtPct(v) + '</span>' +
+        '<span class="sc-val pct ' + pctClass(m) + '">' + fmtPct(m) + '</span></div>';
+    }).join('');
+    $('sectorChart').innerHTML = secs.length ? head + body : '';
+
+    var up = vals.length ? secs.filter(function (s) { return s.changePct > 0; }).length : 0;
+    var down = secs.filter(function (s) { return s.changePct < 0; }).length;
+    var base = topix || secs[0];
+    $('sectorCaption').textContent = secs.length
+      ? '33業種 ・' + base.d1 + ' の終値 → ' + base.d2 + ' の終値 ・上昇 ' + up + ' / 下落 ' + down
+      : '';
   }
 
   //---------------------------------------------------------------- テーブル
@@ -401,6 +515,7 @@
     });
     $('paneTable').hidden = name !== 'table';
     $('paneChart').hidden = name !== 'chart';
+    $('paneSector').hidden = true;
 
     // チャートタブを初めて開いたときに読み込む(不要なクエリを避けるため)
     if (name === 'chart') {
@@ -455,8 +570,9 @@
       if (ev.target.id !== 'editBtn') collapseFilter(false);
     });
 
-    // 開いているタブ(33業種かタグ)の選択だけを外す
+    // 開いているタブ(33業種・タグ・銘柄コード)の選択だけを外す
     $('tagClear').addEventListener('click', function () {
+      if (targetTab === 'code') { $('codeInput').value = ''; return; }
       var cls = targetTab === 'sector' ? '.seccb' : '.tagcb';
       Array.prototype.forEach.call(document.querySelectorAll(cls), function (c) { c.checked = false; });
     });
@@ -466,14 +582,24 @@
       if (t) showTargetTab(t.dataset.target);
     });
 
-    // 「絞り込みなし(全銘柄)」: ONの間は33業種・タグの選択UIを無効化する
-    $('optAllStocks').addEventListener('change', function () {
-      var on = this.checked;
+    // 「絞り込みなし(全銘柄)」: ONの間は33業種・タグ・銘柄コードの選択UIを無効化する。
+    // ページを開いたときは ON(2026-10-20 ユーザー要望。index.html の checked)。
+    // タブ自体は押せるままにする(「33業種のグラフ」はこのチェックと関係なく開けるようにするため。2026-10-23)
+    function applyAllStocks() {
+      var on = $('optAllStocks').checked;
       $('tagGroups').classList.toggle('disabled', on);
       $('sectorBox').classList.toggle('disabled', on);
-      $('targetTabs').classList.toggle('disabled', on);
+      $('codeBox').classList.toggle('disabled', on);
+      $('codeInput').disabled = on;
       $('tagClear').disabled = on;
-      $('tagReq').hidden = on;
+      $('tagReq').hidden = on || targetTab === 'sectorChart';
+    }
+    $('optAllStocks').addEventListener('change', applyAllStocks);
+    applyAllStocks();
+
+    // 銘柄コードの欄で Enter → 表示
+    $('codeInput').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); run(); }
     });
 
     $('presets').addEventListener('click', function (ev) {

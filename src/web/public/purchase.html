@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>銘柄購入</title>
-<link rel="stylesheet" href="/style.css?v=20261018d">
+<link rel="stylesheet" href="/style.css?v=20261021b">
 <!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
 <link rel="stylesheet" href="/purchase.css?v=20261017g">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 3h2l1.6 7h7L14 5H5' fill='none' stroke='%232a78d6' stroke-width='1.6' stroke-linejoin='round'/%3E%3Ccircle cx='6.5' cy='13' r='1.2' fill='%232a78d6'/%3E%3Ccircle cx='11.5' cy='13' r='1.2' fill='%232a78d6'/%3E%3C/svg%3E">
@@ -16,9 +16,11 @@
     <h1>銘柄購入</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
-    <a class="btn" href="/daily">日々の確認</a>
     <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/events">材料</a>
+    <a class="btn" href="/daily">日々の確認</a>
     <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/reference">参考情報</a>
     <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase" aria-current="page">銘柄購入</a>
     <a class="btn" href="/journal">売買記録</a>
@@ -82,6 +84,7 @@
     <label class="field-label">銘柄コード(カンマ区切り。手で入力・削除してもよい)
       <textarea id="codesInput" rows="2" spellcheck="false"></textarea>
     </label>
+    <div class="lookup" data-target="codesInput"></div>
     <div class="row">
       <span class="count" id="countLabel"></span>
       <span class="dirty" id="dirtyLabel" hidden>保存していない変更があります</span>
@@ -112,5 +115,6 @@
 
 </div>
 <script src="/purchase.js?v=20261018b"></script>
+<script src="/codeLookup.js?v=20261021a"></script>
 </body>
 </html>

@@ -110,6 +110,18 @@
     $('evTitle').textContent = `出来事(${d.events.length}件)`;
   }
 
+  /** 信用残の要確認の印(marginCheck.js。文言は title に入れる) */
+  function warnMark(w) {
+    return w ? '<span class="sym-warn" aria-label="要確認">⚠</span>' : '';
+  }
+
+  /** 信用残の前日比のセルの説明: 何日と何日の比較か + 要確認の文言 */
+  function marginTitle(m) {
+    if (!m.marginDate) return '';
+    const base = m.marginPrevDate ? `${md(m.marginPrevDate)} → ${md(m.marginDate)} 申込分` : md(m.marginDate) + ' 申込分';
+    return m.marginWarn ? base + '。' + m.marginWarn : base;
+  }
+
   function renderMoves(d) {
     const cols = [
       ['銘柄'], ['区分'], ['出来事(件)', 'num-col'], ['終値', 'num-col'], ['騰落率(%)', 'num-col'],
@@ -128,9 +140,9 @@
         cell('騰落率(%)', esc(signed(m.ret, 2)), 'num-col' + dir(m.ret)) +
         cell('TOPIXとの差(pt)', esc(signed(m.vsTopix, 2)), 'num-col' + dir(m.vsTopix)) +
         cell('出来高(倍)', m.volRatio == null ? '—' : esc(fix(m.volRatio, 2)), 'num-col', '最新日の出来高 ÷ 直前25営業日の平均') +
-        cell('信用買残 前日比(%)', esc(signed(m.longChg, 1)), 'num-col', m.marginDate ? md(m.marginDate) + ' 申込分' : '') +
-        cell('信用売残 前日比(%)', esc(signed(m.shortChg, 1)), 'num-col', m.marginDate ? md(m.marginDate) + ' 申込分' : '') +
-        cell('信用倍率(倍)', m.marginRatio == null ? '—' : esc(fix(m.marginRatio, 2))) +
+        cell('信用買残 前日比(%)', warnMark(m.marginWarn) + esc(signed(m.longChg, 1)), 'num-col' + (m.marginWarn ? ' mwarn' : ''), marginTitle(m)) +
+        cell('信用売残 前日比(%)', warnMark(m.marginWarn) + esc(signed(m.shortChg, 1)), 'num-col' + (m.marginWarn ? ' mwarn' : ''), marginTitle(m)) +
+        cell('信用倍率(倍)', warnMark(m.marginWarn) + (m.marginRatio == null ? '—' : esc(fix(m.marginRatio, 2))), 'num-col' + (m.marginWarn ? ' mwarn' : ''), m.marginWarn || '') +
         '</tr>';
     }
     if (!d.moves.length) h += '<tr class="empty-row"><td colspan="10">対象の銘柄がありません</td></tr>';
@@ -165,6 +177,9 @@
     $('dataDates').textContent = `データの最新日: 株価 ${md(dd.price)}・決算 ${md(dd.fin)}・大量保有 ${md(dd.lvs)}・` +
       `空売り報告 ${md(dd.short)}・日々公表 ${md(dd.alert)}・信用残 ${md(dd.margin)}`;
     $('sinceBtn').hidden = d.mode !== 'date';
+    // 信用残の要確認(最新の申込日が marginCheck.js の jump のとき)
+    $('notice').textContent = d.marginNotice ? '⚠ ' + d.marginNotice : '';
+    $('notice').hidden = !d.marginNotice;
     if (d.seenTableMissing) flash('確認した日時の表がありません。ddl/32_daily_seen.sql を GD_JQUANTS で流してください', true);
     $('dataMeta').textContent = `対象 ${d.targets.length}銘柄`;
   }

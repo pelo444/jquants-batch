@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>売買記録</title>
-<link rel="stylesheet" href="/style.css?v=20261018d">
+<link rel="stylesheet" href="/style.css?v=20261021a">
 <!-- ?v= は更新のたびに上げる。静的ファイルはブラウザに1時間キャッシュされるため(server.js の maxAge)、
      上げないと新しいHTMLに古いJSが組み合わさって、新しいボタンが反応しない -->
 <link rel="stylesheet" href="/journal.css?v=20261017d">
@@ -17,9 +17,11 @@
     <h1>売買記録</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
-    <a class="btn" href="/daily">日々の確認</a>
     <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/events">材料</a>
+    <a class="btn" href="/daily">日々の確認</a>
     <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/reference">参考情報</a>
     <a class="btn" href="/demand">需給3階層</a>
     <a class="btn" href="/purchase">銘柄購入</a>
     <a class="btn" href="/journal" aria-current="page">売買記録</a>
