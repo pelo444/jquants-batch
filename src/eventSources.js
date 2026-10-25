@@ -23,6 +23,10 @@ const { closeOf, wallToInstant } = require('./eventSchedule');
 const CLOSE_MARGIN_MS = 15 * 60 * 1000;
 
 const UA_BROWSER = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+// FRED・ALFRED(stlouisfed.org、前に Akamai)は、OCI の VM から Chrome そのままの名乗りで取ると応答が無く
+// 30秒で切れた。'Mozilla/5.0' だけ、または名乗りなしなら取れた(2026-10-25、VM の Node で確認)。
+// Mac(家庭のアドレス)ではどちらでも取れる。財務省・FINRA は Chrome の名乗りのまま VM から取れている
+const UA_SHORT = 'Mozilla/5.0';
 const TIMEOUT_MS = 30000;
 
 //------------------------------------------------------------------ 定義
@@ -101,7 +105,7 @@ function parseFredCsv(text) {
 
 async function fetchFred(id, from) {
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(id)}&cosd=${from}`;
-  return parseFredCsv(await getText(url));
+  return parseFredCsv(await getText(url, { 'User-Agent': UA_SHORT }));
 }
 
 /**
@@ -119,7 +123,7 @@ function parseAlfredVintages(body) {
 }
 
 async function fetchCpiReleases(from) {
-  const body = JSON.parse(await getText('https://alfred.stlouisfed.org/graph/api/series/?id=CPIAUCSL&mode=alfred&firstRequest=seriesPage&width=643'));
+  const body = JSON.parse(await getText('https://alfred.stlouisfed.org/graph/api/series/?id=CPIAUCSL&mode=alfred&firstRequest=seriesPage&width=643', { 'User-Agent': UA_SHORT }));
   // 2025年の政府閉鎖で 10/24(9月分)・12/18(11月分)にずれた月も、発表月の前の月で合う
   return parseAlfredVintages(body)
     .filter((d) => d >= from)
