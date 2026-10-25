@@ -935,7 +935,7 @@ app.get('/api/reference', async (req, res, next) => {
 
 //==================================================================
 // 材料 (/events)
-//   縦長の月間カレンダー。数字と見出しは src/loadEventCalendar.js が DB に取り込んだもの(Mac で毎日1回)。
+//   縦長の月間カレンダー。数字は src/loadEventCalendar.js が DB に取り込んだもの(VM の cron で日本時間 7:30 と 14:00)。
 //   設計は Project の claude/event_calendar_design.md
 //==================================================================
 const EVENTS_TTL_MS = 10 * 60 * 1000;

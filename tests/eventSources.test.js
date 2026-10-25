@@ -24,6 +24,10 @@ assert.strictEqual(s.prevMonthFirst('2026-01-13'), '2025-12-01');
   assert.deepStrictEqual(s.parseYahooChart(body, new Date('2026-10-20T13:00:00Z')),
     [{ date: '2026-10-15', value: 97.97 }, { date: '2026-10-19', value: 98.18 }]);
   assert.throws(() => s.parseYahooChart({ chart: { error: { description: 'No data found' } } }), /No data found/);
+  // 引けの時刻(16:00 米東部、夏時間で 20:00Z)を15分過ぎたら今日の足も入れる
+  const close = { tz: 'America/New_York', time: '16:00' };
+  assert.strictEqual(s.parseYahooChart(body, new Date('2026-10-20T20:10:00Z'), close).length, 2);
+  assert.deepStrictEqual(s.parseYahooChart(body, new Date('2026-10-20T20:20:00Z'), close).slice(-1), [{ date: '2026-10-20', value: 99 }]);
 }
 
 // FINRA: 応答の2つの形と、日ごとの中央値(利回りが空の約定は飛ばす)

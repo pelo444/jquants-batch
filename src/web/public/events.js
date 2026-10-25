@@ -77,7 +77,19 @@
     return new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d);
   }
 
+  // 取得元と更新の時刻の表。日本時間の目安は、今日の夏時間・冬時間で計算したもの(src/eventSchedule.js)
+  function sourcesTable(rows) {
+    const head = '<thead><tr><th>No</th><th>データ</th><th>取得元</th><th>元のサイトの更新</th>' +
+      '<th>日本時間の目安(対象日から)</th><th>DB の最新の日付</th><th>その日の分が初めて入った時刻</th><th>時刻の根拠</th></tr></thead>';
+    const body = (rows || []).map((r) =>
+      `<tr><td class="num-col">${r.no}</td><td>${esc(r.label)}</td><td>${esc(r.source)}</td><td>${esc(r.original)}</td>` +
+      `<td>${esc(r.jst)}</td><td>${r.latestDate ? dayLabel(r.latestDate) : '—'}</td>` +
+      `<td>${r.firstLoadedAt ? esc(jst(r.firstLoadedAt)) : '—'}</td><td class="basis">${esc(r.basis)}</td></tr>`).join('');
+    return head + `<tbody>${body}</tbody>`;
+  }
+
   function render(data) {
+    $('sourcesTable').innerHTML = sourcesTable(data.schedule);
     $('months').innerHTML = data.months.map((m) => monthTable(data.columns, m)).join('');
     const parts = ['日付は米国の日付(日本の金利と東京の概況は日本の日付)'];
     if (data.loadedAt) parts.push(`数字の取込 ${jst(data.loadedAt)}`);

@@ -5,6 +5,7 @@
  * 取込は src/loadEventCalendar.js。設計は Project の claude/event_calendar_design.md。
  *
  * 【取得元】(2026-10-19 に内蔵ブラウザ・Mac から届くことを確認)
+ *   元のサイトでいつ頃更新されるかは src/eventSchedule.js の SCHEDULE にまとめてある
  *   - FRED: fredgraph.csv(キー不要)。米2年・10年金利、期待インフレ率、ハイイールド債の上乗せ金利、CPI
  *   - ALFRED: CPI の版の日付 = 発表日
  *   - Yahoo Finance(非公式): WTI・ブレントの先物、ドル円、SOX(米半導体株指数)、KBW銀行株指数(^BKX)、VIX、SKEW
@@ -17,6 +18,9 @@
  *   Google ニュースの RSS は1回100件で切れ、話題の大きい語は毎日100件に達するため件数が比べられない。
  *   件数を数えるための GDELT は、Mac のターミナルからも「5秒に1回まで」と断られた(2026-10-19)。
  */
+
+const { closeOf, wallToInstant } = require('./eventSchedule');
+const CLOSE_MARGIN_MS = 15 * 60 * 1000;
 
 const UA_BROWSER = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 const TIMEOUT_MS = 30000;
@@ -127,7 +131,12 @@ async function fetchCpiReleases(from) {
  * chart API の応答 → [{date, value}]。日付は取引所の時刻帯の日付。
  * 今日(取引所の日付)の足は取引中のことがあるので外す。
  */
-function parseYahooChart(body, now = new Date()) {
+/**
+ * close: その系列の1日の取引が終わる時刻 {tz, time}(src/eventSchedule.js の closeOf)。
+ *   今日(取引所の日付)の足は、取引中のことがあるので外す。ただし close の時刻を15分過ぎていれば入れる
+ *   (日本時間 7:00 の回で、米国の前日の引けの分を取れるように。2026-10-25)。close が無い系列(ドル円)は常に外す。
+ */
+function parseYahooChart(body, now = new Date(), close = null) {
   const result = body && body.chart && body.chart.result && body.chart.result[0];
   if (!result || !Array.isArray(result.timestamp)) {
     const desc = body && body.chart && body.chart.error && body.chart.error.description;
@@ -141,7 +150,8 @@ function parseYahooChart(body, now = new Date()) {
     const c = closes[i];
     if (c == null || !Number.isFinite(c)) return;
     const date = ymdIn(new Date(t * 1000), tz);
-    if (date >= today) return;
+    if (date > today) return;
+    if (date === today && !(close && now.getTime() >= wallToInstant(today, close.time, close.tz) + CLOSE_MARGIN_MS)) return;
     byDate.set(date, Math.round(c * 1e4) / 1e4); // 同じ日が2本あれば後の足。小数4桁に丸める
   });
   return [...byDate].map(([date, value]) => ({ date, value }));
@@ -159,7 +169,7 @@ async function fetchYahoo(symbol, from) {
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (res.status === 429 && attempt === 0) { await new Promise((r) => setTimeout(r, 5000)); continue; }
     if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-    return parseYahooChart(await res.json());
+    return parseYahooChart(await res.json(), new Date(), closeOf(symbol));
   }
 }
 

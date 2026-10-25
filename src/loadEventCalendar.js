@@ -1,8 +1,11 @@
 'use strict';
 
 /**
- * 材料(/events)のカレンダーの取込。Mac で毎日1回実行する(外のデータは Mac から届くことを確認済み)。
- * 表は ddl/34_event_calendar.sql。取得と解析は src/eventSources.js。
+ * 材料(/events)のカレンダーの取込。OCI の VM の cron で日本時間 7:30 と 14:00 に実行する
+ * (scripts/run-events.sh)。時刻は取得元ごとの更新の時刻(src/eventSchedule.js)から決めた。
+ *   7:30  … 米国の前日の引けの分(先物・指数・期待インフレ率)、SEC の提出書類
+ *   14:00 … 日本の金利(財務省、翌営業日 9:30頃)、FINRA の前日(米国の日付)の分
+ * 表は ddl/34_event_calendar.sql と ddl/35(FIRST_LOADED_AT)。取得と解析は src/eventSources.js。
  *
  * 【使い方】
  *   node src/loadEventCalendar.js                     既定: 14日前から
@@ -52,7 +55,8 @@ USING (SELECT :1 AS series_code, TO_DATE(:2, 'YYYY-MM-DD') AS obs_date, :3 AS va
 ON (t.series_code = s.series_code AND t.obs_date = s.obs_date)
 WHEN MATCHED THEN UPDATE SET t.value = s.value, t.loaded_at = SYSTIMESTAMP
   WHERE DECODE(t.value, s.value, 0, 1) = 1
-WHEN NOT MATCHED THEN INSERT (series_code, obs_date, value) VALUES (s.series_code, s.obs_date, s.value)`;
+WHEN NOT MATCHED THEN INSERT (series_code, obs_date, value, first_loaded_at)
+  VALUES (s.series_code, s.obs_date, s.value, SYSTIMESTAMP)`;
 
 const MERGE_RELEASE = `
 MERGE INTO ext_release_date t

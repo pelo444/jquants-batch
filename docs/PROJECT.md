@@ -1053,6 +1053,20 @@ GD_JQUANTS で同じ SQL が通るならこれ。新しいテーブルを足し�
 - ログは `logs/daily_YYYYMMDD.log`、60 日で自動削除
 - **成功時は何も出力しない**（cron の MAILTO で失敗時だけ通知が飛ぶようにするため）
 
+**材料(/events)の取込**: `scripts/run-events.sh` を cron で日本時間 7:30 と 14:00 に実行する（2026-10-25 から。それまでは Mac で手動）。
+
+```
+CRON_TZ=Asia/Tokyo
+30 7 * * * /opt/jquants-batch/scripts/run-events.sh
+0 14 * * * /opt/jquants-batch/scripts/run-events.sh
+```
+
+- 時刻は取得元ごとの更新の時刻（`src/eventSchedule.js` の SCHEDULE。画面の「取得元と更新の時刻」にも出る）から決めた。
+  7:30 は米国の前日の引けの分と SEC、14:00 は日本の金利（財務省は翌営業日 9:30頃）と FINRA の前日分
+- 毎回14日前から取り直すので、遅れて出る値（米2年・10年金利は対象日の2日後の朝）も次の回で入る
+- 値が初めて入った時刻は `EXT_SERIES_DAILY.FIRST_LOADED_AT`（`ddl/35`）。更新の時刻の表が合っているかはこれで確かめる
+- VM の `.env` に `JQB_SEC_USER_AGENT` が要る。ログは `logs/events_YYYYMMDD.log`、60 日で自動削除
+
 ---
 
 ## 12. 未対応・今後の課題

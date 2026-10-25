@@ -33,3 +33,9 @@ input[type="month"] {
 .events-table .note .n-src { color: var(--muted); margin-left: 6px; white-space: nowrap; }
 
 .events-month { margin-top: 0; }
+
+/* 取得元と更新の時刻(開いたときだけ表を出す) */
+.events-sources summary { cursor: pointer; }
+.events-sources .table-wrap { margin-top: 8px; }
+.sources-table td { vertical-align: top; }
+.sources-table td.basis { white-space: normal; min-width: 280px; max-width: 480px; color: var(--text-secondary); }

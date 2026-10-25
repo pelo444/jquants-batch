@@ -12,8 +12,11 @@
  * 日本の金利(財務省)は日本の日付で、同じ日付の行に置く。
  * 備考は、東京の営業日(DB の TOPIX がある日)の日次概況へのリンク(世界一やさしい投資の学校)と、決算の提出書類。
  * 見出し(Google ニュース)は購読の壁で読めないものが多く、2026-10-20 に外した(表 news_headline は残してある)。
- * 取込は src/loadEventCalendar.js(Mac で毎日1回)。
+ * 取込は src/loadEventCalendar.js(OCI の VM の cron で日本時間 7:30 と 14:00)。
+ * 取得元ごとの更新の時刻(src/eventSchedule.js)と、各系列の最新の日付・初めて入った時刻を「取得元と更新の時刻」の表に出す。
  */
+
+const { SCHEDULE, describe } = require('../eventSchedule');
 
 const COLUMNS = [
   { code: 'DGS2', label: '米2年金利', unit: '%', dec: 2, chg: 'bp' },
@@ -87,13 +90,72 @@ async function fetchEvents(conn, { from, to }) {
       WHERE filing_date BETWEEN TO_DATE(:f, 'YYYY-MM-DD') AND TO_DATE(:t, 'YYYY-MM-DD')
       ORDER BY filing_date, ticker`, { f, t });
   const lastLoaded = await q(`SELECT TO_CHAR(MAX(loaded_at), 'YYYY-MM-DD HH24:MI') FROM ext_series_daily`, {});
+  const freshness = await fetchFreshness(conn);
   return {
     series: series.map(([code, date, value]) => ({ code, date, value })),
     releases: releases.map(([code, releaseDate, refPeriod]) => ({ code, releaseDate, refPeriod })),
     tokyoDays: tokyoDays.map(([d]) => d),
     filings: filings.map(([ticker, date, form, url]) => ({ ticker, date, form, url })),
     loadedAt: lastLoaded[0] && lastLoaded[0][0],
+    freshness,
   };
+}
+
+/**
+ * 系列ごとの最新の日付と、その値が初めて入った時刻(協定世界時)。期間の指定によらない。
+ * FIRST_LOADED_AT(ddl/35)をまだ足していない DB では、時刻なしで返す。
+ */
+async function fetchFreshness(conn) {
+  const q = async (sql) => (await conn.execute(sql, {})).rows;
+  // 系列ごとの最新の日付の行。firstCol は時刻の列(ddl/35 の前は NULL)
+  const latest = (firstCol) =>
+    `SELECT series_code, TO_CHAR(obs_date, 'YYYY-MM-DD'), ${firstCol} FROM (
+       SELECT d.*, ROW_NUMBER() OVER (PARTITION BY series_code ORDER BY obs_date DESC) AS rn FROM ext_series_daily d)
+      WHERE rn = 1`;
+  let rows;
+  try {
+    rows = await q(latest(`TO_CHAR(first_loaded_at, 'YYYY-MM-DD HH24:MI')`));
+  } catch (err) {
+    if (!/ORA-00904/.test(err.message)) throw err;
+    rows = await q(latest('NULL'));
+  }
+  const series = {};
+  for (const [code, date, firstLoadedAt] of rows) series[code] = { date, firstLoadedAt };
+  const one = async (sql) => { const r = await q(sql); return r[0] ? { date: r[0][0], firstLoadedAt: r[0][1] } : null; };
+  return {
+    series,
+    cpiRelease: await one(`SELECT TO_CHAR(release_date, 'YYYY-MM-DD'), TO_CHAR(loaded_at, 'YYYY-MM-DD HH24:MI') FROM ext_release_date
+                            WHERE series_code = 'CPIAUCSL' ORDER BY release_date DESC FETCH FIRST 1 ROWS ONLY`),
+    filing: await one(`SELECT TO_CHAR(filing_date, 'YYYY-MM-DD'), TO_CHAR(loaded_at, 'YYYY-MM-DD HH24:MI') FROM earnings_filing
+                        ORDER BY filing_date DESC, loaded_at DESC FETCH FIRST 1 ROWS ONLY`),
+    tokyo: await one(`SELECT TO_CHAR(MAX(price_date), 'YYYY-MM-DD'), NULL FROM index_price_daily WHERE index_code = '0000'`),
+  };
+}
+
+/**
+ * 「取得元と更新の時刻」の表の行(純粋関数)。refYmd は日本時間を計算する基準の日(夏時間・冬時間の判定に使う)。
+ * 複数の系列をまとめた行は、最新の日付がいちばん古い系列を出す(遅れている方が分かるように)。
+ */
+function buildSchedule(freshness, refYmd) {
+  const f = freshness || { series: {} };
+  return SCHEDULE.map((s, i) => {
+    let latest = null;
+    if (s.release) latest = f.cpiRelease || null;
+    else if (s.filing) latest = f.filing || null;
+    else if (s.recap) latest = f.tokyo || null;
+    else {
+      for (const c of s.codes) {
+        const x = f.series && f.series[c];
+        if (x && (!latest || x.date < latest.date)) latest = x;
+      }
+    }
+    const d = describe(s, refYmd);
+    return {
+      no: i + 1, label: s.label, source: s.source, original: d.original, jst: d.jst, basis: s.basis,
+      latestDate: latest ? latest.date : null,
+      firstLoadedAt: latest ? latest.firstLoadedAt || null : null,
+    };
+  });
 }
 
 //------------------------------------------------------------------ 組み立て(純粋関数)
@@ -177,7 +239,8 @@ function buildCalendar(period, data, today) {
     columns: COLUMNS.map(({ code, label, unit, dec, chg }) => ({ code, label, unit, dec, chg })),
     months,
     loadedAt: data.loadedAt || null,
+    schedule: buildSchedule(data.freshness, today || period.to + '-01'),
   };
 }
 
-module.exports = { COLUMNS, recapUrl, resolvePeriod, fetchEvents, buildCalendar, addMonths, monthLast };
+module.exports = { COLUMNS, recapUrl, resolvePeriod, fetchEvents, buildCalendar, buildSchedule, addMonths, monthLast };
