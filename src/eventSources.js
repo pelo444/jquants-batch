@@ -136,9 +136,12 @@ async function fetchCpiReleases(from) {
  * 今日(取引所の日付)の足は取引中のことがあるので外す。
  */
 /**
- * close: その系列の1日の取引が終わる時刻 {tz, time}(src/eventSchedule.js の closeOf)。
+ * close: その系列の1日の取引が終わる時刻 {tz, time, reopen?}(src/eventSchedule.js の closeOf)。
  *   今日(取引所の日付)の足は、取引中のことがあるので外す。ただし close の時刻を15分過ぎていれば入れる
- *   (日本時間 7:00 の回で、米国の前日の引けの分を取れるように。2026-10-25)。close が無い系列(ドル円)は常に外す。
+ *   (日本時間 7:30 の回で、米国の前日の引けの分を取れるように。2026-10-25)。close が無い系列(ドル円)は常に外す。
+ *   reopen(先物の次の取引の始まり、18:00 米東部)を過ぎたら、今日の足は次の取引の分が混ざるので外す。
+ * 土日の日付の足は常に外す。先物は日曜 18:00(米東部)に翌週の取引が始まり、Yahoo はそれを日曜の日付の足にする
+ *   (2026-10-26 7:30 の回で CL=F・BZ=F に 10/25(日)の足が入った)。
  */
 function parseYahooChart(body, now = new Date(), close = null) {
   const result = body && body.chart && body.chart.result && body.chart.result[0];
@@ -155,7 +158,14 @@ function parseYahooChart(body, now = new Date(), close = null) {
     if (c == null || !Number.isFinite(c)) return;
     const date = ymdIn(new Date(t * 1000), tz);
     if (date > today) return;
-    if (date === today && !(close && now.getTime() >= wallToInstant(today, close.time, close.tz) + CLOSE_MARGIN_MS)) return;
+    const wd = new Date(date + 'T00:00:00Z').getUTCDay();
+    if (wd === 0 || wd === 6) return;
+    if (date === today) {
+      if (!close) return;
+      const t = now.getTime();
+      if (t < wallToInstant(today, close.time, close.tz) + CLOSE_MARGIN_MS) return;
+      if (close.reopen && t >= wallToInstant(today, close.reopen, close.tz)) return;
+    }
     byDate.set(date, Math.round(c * 1e4) / 1e4); // 同じ日が2本あれば後の足。小数4桁に丸める
   });
   return [...byDate].map(([date, value]) => ({ date, value }));

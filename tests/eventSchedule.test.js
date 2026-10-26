@@ -21,7 +21,7 @@ assert.strictEqual(sc.wallToInstant('2026-10-31', '12:00', 'America/New_York'), 
 
 // 引けの時刻: 当日に出るものだけ
 assert.deepStrictEqual(sc.closeOf('^SOX'), { tz: 'America/New_York', time: '16:00' });
-assert.deepStrictEqual(sc.closeOf('CL=F'), { tz: 'America/New_York', time: '17:00' });
+assert.deepStrictEqual(sc.closeOf('CL=F'), { tz: 'America/New_York', time: '17:00', reopen: '18:00' });
 assert.strictEqual(sc.closeOf('JPY=X'), null);
 assert.strictEqual(sc.closeOf('DGS10'), null);
 

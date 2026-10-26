@@ -25,8 +25,8 @@ const SCHEDULE = [
     tz: 'Asia/Tokyo', day: 1, time: '09:30',
     basis: '財務省の FAQ「翌営業日午前9時30分頃」。別のページ(p220226)には「翌営業日午前11時頃」とある' },
   { key: 'FUT', codes: ['CL=F', 'BZ=F'], label: 'WTI・ブレント先物', source: 'Yahoo(CME の先物)',
-    tz: 'America/New_York', day: 0, time: '17:00',
-    basis: '先物の1日の取引が終わる時刻。Yahoo に載るまでの遅れは未確認' },
+    tz: 'America/New_York', day: 0, time: '17:00', reopen: '18:00',
+    basis: '先物の1日の取引が終わる時刻。18:00 に次の取引が始まる。Yahoo に載るまでの遅れは未確認' },
   { key: 'FX', codes: ['JPY=X'], label: 'ドル円', source: 'Yahoo',
     tz: null, day: 0, time: null,
     basis: '24時間動く。Yahoo の日付の区切りは未確認' },
@@ -100,7 +100,8 @@ function describe(s, refYmd) {
 /** 系列の1日の取引が終わる時刻 {tz, time}。当日に出る(day 0)もので、時刻があるものだけ */
 function closeOf(code) {
   const s = SCHEDULE.find((x) => x.codes.includes(code));
-  return s && s.day === 0 && s.time && s.tz ? { tz: s.tz, time: s.time } : null;
+  if (!(s && s.day === 0 && s.time && s.tz)) return null;
+  return s.reopen ? { tz: s.tz, time: s.time, reopen: s.reopen } : { tz: s.tz, time: s.time };
 }
 
 module.exports = { SCHEDULE, describe, closeOf, wallToInstant, tzOffsetMin };

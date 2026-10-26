@@ -28,6 +28,15 @@ assert.strictEqual(s.prevMonthFirst('2026-01-13'), '2025-12-01');
   const close = { tz: 'America/New_York', time: '16:00' };
   assert.strictEqual(s.parseYahooChart(body, new Date('2026-10-20T20:10:00Z'), close).length, 2);
   assert.deepStrictEqual(s.parseYahooChart(body, new Date('2026-10-20T20:20:00Z'), close).slice(-1), [{ date: '2026-10-20', value: 99 }]);
+  // 先物: 引け(17:00)を15分過ぎて次の取引の始まり(18:00)より前だけ入れる。土日の日付の足は常に外す
+  const fut = { tz: 'America/New_York', time: '17:00', reopen: '18:00' };
+  assert.strictEqual(s.parseYahooChart(body, new Date('2026-10-20T21:30:00Z'), fut).length, 3); // 17:30 米東部
+  assert.strictEqual(s.parseYahooChart(body, new Date('2026-10-20T22:30:00Z'), fut).length, 2); // 18:30 米東部
+  const sun = { chart: { result: [{ meta: { exchangeTimezoneName: 'America/New_York' },
+    timestamp: [ts('2026-10-23T04:00:00Z'), ts('2026-10-25T04:00:00Z')],
+    indicators: { quote: [{ close: [103.27, 101.67] }] } }] } };
+  assert.deepStrictEqual(s.parseYahooChart(sun, new Date('2026-10-25T22:30:00Z'), fut), [{ date: '2026-10-23', value: 103.27 }]);
+  assert.deepStrictEqual(s.parseYahooChart(sun, new Date('2026-10-25T21:30:00Z'), fut), [{ date: '2026-10-23', value: 103.27 }]);
 }
 
 // FINRA: 応答の2つの形と、日ごとの中央値(利回りが空の約定は飛ばす)
