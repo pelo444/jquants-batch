@@ -62,7 +62,7 @@
       var q = input.value.trim();
       var my = ++seq;
       if (!q) { items = []; close(); return; }
-      fetch('/api/stock-lookup?q=' + encodeURIComponent(q))
+      fetch(BASE_PATH + '/api/stock-lookup?q=' + encodeURIComponent(q))
         .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j; }); })
         .then(function (j) {
           if (my !== seq) return; // 後から打った分の結果が先に来ていたら捨てる

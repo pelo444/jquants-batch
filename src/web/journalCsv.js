@@ -15,10 +15,19 @@
  *   UTF-8 として不正なバイト列があれば Shift_JIS とみなす。
  *
  * 【重複の判定】
- *   期間が重なるCSVを何度入れても同じ約定が増えないように、行の内容のハッシュに
- *   「同じファイル内で同じ内容の何件目か」を足したものを dedup_key にする
- *   (同じ日・同じ値段・同じ数量の約定が2件ある場合を区別するため)。
- *   楽天のCSVは約定日の範囲で切り出すので、同じ日の約定は常に全部入っている前提。
+ *   楽天のCSVには約定番号が無いので、行の中身で見分ける。
+ *   期間が重なるCSVを何度入れても同じ約定が増えないように、約定した時点で決まり
+ *   後から変わらない列だけのハッシュに「同じファイル内で同じ内容の何件目か」を
+ *   足したものを dedup_key にする(同じ日・同じ値段・同じ数量の約定が2件ある場合を
+ *   区別するため)。楽天のCSVは約定日の範囲で切り出すので、同じ日の約定は常に全部
+ *   入っている前提。
+ *
+ *   キーに使う列(STABLE_FIELDS): 約定日・銘柄コード・口座区分・取引区分・売買区分・
+ *   信用区分・数量・単価。
+ *   使わない列: 受渡金額・手数料・税金等・諸費用・受渡日。受渡日前に出したCSVでは
+ *   受渡金額が「-」で、受渡後のCSVでは金額が入る。これをキーに入れていた RK1 では
+ *   同じ約定が別物と判定されて二重に入った(2026-10-29、ELEMENTS ほか2件)。
+ *   キーの版は先頭の RK2: で表す。既存行の付け直しは scripts/rekey-journal-trades.js。
  */
 
 const crypto = require('crypto');
@@ -71,6 +80,23 @@ const REQUIRED = ['tradeDate', 'code', 'sideRaw', 'qty', 'price'];
 const REQUIRED_LABEL = {
   tradeDate: '約定日', code: '銘柄コード', sideRaw: '売買区分', qty: '数量', price: '単価',
 };
+
+/**
+ * 重複判定に使う列。約定した時点で決まり、後から変わらないものだけ。
+ * 並びを変えるとキーが全部変わるので、変えるときは版(RK2)を上げて既存行を付け直す。
+ */
+const STABLE_FIELDS = ['tradeDate', 'code', 'accountType', 'tradeType', 'sideRaw', 'marginType', 'qty', 'price'];
+const DEDUP_VERSION = 'RK2';
+
+/** 重複判定用の内容文字列。t は parseRakutenCsv の1行と同じ形(DBの行から作っても同じになる) */
+function stableContent(t) {
+  return JSON.stringify(STABLE_FIELDS.map((k) => (t[k] === undefined || t[k] === '' ? null : t[k])));
+}
+
+/** 内容文字列と「同じ内容の何件目か」(1始まり)から dedup_key を作る */
+function dedupKey(content, n) {
+  return `${DEDUP_VERSION}:${sha256(content).slice(0, 48)}#${n}`;
+}
 
 class CsvError extends Error {
   constructor(message) {
@@ -274,14 +300,11 @@ function parseRakutenCsv(buf) {
       line,
     };
 
-    // 内容が同じ行の何件目か、を足して重複判定のキーにする
-    const content = JSON.stringify([
-      t.tradeDate, t.settleDate, t.code, t.accountType, t.tradeType, t.sideRaw, t.marginType,
-      t.qty, t.price, t.fee, t.tax, t.otherCost, t.settleAmount,
-    ]);
+    // 変わらない列の内容が同じ行の何件目か、を足して重複判定のキーにする
+    const content = stableContent(t);
     const n = (seen.get(content) || 0) + 1;
     seen.set(content, n);
-    t.dedupKey = `RK1:${sha256(content).slice(0, 48)}#${n}`;
+    t.dedupKey = dedupKey(content, n);
     trades.push(t);
   }
 
@@ -292,6 +315,9 @@ module.exports = {
   SOURCE,
   CsvError,
   parseRakutenCsv,
+  STABLE_FIELDS,
+  stableContent,
+  dedupKey,
   // テスト用
   _internal: { normHeader, decode, toNum, toDate, toCode, classify },
 };

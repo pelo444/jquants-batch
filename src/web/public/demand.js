@@ -722,7 +722,7 @@
   function loadSignals(force) {
     if (cache.signals && !force) { renderSignals(cache.signals); return; }
     $('signalCount').textContent = '読み込み中…';
-    api('/api/demand/signals').then(function (d) {
+    api(BASE_PATH + '/api/demand/signals').then(function (d) {
       cache.signals = d;
       renderSignals(d);
     }).catch(function (e) { fail($('signalCount'), e); });
@@ -804,7 +804,7 @@
 
   function loadSupplementary() {
     if (cache.supp) return;
-    api('/api/demand/supplementary').then(function (d) {
+    api(BASE_PATH + '/api/demand/supplementary').then(function (d) {
       cache.supp = d;
       renderTable($('suppTable'), suppCols(), d.rows, {});
     }).catch(function (e) {
@@ -819,7 +819,7 @@
   function loadSignalsAll() {
     setStatus($('allStatus'), '実行中… 全銘柄 × 15か月を走査します');
     $('allRunBtn').disabled = true;
-    api('/api/demand/signals/all').then(function (d) {
+    api(BASE_PATH + '/api/demand/signals/all').then(function (d) {
       allState = { cols: signalCols('all'), rows: d.rows };
       cache.signalsAll = d;
       setStatus($('allStatus'), d.count + '件(2つ以上の同時点灯・上位100件と、小型株の新規大量保有の全件)');
@@ -1001,7 +1001,7 @@
   function loadWatchlist(force) {
     if (cache.sheet && !force) { renderSheet(cache.sheet); return; }
     $('sheetCount').textContent = '読み込み中…';
-    api('/api/demand/watchlist').then(function (d) {
+    api(BASE_PATH + '/api/demand/watchlist').then(function (d) {
       cache.sheet = d;
       renderSheet(d);
     }).catch(function (e) { fail($('sheetCount'), e); });
@@ -1203,7 +1203,7 @@
     if (cache.sheet) renderSheet(cache.sheet);   // 選択行のハイライトを更新する
     $('detail').scrollIntoView({ block: 'nearest' });
 
-    api('/api/demand/detail?code=' + encodeURIComponent(code) +
+    api(BASE_PATH + '/api/demand/detail?code=' + encodeURIComponent(code) +
         '&weeks=' + encodeURIComponent(weeks))
       .then(function (d) {
         if (state.detailCode !== code) return;   // 連打されたときは後勝ち
@@ -1262,7 +1262,7 @@
 
   function loadPseudoFloat() {
     if (cache.float) return;
-    api('/api/demand/pseudo-float').then(function (d) {
+    api(BASE_PATH + '/api/demand/pseudo-float').then(function (d) {
       cache.float = d;
       renderTable($('floatTable'), floatCols(), d.rows, {});
     }).catch(function (e) {
@@ -1429,7 +1429,7 @@
     var key = 'macro:' + section + ':' + weeks;
     if (cache[key] && !force) { renderMacro(cache[key]); return; }
     setStatus($('macroStatus'), '読み込み中…');
-    api('/api/demand/macro?section=' + encodeURIComponent(section) +
+    api(BASE_PATH + '/api/demand/macro?section=' + encodeURIComponent(section) +
         '&weeks=' + encodeURIComponent(weeks))
       .then(function (d) {
         cache[key] = d;
@@ -1461,7 +1461,7 @@
 
   //================================================================ 鮮度の読み込み
   function loadFreshness() {
-    api('/api/demand/freshness').then(function (d) {
+    api(BASE_PATH + '/api/demand/freshness').then(function (d) {
       renderFreshness(d.rows, d.marginChecks || []);
     }).catch(function (e) {
       $('freshnessList').innerHTML = '<span class="status error">' + esc(e.message) + '</span>';
@@ -1542,7 +1542,7 @@
 
     loadFreshness();
 
-    api('/api/demand/meta').then(function (m) {
+    api(BASE_PATH + '/api/demand/meta').then(function (m) {
       meta = m;
       P = m.params || {};
       renderDataMeta();

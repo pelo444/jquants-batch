@@ -52,6 +52,7 @@ const { fetchMarginChecks } = require('./marginCheck');
 const stockLookup = require('./stockLookup');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
+const { BASE_PATH, sendPage, pageNameFor } = require('./basePath');
 
 const PORT = Number(process.env.JQB_WEB_PORT || 3000);
 const HOST = process.env.JQB_WEB_HOST || '127.0.0.1';
@@ -325,7 +326,15 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+// 画面(HTML)は公開パスを反映して返す（basePath.js）。CSS・JS・画像は express.static のまま
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const name = pageNameFor(req.path);
+  if (!name) return next();
+  sendPage(res, name);
+});
+
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h', index: false }));
 
 //---------------------------------------------------------- 死活監視
 app.get('/healthz', (req, res) => {
@@ -576,7 +585,7 @@ function parseWeeks(value, fallback) {
 // /demand と /demand/ の両方を public/demand.html に向ける。
 // express.static は /demand.html しか拾わないため。
 app.get(['/demand', '/demand/'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'demand.html'));
+  sendPage(res, 'demand.html');
 });
 
 //---------------------------------------------------------- メタ情報
@@ -762,7 +771,7 @@ app.get('/api/demand/supplementary', async (req, res, next) => {
 //   確認した日時で中身が変わるのでキャッシュしない。
 //==================================================================
 app.get(['/daily', '/daily/'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'daily.html'));
+  sendPage(res, 'daily.html');
 });
 
 app.get('/api/daily', async (req, res, next) => {
@@ -842,7 +851,7 @@ const MARKET_RETRY_MS = 60 * 1000;
 const MARKET_LIVE_TTL_MS = 60 * 1000;
 
 app.get(['/market', '/market/'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'market.html'));
+  sendPage(res, 'market.html');
 });
 
 app.get('/api/market', async (req, res, next) => {
@@ -893,7 +902,7 @@ function referenceMeta() {
 }
 
 app.get(['/reference', '/reference/'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'reference.html'));
+  sendPage(res, 'reference.html');
 });
 
 app.get('/api/reference/meta', async (req, res, next) => {
@@ -941,7 +950,7 @@ app.get('/api/reference', async (req, res, next) => {
 const EVENTS_TTL_MS = 10 * 60 * 1000;
 
 app.get(['/events', '/events/'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'events.html'));
+  sendPage(res, 'events.html');
 });
 
 app.get('/api/events', async (req, res, next) => {
@@ -1005,8 +1014,18 @@ app.use((err, req, res, next) => {
 //------------------------------------------------------------------
 // 起動と終了
 //------------------------------------------------------------------
-const server = app.listen(PORT, HOST, () => {
-  console.log(`株価タグ分析Webアプリを起動しました: http://${HOST}:${PORT}`);
+// 公開パス（JQB_WEB_BASE_PATH）を指定したときは、アプリ全体をその配下に載せる
+const root = express();
+root.disable('x-powered-by');
+if (BASE_PATH) {
+  root.get('/', (req, res) => res.redirect(BASE_PATH + '/'));
+  root.use(BASE_PATH, app);
+} else {
+  root.use(app);
+}
+
+const server = root.listen(PORT, HOST, () => {
+  console.log(`株価タグ分析Webアプリを起動しました: http://${HOST}:${PORT}${BASE_PATH}/`);
   if (HOST === '0.0.0.0') {
     console.warn(
       '[警告] 0.0.0.0 で待ち受けています。認証が未実装のため、' +

@@ -213,7 +213,7 @@
   async function load(date) {
     $('flash').hidden = true;
     try {
-      const res = await fetch('/api/daily' + (date ? '?date=' + encodeURIComponent(date) : ''));
+      const res = await fetch(BASE_PATH + '/api/daily' + (date ? '?date=' + encodeURIComponent(date) : ''));
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || res.statusText);
       current = body;
@@ -226,7 +226,7 @@
 
   async function loadHistoryList() {
     try {
-      const res = await fetch('/api/daily/history');
+      const res = await fetch(BASE_PATH + '/api/daily/history');
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || res.statusText);
       const sel = $('histSel');
@@ -243,7 +243,7 @@
   async function openHistory(id) {
     $('flash').hidden = true;
     try {
-      const res = await fetch('/api/daily/history/' + encodeURIComponent(id));
+      const res = await fetch(BASE_PATH + '/api/daily/history/' + encodeURIComponent(id));
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || res.statusText);
       renderAll(body.payload, body.jst);
@@ -274,7 +274,7 @@
     $('seenBtn').disabled = true;
     try {
       if (!current) throw new Error('画面の内容がまだ読み込まれていません');
-      const res = await fetch('/api/daily/seen', {
+      const res = await fetch(BASE_PATH + '/api/daily/seen', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload: current }),
       });
       const body = await res.json();

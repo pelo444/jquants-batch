@@ -122,7 +122,7 @@
     function run() {
       var v = input.value.trim();
       if (!v) { out.textContent = ''; out.className = 'lookup'; if (onResult) onResult(null); return; }
-      api('GET', '/api/journal/lookup?code=' + encodeURIComponent(v)).then(function (r) {
+      api('GET', BASE_PATH + '/api/journal/lookup?code=' + encodeURIComponent(v)).then(function (r) {
         if (input.value.trim() !== v) return;   // 打ち直されていたら古い結果は捨てる
         out.textContent = r.name + (r.delisted ? '(上場廃止)' : '') + ' ・ ' + (r.sector || '');
         out.className = 'lookup';
@@ -141,7 +141,7 @@
   //================================================================== 保有
   async function loadPositions() {
     try {
-      var r = await api('GET', '/api/journal/positions');
+      var r = await api('GET', BASE_PATH + '/api/journal/positions');
       lastPositions = r;
       renderPositions(r);
       $('dataMeta').textContent = '約定 ' + r.tradeCount + '件';
@@ -229,7 +229,7 @@
 
   async function loadTrades() {
     try {
-      var r = await api('GET', '/api/journal/trades');
+      var r = await api('GET', BASE_PATH + '/api/journal/trades');
       $('tradesNote').textContent = '新しい順。全' + r.count + '件' + (r.count > r.rows.length ? '(先頭' + r.rows.length + '件)' : '');
       $('tradesTable').innerHTML = r.rows.length
         ? '<thead><tr><th>約定日</th><th>口座</th><th>取引</th><th>売買</th><th>コード</th><th>銘柄</th>' +
@@ -267,7 +267,7 @@
   async function syncTags() {
     setStatus('syncTagsStatus', '更新中…');
     try {
-      var r = await api('POST', '/api/journal/tags/sync');
+      var r = await api('POST', BASE_PATH + '/api/journal/tags/sync');
       var t = tagSyncText(r);
       setStatus('syncTagsStatus', t.text, t.isError);
     } catch (e) {
@@ -307,7 +307,7 @@
     var seq = ++historySeq;
     if (!code) { box.hidden = true; box.innerHTML = ''; return; }
     try {
-      var r = await api('GET', '/api/journal/code-history?code=' + encodeURIComponent(code));
+      var r = await api('GET', BASE_PATH + '/api/journal/code-history?code=' + encodeURIComponent(code));
       if (seq !== historySeq) return;
       box.hidden = false;
       if (!r.total) {
@@ -382,7 +382,7 @@
   function clearFromCheck() {
     fromCheck = null;
     $('fromCheckBanner').hidden = true;
-    history.replaceState(null, '', '/journal#decisions');
+    history.replaceState(null, '', BASE_PATH + '/journal#decisions');
   }
 
   async function submitDecision(ev) {
@@ -395,7 +395,7 @@
     d.questions = pendingQ.decision.slice();
     setStatus('decisionStatus', '保存中…');
     try {
-      var r = await api('POST', '/api/journal/decisions', d);
+      var r = await api('POST', BASE_PATH + '/api/journal/decisions', d);
       setStatus('decisionStatus', '');
       var dts = tagSyncText(r.tagSync);
       var snapText = '';
@@ -403,7 +403,7 @@
       if (fromCheck) {
         setStatus('decisionStatus', '判断時の値を残しています…');
         try {
-          var sr = await api('POST', '/api/purchase/snapshot', { decisionId: r.decisionId, listId: fromCheck.listId, runId: fromCheck.runId });
+          var sr = await api('POST', BASE_PATH + '/api/purchase/snapshot', { decisionId: r.decisionId, listId: fromCheck.listId, runId: fromCheck.runId });
           snapText = '。判断時の値を残しました(株価 ' + (sr.asOf || '—') + ' 時点)';
         } catch (e2) {
           snapText = '。判断時の値は残せませんでした: ' + e2.message;
@@ -436,7 +436,7 @@
     var code = $('decisionFilter').value.trim();
     setStatus('decisionListStatus', '読み込み中…');
     try {
-      var r = await api('GET', '/api/journal/decisions' + (code ? '?code=' + encodeURIComponent(code) : ''));
+      var r = await api('GET', BASE_PATH + '/api/journal/decisions' + (code ? '?code=' + encodeURIComponent(code) : ''));
       decisionCache = r.rows;
       setStatus('decisionListStatus', r.count + '件');
       renderDecisions(r.rows);
@@ -525,7 +525,7 @@
     if (slot.innerHTML) { slot.innerHTML = ''; return; }
     slot.innerHTML = '<div class="snap"><span class="pending">読み込み中…</span></div>';
     try {
-      var p = await api('GET', '/api/journal/decisions/' + id + '/snapshot');
+      var p = await api('GET', BASE_PATH + '/api/journal/decisions/' + id + BASE_PATH + '/snapshot');
       slot.innerHTML = snapshotHtml(p);
     } catch (e) {
       slot.innerHTML = '<div class="snap"><span class="status error">' + esc(e.message) + '</span></div>';
@@ -608,7 +608,7 @@
       var st = form.querySelector('.status');
       st.textContent = '保存中…';
       try {
-        await api('POST', '/api/journal/decisions/' + id + '/reviews', formData(form));
+        await api('POST', BASE_PATH + '/api/journal/decisions/' + id + BASE_PATH + '/reviews', formData(form));
         flash('振り返りを記録しました');
         loadDecisions();
       } catch (e) {
@@ -744,10 +744,10 @@
     setStatus('noteStatus', '保存中…');
     try {
       if (editingNoteId) {
-        var u = await api('PUT', '/api/journal/notes/' + editingNoteId, d);
+        var u = await api('PUT', BASE_PATH + '/api/journal/notes/' + editingNoteId, d);
         flash('メモ #' + editingNoteId + ' を更新しました' + (u.questionIds.length ? '(調べたいこと ' + u.questionIds.length + '件)' : ''));
       } else {
-        var r = await api('POST', '/api/journal/notes', d);
+        var r = await api('POST', BASE_PATH + '/api/journal/notes', d);
         flash('メモ #' + r.noteId + ' を保存しました' + (r.questionIds.length ? '(調べたいこと ' + r.questionIds.length + '件)' : ''));
       }
       if (d.questions.length) refreshQuestionMeta();
@@ -771,7 +771,7 @@
     if (code) qs.push('code=' + encodeURIComponent(code));
     setStatus('noteListStatus', '読み込み中…');
     try {
-      var r = await api('GET', '/api/journal/notes' + (qs.length ? '?' + qs.join('&') : ''));
+      var r = await api('GET', BASE_PATH + '/api/journal/notes' + (qs.length ? '?' + qs.join('&') : ''));
       noteCache = r.rows;
       setStatus('noteListStatus', r.count + '件');
       renderNotes(r.rows);
@@ -796,8 +796,8 @@
         '<button class="link" type="button" data-del-note="' + n.noteId + '">削除</button></div>' +
         (n.body ? '<div class="nbody">' + esc(n.body) + '</div>' : '') +
         (n.images.length ? '<div class="nimgs">' + n.images.map(function (im) {
-          return '<div class="nimg"><a href="/api/journal/images/' + im.imageId + '" target="_blank" rel="noopener">' +
-            '<img loading="lazy" src="/api/journal/images/' + im.imageId + '" alt="写真 #' + im.imageId + '"></a>' +
+          return '<div class="nimg"><a href="' + BASE_PATH + '/api/journal/images/' + im.imageId + '" target="_blank" rel="noopener">' +
+            '<img loading="lazy" src="' + BASE_PATH + '/api/journal/images/' + im.imageId + '" alt="写真 #' + im.imageId + '"></a>' +
             '<textarea rows="3" data-trans="' + im.imageId + '" placeholder="文字起こし(未)">' + esc(im.transcription || '') + '</textarea>' +
             '<div class="row"><button class="link" type="button" data-save-trans="' + im.imageId + '">文字起こしを保存</button>' +
             '<button class="link" type="button" data-del-img="' + im.imageId + '">写真を削除</button>' +
@@ -837,7 +837,7 @@
 
   async function refreshQuestionMeta() {
     try {
-      var r = await Promise.all([api('GET', '/api/journal/questions/links'), api('GET', '/api/journal/questions?scope=open')]);
+      var r = await Promise.all([api('GET', BASE_PATH + '/api/journal/questions/links'), api('GET', BASE_PATH + '/api/journal/questions?scope=open')]);
       qLinks = r[0].rows;
       var badge = $('qBadge');
       badge.textContent = r[1].count;
@@ -894,7 +894,7 @@
       }
       setStatus('questionStatus', '保存中…');
       try {
-        var r = await api('POST', '/api/journal/questions', d);
+        var r = await api('POST', BASE_PATH + '/api/journal/questions', d);
         setStatus('questionStatus', '');
         flash('調べたいこと #' + r.questionId + ' を書き留めました');
         f.reset();
@@ -910,7 +910,7 @@
     $('importAnswersBtn').onclick = async function () {
       setStatus('answersStatus', '取込中…');
       try {
-        var r = await api('POST', '/api/journal/questions/import-answers');
+        var r = await api('POST', BASE_PATH + '/api/journal/questions/import-answers');
         setStatus('answersStatus', r.updated + '件に答えを入れました' +
           (r.skipped.length ? '(飛ばした問い: #' + r.skipped.join(', #') + '。既に答えがあるか、問いが無い)' : ''));
         loadQuestions();
@@ -944,7 +944,7 @@
     var a = $('qAssignee').value;
     setStatus('questionListStatus', '読み込み中…');
     try {
-      var r = await api('GET', '/api/journal/questions?scope=' + scope + (a ? '&assignee=' + a : ''));
+      var r = await api('GET', BASE_PATH + '/api/journal/questions?scope=' + scope + (a ? '&assignee=' + a : ''));
       var rows = r.rows;
       if (qFilterCtx) {
         rows = rows.filter(function (q) {
@@ -1013,7 +1013,7 @@
       var st = form.querySelector('.status');
       st.textContent = '保存中…';
       try {
-        await api('PUT', '/api/journal/questions/' + id, formData(form));
+        await api('PUT', BASE_PATH + '/api/journal/questions/' + id, formData(form));
         flash('#' + id + ' の答えを保存しました');
         loadQuestions();
         refreshQuestionMeta();
@@ -1045,7 +1045,7 @@
     if (!importBuffer) return;
     setStatus('importStatus', commit ? '取込中…' : 'プレビューを作成中…');
     try {
-      var r = await api('POST', '/api/journal/import', { fileName: importBuffer.name, dataBase64: importBuffer.b64, commit: commit });
+      var r = await api('POST', BASE_PATH + '/api/journal/import', { fileName: importBuffer.name, dataBase64: importBuffer.b64, commit: commit });
       setStatus('importStatus', '');
       if (commit) {
         var ts = tagSyncText(r.tagSync);
@@ -1097,7 +1097,7 @@
 
   async function loadImports() {
     try {
-      var r = await api('GET', '/api/journal/imports');
+      var r = await api('GET', BASE_PATH + '/api/journal/imports');
       $('importHistory').innerHTML = r.rows.length
         ? '<thead><tr><th>#</th><th>取込日時</th><th>ファイル</th><th>文字コード</th><th class="num-col">行</th>' +
           '<th class="num-col">新規</th><th class="num-col">重複</th></tr></thead><tbody>' +
@@ -1121,7 +1121,7 @@
       ev.preventDefault();
       setStatus('capStatus', '保存中…');
       try {
-        await api('POST', '/api/journal/capital', formData(f));
+        await api('POST', BASE_PATH + '/api/journal/capital', formData(f));
         setStatus('capStatus', '');
         flash('元手を記録しました');
         loadAccount();
@@ -1135,7 +1135,7 @@
   async function loadAccount() {
     var cap;
     try {
-      cap = await api('GET', '/api/journal/capital');
+      cap = await api('GET', BASE_PATH + '/api/journal/capital');
     } catch (e) {
       $('capCurrent').textContent = '元手を読み込めませんでした: ' + e.message +
         '(ddl/30_journal_capital.sql を実行していない可能性があります)';
@@ -1152,7 +1152,7 @@
     // 株の時価は保有の計算と同じもの(参考)
     var stockValue = null;
     try {
-      var r = lastPositions || await api('GET', '/api/journal/positions');
+      var r = lastPositions || await api('GET', BASE_PATH + '/api/journal/positions');
       lastPositions = r;
       stockValue = r.totals.cashStockValue;
     } catch (e) { /* 時価が出なくても他は出す */ }
@@ -1187,7 +1187,7 @@
   /** 以前の週次記録(今は使っていない。参照と削除だけ) */
   async function loadOldSnapshots() {
     try {
-      var r = await api('GET', '/api/journal/snapshots');
+      var r = await api('GET', BASE_PATH + '/api/journal/snapshots');
       $('snapTable').innerHTML = r.rows.length
         ? '<thead><tr><th>日付</th><th class="num-col">現金</th><th class="num-col">株式評価額</th>' +
           '<th class="num-col">入金</th><th class="num-col">出金</th><th>メモ</th><th></th></tr></thead><tbody>' +
@@ -1265,7 +1265,7 @@
     }
     if ((el = t.closest('[data-q-assign]'))) {
       var qs = el.dataset.qAssign.split(':');
-      try { await api('PUT', '/api/journal/questions/' + qs[0], { assignee: qs[1] }); loadQuestions(); } catch (e) { flash(e.message, true); }
+      try { await api('PUT', BASE_PATH + '/api/journal/questions/' + qs[0], { assignee: qs[1] }); loadQuestions(); } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-q-answer]'))) { openAnswerForm(el.closest('.qcard'), Number(el.dataset.qAnswer)); return; }
@@ -1273,28 +1273,28 @@
     if ((el = t.closest('[data-edit-note]'))) { startEditNote(Number(el.dataset.editNote)); return; }
     if ((el = t.closest('[data-del-note]'))) {
       if (!window.confirm('メモ #' + el.dataset.delNote + ' を写真ごと削除します。よろしいですか?')) return;
-      try { await api('DELETE', '/api/journal/notes/' + el.dataset.delNote); flash('削除しました'); loadNotes(); loaded.positions = false; } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', BASE_PATH + '/api/journal/notes/' + el.dataset.delNote); flash('削除しました'); loadNotes(); loaded.positions = false; } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-del-img]'))) {
       if (!window.confirm('写真 #' + el.dataset.delImg + ' を削除します。よろしいですか?')) return;
-      try { await api('DELETE', '/api/journal/images/' + el.dataset.delImg); flash('削除しました'); loadNotes(); } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', BASE_PATH + '/api/journal/images/' + el.dataset.delImg); flash('削除しました'); loadNotes(); } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-save-trans]'))) {
       var id = el.dataset.saveTrans;
       var ta = document.querySelector('[data-trans="' + id + '"]');
-      try { await api('PUT', '/api/journal/images/' + id + '/transcription', { text: ta.value }); flash('文字起こしを保存しました'); } catch (e) { flash(e.message, true); }
+      try { await api('PUT', BASE_PATH + '/api/journal/images/' + id + BASE_PATH + '/transcription', { text: ta.value }); flash('文字起こしを保存しました'); } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-del-capital]'))) {
       if (!window.confirm(el.dataset.label + ' の元手の記録を削除します。よろしいですか?')) return;
-      try { await api('DELETE', '/api/journal/capital/' + el.dataset.delCapital); loadAccount(); loaded.positions = false; } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', BASE_PATH + '/api/journal/capital/' + el.dataset.delCapital); loadAccount(); loaded.positions = false; } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-del-snap]'))) {
       if (!window.confirm(el.dataset.delSnap + ' の記録を削除します。よろしいですか?')) return;
-      try { await api('DELETE', '/api/journal/snapshots/' + el.dataset.delSnap); loadOldSnapshots(); } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', BASE_PATH + '/api/journal/snapshots/' + el.dataset.delSnap); loadOldSnapshots(); } catch (e) { flash(e.message, true); }
       return;
     }
   });
@@ -1303,7 +1303,7 @@
     var el = ev.target.closest && ev.target.closest('[data-q-status]');
     if (!el) return;
     try {
-      await api('PUT', '/api/journal/questions/' + el.dataset.qStatus, { status: el.value });
+      await api('PUT', BASE_PATH + '/api/journal/questions/' + el.dataset.qStatus, { status: el.value });
       flash('#' + el.dataset.qStatus + ' を「' + LABELS.qstatus[el.value] + '」にしました');
       loadQuestions();
       refreshQuestionMeta();
@@ -1313,7 +1313,7 @@
   //================================================================== 起動
   async function init() {
     try {
-      meta = await api('GET', '/api/journal/meta');
+      meta = await api('GET', BASE_PATH + '/api/journal/meta');
     } catch (e) {
       flash('初期化に失敗しました: ' + e.message, true);
       return;
@@ -1333,14 +1333,14 @@
     $('exportImagesBtn').onclick = async function () {
       setStatus('transStatus', '書き出し中…');
       try {
-        var r = await api('POST', '/api/journal/transcriptions/export');
+        var r = await api('POST', BASE_PATH + '/api/journal/transcriptions/export');
         setStatus('transStatus', r.count + '枚を書き出しました');
       } catch (e) { setStatus('transStatus', e.message, true); }
     };
     $('importTransBtn').onclick = async function () {
       setStatus('transStatus', '取込中…');
       try {
-        var r = await api('POST', '/api/journal/transcriptions/import');
+        var r = await api('POST', BASE_PATH + '/api/journal/transcriptions/import');
         setStatus('transStatus', r.updated + '枚に反映しました' + (r.skipped.length ? '(飛ばした写真: ' + r.skipped.join(', ') + ')' : ''));
         loadNotes();
       } catch (e) { setStatus('transStatus', e.message, true); }

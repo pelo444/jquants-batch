@@ -242,7 +242,7 @@
     return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
-  fetch('/api/market')
+  fetch(BASE_PATH + '/api/market')
     .then((res) => res.json().then((body) => {
       if (!res.ok) throw new Error(body.error || res.statusText);
       return body;

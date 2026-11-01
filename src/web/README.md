@@ -40,6 +40,7 @@ J-Quantsのアクセスキー（`JQB_JQUANTS_API_KEY`）は不要です
 |---|---|---|
 | `JQB_WEB_PORT` | `3000` | 待ち受けポート |
 | `JQB_WEB_HOST` | `127.0.0.1` | 待ち受けアドレス |
+| `JQB_WEB_BASE_PATH` | （空） | 公開パス。`/stock` とすると `http://127.0.0.1:3000/stock/` で動く（Javaのコンテキストパスに相当）。空ならルート直下 |
 | `JQB_WEB_CHART_MAX_CODES` | `60` | 1回のチャート表示で扱う銘柄数の上限 |
 | `JQB_WEB_CHART_MAX_YEARS` | `3` | チャートの期間上限（年） |
 
@@ -73,10 +74,13 @@ journalctl -u jquants-web -f      # ログ
 
 既存の認証サービスの背後に置きます。nginx の場合の例:
 
+公開パス（`JQB_WEB_BASE_PATH`）を、nginx の `location` と同じ値にしてください。
+プレフィックスは**剥がさずに**そのまま渡します（`proxy_pass` の末尾に `/` を付けない）。
+
 ```nginx
-location /stocks/ {
-    # ここで既存の認証をかける（auth_request など）
-    proxy_pass         http://127.0.0.1:3000/;
+# JQB_WEB_BASE_PATH=/stock の場合
+location /stock/ {
+    proxy_pass         http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header   Host              $host;
     proxy_set_header   X-Real-IP         $remote_addr;
@@ -85,9 +89,9 @@ location /stocks/ {
 }
 ```
 
-アプリ内のパスはすべてルート相対（`/api/...`、`/chart`）です。
-サブパス（例 `/stocks/`）で公開する場合は上の例のように `proxy_pass` の末尾に `/` を付けて
-プレフィックスを剥がしてください。
+画面(HTML)のリンク・CSS・JSのパスは、返すときにサーバー側で公開パスを付けています（`basePath.js`）。
+画面のJSで URL を書くときは `BASE_PATH + '/api/...'` のように `BASE_PATH` を先頭に付けてください
+（`window.BASE_PATH` は各画面の `<head>` にサーバーが埋め込みます）。
 
 ### 4. ファイアウォール
 

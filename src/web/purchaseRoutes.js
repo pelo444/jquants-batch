@@ -11,8 +11,8 @@
  *   ・個人の判断の記録なので、既定の 127.0.0.1 以外で待ち受けるときは認証を先に入れること。
  */
 
-const path = require('path');
 const express = require('express');
+const { sendPage } = require('./basePath');
 
 const pq = require('./purchaseQuery');
 const fq = require('./purchaseFundQuery');
@@ -135,10 +135,10 @@ module.exports = function purchaseRoutes({ db, getTags }) {
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
   router.get(['/purchase', '/purchase/'], (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'purchase.html'));
+    sendPage(res, 'purchase.html');
   });
   router.get(['/purchase/check', '/purchase/check/'], (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'purchase-check.html'));
+    sendPage(res, 'purchase-check.html');
   });
 
   router.use('/api/purchase', express.json({ limit: '1mb' }));

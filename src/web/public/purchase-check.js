@@ -144,7 +144,7 @@
     if (b) q.set('buys', b);
     var sh = Object.keys(p.shares).map(function (c) { return short(c) + ':' + p.shares[c]; }).join(',');
     if (sh) q.set('shares', sh);
-    history.replaceState(null, '', '/purchase/check?' + q.toString());
+    history.replaceState(null, '', BASE_PATH + '/purchase/check?' + q.toString());
   }
 
   //------------------------------------------------------------------ 計算
@@ -162,7 +162,7 @@
     $('recalcBtn').textContent = '計算中…';
     try {
       var open = openRows();
-      result = await api('GET', '/api/purchase/check?' + q.toString());
+      result = await api('GET', BASE_PATH + '/api/purchase/check?' + q.toString());
       writeUrl(p);
       renderBuyInputs(p.buys, p.shares);
       render(open);
@@ -387,7 +387,7 @@
     // 株数・買値も判断時の値として残すので、答えに変更が無くても毎回保存する
     var ok = await save();
     if (!ok) { if (w) w.close(); return; }
-    var url = '/journal?' + memoParams(code, action).toString() + '#decisions';
+    var url = BASE_PATH + '/journal?' + memoParams(code, action).toString() + '#decisions';
     if (w) w.location.href = url; else location.href = url;
   }
 
@@ -442,7 +442,7 @@
     });
     $('saveBtn').disabled = true;
     try {
-      var out = await api('POST', '/api/purchase/check/answers', {
+      var out = await api('POST', BASE_PATH + '/api/purchase/check/answers', {
         listId: listId, codes: codes, amount: result && result.sizing.totals.yen ? Math.round(result.sizing.totals.yen) : null,
         stopPcts: p.stopPcts, buys: p.buys, shares: p.shares, answers: list,
       });
@@ -476,7 +476,7 @@
     // 前回保存した答えと入力を読む(URL に入力があれば URL を優先)
     var saved = null;
     try {
-      saved = await api('GET', '/api/purchase/check/saved?list=' + listId + '&codes=' + encodeURIComponent(codes.join(',')));
+      saved = await api('GET', BASE_PATH + '/api/purchase/check/saved?list=' + listId + '&codes=' + encodeURIComponent(codes.join(',')));
     } catch (e) {
       flash('保存した答えを読めませんでした: ' + e.message, true);
     }

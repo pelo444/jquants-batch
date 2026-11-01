@@ -93,7 +93,7 @@
 
   //---------------------------------------------------------------- 初期化
   function init() {
-    fetch('/api/meta')
+    fetch(BASE_PATH + '/api/meta')
       .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error); }); })
       .then(function (m) {
         meta = m;
@@ -213,7 +213,7 @@
 
   // 期間「1日」: 前営業日を開始日にする。土日・祝日をまたぐので、カレンダーで1日戻すのではなくサーバーに聞く
   function setPrevDay(to) {
-    return fetch('/api/prev-trading-date?to=' + encodeURIComponent(to))
+    return fetch(BASE_PATH + '/api/prev-trading-date?to=' + encodeURIComponent(to))
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); return j; }); })
       .then(function (j) { $('dFrom').value = j.date; markPreset('d1'); })
       .catch(function (e) { setStatus('前営業日を取得できませんでした: ' + e.message, true); });
@@ -270,7 +270,7 @@
     setStatus('取得中…');
     $('runBtn').disabled = true;
 
-    fetch('/api/performance?' + p.toString())
+    fetch(BASE_PATH + '/api/performance?' + p.toString())
       .then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
@@ -323,7 +323,7 @@
 
     setStatus('取得中…');
     $('runBtn').disabled = true;
-    fetch('/api/sector-performance?' + p.toString())
+    fetch(BASE_PATH + '/api/sector-performance?' + p.toString())
       .then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
@@ -464,7 +464,7 @@
     var p = new URLSearchParams(params.toString());
     p.set('limit', $('chartLimit').value || '30');
     p.set('order', order);
-    var url = '/chart?' + p.toString();
+    var url = BASE_PATH + '/chart?' + p.toString();
     $('chartFrame').dataset.pending = url;
     $('chartOpenBtn').href = url;
     return url;
@@ -505,7 +505,7 @@
     p.set('codes', codes.join(','));
     p.set('from', $('dFrom').value);
     p.set('to', $('dTo').value);
-    showChart('/chart?' + p.toString(), '選択した' + codes.length + '銘柄');
+    showChart(BASE_PATH + '/chart?' + p.toString(), '選択した' + codes.length + '銘柄');
   }
 
   //---------------------------------------------------------------- タブ

@@ -92,7 +92,7 @@
   async function init() {
     bindEvents();
     try {
-      meta = await api('GET', '/api/purchase/meta');
+      meta = await api('GET', BASE_PATH + '/api/purchase/meta');
     } catch (e) {
       $('dataMeta').textContent = '接続エラー';
       flash('初期情報を取得できませんでした: ' + e.message, true);
@@ -113,7 +113,7 @@
   }
 
   async function reloadLists(selectId) {
-    meta.lists = (await api('GET', '/api/purchase/meta')).lists;
+    meta.lists = (await api('GET', BASE_PATH + '/api/purchase/meta')).lists;
     renderListSelect(meta.lists);
     if (selectId) $('listSelect').value = String(selectId);
   }
@@ -171,12 +171,12 @@
     if (searchTab === 'sector') {
       var secs = checked('seccb');
       if (!secs.length) { $('searchStatus').textContent = '業種を1つ以上選んでください'; return; }
-      url = '/api/purchase/stocks?sectors=' + encodeURIComponent(secs.map(function (c) { return c.value; }).join(','));
+      url = BASE_PATH + '/api/purchase/stocks?sectors=' + encodeURIComponent(secs.map(function (c) { return c.value; }).join(','));
       src = { from: 'SECTOR' };
     } else {
       var tags = checked('tagcb');
       if (!tags.length) { $('searchStatus').textContent = 'タグを1つ以上選んでください'; return; }
-      url = '/api/purchase/stocks?tags=' + encodeURIComponent(tags.map(function (c) { return c.value; }).join(','));
+      url = BASE_PATH + '/api/purchase/stocks?tags=' + encodeURIComponent(tags.map(function (c) { return c.value; }).join(','));
       src = { from: 'TAG', tags: tags.map(function (c) { return c.value; }) };
     }
     $('searchStatus').textContent = '読み込み中…';
@@ -251,7 +251,7 @@
   /** 外す候補は全銘柄を計算するので時間がかかる(初回10秒ほど)。表示とは別に読み込み、届いたら描き直す */
   async function loadAvoid() {
     try {
-      avoid = await api('GET', '/api/purchase/avoid');
+      avoid = await api('GET', BASE_PATH + '/api/purchase/avoid');
     } catch (e) {
       avoid = { asOf: null, population: 0, d10: {}, error: e.message };
       flash('外す候補を計算できませんでした: ' + e.message, true);
@@ -322,7 +322,7 @@
   //------------------------------------------------------------------ リスト
   async function openList(listId) {
     try {
-      var l = await api('GET', '/api/purchase/lists/' + listId);
+      var l = await api('GET', BASE_PATH + '/api/purchase/lists/' + listId);
       // 別のリストに切り替えたら、前のリストの参考情報は消す
       if (!currentList || currentList.listId !== l.listId) { $('refPane').hidden = true; checkSel = []; }
       currentList = l;
@@ -403,7 +403,7 @@
     var fresh = codes.filter(function (c) { return !byCode[c]; });
     if (fresh.length) {
       try {
-        var data = await api('GET', '/api/purchase/stocks?codes=' + encodeURIComponent(fresh.join(',')));
+        var data = await api('GET', BASE_PATH + '/api/purchase/stocks?codes=' + encodeURIComponent(fresh.join(',')));
         data.rows.forEach(function (r) { info[r.code] = r; });
         if (data.missing.length) {
           flash('銘柄マスタにないコードです: ' + data.missing.map(short).join(', '), true);
@@ -424,7 +424,7 @@
     if (!currentList) return false;
     $('saveBtn').disabled = true;
     try {
-      var out = await api('PUT', '/api/purchase/lists/' + currentList.listId + '/items', {
+      var out = await api('PUT', BASE_PATH + '/api/purchase/lists/' + currentList.listId + BASE_PATH + '/items', {
         items: items.map(function (i) { return { code: i.code, from: i.from, detail: i.detail }; }),
       });
       await openList(currentList.listId);
@@ -444,7 +444,7 @@
     if (!name) { flash('リスト名を入れてください', true); return; }
     if (currentList && isDirty() && !confirm('いまのリストに保存していない変更があります。破棄して新しいリストを作りますか?')) return;
     try {
-      var out = await api('POST', '/api/purchase/lists', { name: name });
+      var out = await api('POST', BASE_PATH + '/api/purchase/lists', { name: name });
       $('newListName').value = '';
       await reloadLists(out.listId);
       await openList(out.listId);
@@ -459,7 +459,7 @@
     var reopen = !!currentList.closedAt;
     if (!reopen && !confirm('このリストの検討を終えますか?(リストは消えず、プルダウンにも残ります)')) return;
     try {
-      await api('POST', '/api/purchase/lists/' + currentList.listId + '/close', { reopen: reopen });
+      await api('POST', BASE_PATH + '/api/purchase/lists/' + currentList.listId + BASE_PATH + '/close', { reopen: reopen });
       await openList(currentList.listId);
       await reloadLists(currentList.listId);
     } catch (e) {
@@ -715,7 +715,7 @@
   }
   function openCheck() {
     if (!currentList || !checkSel.length) return;
-    var url = '/purchase/check?list=' + currentList.listId + '&codes=' + encodeURIComponent(checkSel.map(short).join(','));
+    var url = BASE_PATH + '/purchase/check?list=' + currentList.listId + '&codes=' + encodeURIComponent(checkSel.map(short).join(','));
     window.open(url, '_blank');
   }
 
@@ -741,7 +741,7 @@
     btn.disabled = true;
     btn.textContent = '計算中…';
     try {
-      var data = await api('GET', '/api/purchase/lists/' + currentList.listId + (kind === 'tech' ? '/technicals' : '/fundamentals'));
+      var data = await api('GET', BASE_PATH + '/api/purchase/lists/' + currentList.listId + (kind === 'tech' ? BASE_PATH + '/technicals' : BASE_PATH + '/fundamentals'));
       if (kind === 'tech') renderTechnicals(data); else renderFundamentals(data);
       $('refPane').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {

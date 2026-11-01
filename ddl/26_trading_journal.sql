@@ -90,7 +90,7 @@ CREATE TABLE jnl_trade (
 CREATE INDEX jnl_trade_code_ix ON jnl_trade (code, trade_date);
 
 COMMENT ON TABLE jnl_trade IS '約定。保有はここから計算する(保有の表は持たない)';
-COMMENT ON COLUMN jnl_trade.dedup_key IS '行の内容のハッシュ + ファイル内で同一内容の何件目か。期間が重なるCSVを入れても重複しない';
+COMMENT ON COLUMN jnl_trade.dedup_key IS 'RK2: 後から変わらない列(約定日・コード・口座・取引区分・売買区分・信用区分・数量・単価)のハッシュ + 同じ内容の何件目か。受渡金額など後で埋まる列は使わない。期間が重なるCSVを入れても重複しない';
 COMMENT ON COLUMN jnl_trade.code IS '5桁コード(4桁は末尾に0を付けてJ-Quantsと揃える)';
 COMMENT ON COLUMN jnl_trade.side IS 'B=買(買付・買建・買埋・現引)、S=売(売付・売建・売埋・現渡)';
 COMMENT ON COLUMN jnl_trade.position_kind IS 'CASH=現物、MLONG=信用買建玉、MSHORT=信用売建玉。現引・現渡は信用側の行として記録する';

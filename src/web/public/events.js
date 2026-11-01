@@ -103,7 +103,7 @@
     if (from) qs.set('from', from);
     if (to) qs.set('to', to);
     try {
-      const res = await fetch('/api/events' + (qs.toString() ? '?' + qs : ''));
+      const res = await fetch(BASE_PATH + '/api/events' + (qs.toString() ? '?' + qs : ''));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       $('flash').hidden = true;
       render(await res.json());
@@ -118,7 +118,7 @@
     e.preventDefault();
     const from = $('fromMonth').value;
     const to = $('toMonth').value;
-    history.replaceState(null, '', `/events?from=${from}&to=${to}`);
+    history.replaceState(null, '', `${BASE_PATH}/events?from=${from}&to=${to}`);
     load(from, to);
   });
 

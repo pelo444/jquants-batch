@@ -1067,6 +1067,10 @@ CRON_TZ=Asia/Tokyo
 - 値が初めて入った時刻は `EXT_SERIES_DAILY.FIRST_LOADED_AT`（`ddl/35`）。更新の時刻の表が合っているかはこれで確かめる
 - VM の `.env` に `JQB_SEC_USER_AGENT` が要る。ログは `logs/events_YYYYMMDD.log`、60 日で自動削除
 
+**失敗の通知(2026-10-26)**: crontab の `MAILTO` へのメールは msmtp(Gmail のアプリパスワード)で送る。
+設定は `/etc/msmtprc`(root:opc、640)。`~/.msmtprc` は SELinux により cron から読めないので使わない。
+msmtp を入れ直したり sendmail を替えたりしたら `sudo systemctl restart crond`。送信の記録は `journalctl -t msmtp`
+
 ---
 
 ## 12. 未対応・今後の課題

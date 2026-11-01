@@ -185,12 +185,12 @@
 
   async function run() {
     const q = params();
-    history.replaceState(null, '', '/reference?' + q);
+    history.replaceState(null, '', BASE_PATH + '/reference?' + q);
     $('runBtn').disabled = true;
     $('status').textContent = '取得中…';
     $('flash').hidden = true;
     try {
-      const res = await fetch('/api/reference?' + q);
+      const res = await fetch(BASE_PATH + '/api/reference?' + q);
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
       render(j);
@@ -207,7 +207,7 @@
   //---------------------------------------------------------------- 初期化
   async function init() {
     try {
-      const res = await fetch('/api/reference/meta');
+      const res = await fetch(BASE_PATH + '/api/reference/meta');
       meta = await res.json();
       if (!res.ok) throw new Error(meta.error || `HTTP ${res.status}`);
     } catch (err) {

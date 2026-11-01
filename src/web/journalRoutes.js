@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const { sendPage } = require('./basePath');
 
 const jq = require('./journalQuery');
 const { parseRakutenCsv } = require('./journalCsv');
@@ -203,7 +204,7 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
   }
 
   router.get(['/journal', '/journal/'], (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'journal.html'));
+    sendPage(res, 'journal.html');
   });
 
   router.use('/api/journal', express.json({ limit: '40mb' }));
