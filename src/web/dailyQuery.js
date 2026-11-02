@@ -219,8 +219,11 @@ async function fetchDaily(conn, p) {
   const evCount = new Map();
   for (const e of events) evCount.set(e.code, (evCount.get(e.code) || 0) + 1);
   for (const m of moves) m.events = evCount.get(m.code) || 0;
-  // 出来事のあった銘柄を上に、その中と残りはそれぞれ騰落率の高い順(値が無いものは最後)
-  moves.sort((x, y) => (y.events > 0) - (x.events > 0)
+  // 保有の銘柄を上に、その次に保有でない銘柄。各グループの中は出来事のあった銘柄を上に、
+  // その中と残りはそれぞれ騰落率の高い順(値が無いものは最後)
+  const isHeld = (m) => (targets.get(m.code)?.held ? 1 : 0);
+  moves.sort((x, y) => isHeld(y) - isHeld(x)
+    || (y.events > 0) - (x.events > 0)
     || ((y.ret == null ? -Infinity : y.ret) - (x.ret == null ? -Infinity : x.ret)));
 
   const upcoming = await fetchUpcoming(conn, b, codes, today);
