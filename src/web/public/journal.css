@@ -238,6 +238,8 @@ tr.active-row { background: var(--sel-wash); font-weight: 600; }
 
 /* 保有の表。銘柄名の下の保有開始、終値の下の日付 */
 #posTable .sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+/* 合計行(含み損益の合計とトータルの損益率) */
+#posTable tfoot td { font-weight: 600; border-top: 2px solid var(--border); }
 /* 狭い幅では1銘柄をカードの形にする(横スクロールにしない)。項目名は data-label から出す */
 @media (max-width: 700px) {
   #posTable thead { display: none; }
@@ -246,6 +248,7 @@ tr.active-row { background: var(--sel-wash); font-weight: 600; }
   #posTable td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); }
   #posTable td.name { max-width: none; }
   #posTable td.rec-cell { grid-column: 1 / -1; }
+  #posTable tfoot td:empty { display: none; }
 }
 
 /* 判断フォームの「その他の項目(任意)」。開け閉めできる */

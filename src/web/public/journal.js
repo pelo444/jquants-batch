@@ -206,7 +206,7 @@
             '<td class="num-col" data-label="普段の何週分">' + signed(p.pnlInVol, 1, '週分') + '</td>' +
             '<td class="rec-cell"><button class="link" data-decide="' + esc(p.code) + '" type="button" title="この銘柄の判断を記録する">記録</button>' +
             recCount('decisions', p.code, p.records.decisions, '判断') + recCount('notes', p.code, p.records.notes, 'メモ') + '</td></tr>';
-        }).join('') + '</tbody>';
+        }).join('') + '</tbody>' + totalRow(r.positions);
     }
 
     $('realizedTable').innerHTML = r.realizedByYear.length
@@ -218,6 +218,25 @@
             (s.unknown ? '<span class="neg">' + s.unknown + '</span>' : '0') + '</td></tr>';
         }).join('') + '</tbody>'
       : '<tbody><tr><td class="dim">まだ売りの約定がありません</td></tr></tbody>';
+  }
+
+  /**
+   * 保有の表の合計行。トータルの損益率 = 含み損益の合計 ÷ 取得額の合計 × 100(取得額で重みづけした平均と同じ)。
+   * 終値が無く含み損益が出ない行は、分子からも分母からも外す。信用売りも行と同じ定義のまま含める
+   */
+  function totalRow(positions) {
+    var pnl = 0, cost = 0, used = 0;
+    positions.forEach(function (p) {
+      if (p.pnl === null || p.pnl === undefined || !p.cost) return;
+      pnl += p.pnl; cost += p.cost; used += 1;
+    });
+    var skipped = positions.length - used;
+    var pct = cost ? (pnl / cost) * 100 : null;
+    return '<tfoot><tr class="total-row"><td colspan="7">トータル' +
+      (skipped ? '<div class="sub">終値の無い ' + skipped + '銘柄を除く</div>' : '') + '</td>' +
+      '<td class="num-col" data-label="含み損益">' + (used ? signed(pnl, 0) : '—') + '</td>' +
+      '<td class="num-col" data-label="損益率" title="含み損益の合計 ÷ 取得額の合計">' + signed(pct, 1, '%') + '</td>' +
+      '<td colspan="3"></td></tr></tfoot>';
   }
 
   /** 保有の行の「判断 n」「メモ n」。0件は薄く出すだけ(押せない) */
