@@ -577,9 +577,16 @@
       Array.prototype.forEach.call(document.querySelectorAll(cls), function (c) { c.checked = false; });
     });
 
+    // 33業種・タグ・銘柄コードのタブを押したら「絞り込みなし(全銘柄)」を外す(そのタブで選ぶつもりなので。2026-11-02 ユーザー要望)。
+    // 「33業種のグラフ」はこのチェックを使わないので触らない
     $('targetTabs').addEventListener('click', function (ev) {
       var t = ev.target.closest('.tab');
-      if (t) showTargetTab(t.dataset.target);
+      if (!t) return;
+      if (t.dataset.target !== 'sectorChart' && $('optAllStocks').checked) {
+        $('optAllStocks').checked = false;
+        applyAllStocks();
+      }
+      showTargetTab(t.dataset.target);
     });
 
     // 「絞り込みなし(全銘柄)」: ONの間は33業種・タグ・銘柄コードの選択UIを無効化する。
