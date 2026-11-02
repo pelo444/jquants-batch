@@ -82,6 +82,10 @@
    *   spec.dates     {string[]}
    *   spec.height    {number}  既定 130
    *   spec.zeroBase  {boolean} 0 を必ず含めるか(残高など量の系列で true)
+   *   spec.monthGrid {boolean} 毎月1日の位置に縦のグリッド線を引き、x 軸に月の目盛りを付ける。
+   *                            dates は週の開始日(YYYY-MM-DD)の昇順であること。
+   *                            ラベルは文字が重ならない間隔(1・2・3・6・12か月)まで間引き、
+   *                            1月には年を付ける。端と中央の日付ラベルの代わりになる
    *   spec.series[]  {name, values, mode:'line'|'points', colorVar, digits, unit,
    *                   terminalIdx:number[]}
    */
@@ -177,18 +181,64 @@
       }));
     }
 
-    // --- x 軸ラベル(端と中央だけ。全点には打たない) ---
-    var xs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
-    var anchors = ['start', 'middle', 'end'];
-    xs.forEach(function (i, k) {
-      var xl = el('text', {
-        x: X(i), y: H - 5, 'text-anchor': anchors[k],
-        fill: 'var(--muted)', 'font-size': 10,
+    if (spec.monthGrid) {
+      drawMonthGrid();
+    } else {
+      // --- x 軸ラベル(端と中央だけ。全点には打たない) ---
+      var xs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
+      var anchors = ['start', 'middle', 'end'];
+      xs.forEach(function (i, k) {
+        var xl = el('text', {
+          x: X(i), y: H - 5, 'text-anchor': anchors[k],
+          fill: 'var(--muted)', 'font-size': 10,
+        });
+        xl.style.fontVariantNumeric = 'tabular-nums';
+        xl.textContent = dates[i];
+        svg.appendChild(xl);
       });
-      xl.style.fontVariantNumeric = 'tabular-nums';
-      xl.textContent = dates[i];
-      svg.appendChild(xl);
-    });
+    }
+
+    // --- 月のグリッドと目盛り ---
+    // 点は週ごとに等間隔なので、毎月1日の位置は前後の週の間を日数で按分して決める。
+    function drawMonthGrid() {
+      function day(str) {
+        var a = String(str).split('-');
+        return Date.UTC(+a[0], +a[1] - 1, +a[2]) / 86400000;
+      }
+      if (n < 2 || !(day(dates[n - 1]) > day(dates[0]))) return;
+      var d0 = day(dates[0]), dN = day(dates[n - 1]);
+      function XD(dd) { return PAD.l + ((dd - d0) / (dN - d0)) * innerW; }
+      var first = new Date(d0 * 86400000);
+      var y = first.getUTCFullYear(), m = first.getUTCMonth() + 1;
+      var marks = [];
+      for (;;) {
+        var dd = Date.UTC(y, m - 1, 1) / 86400000;
+        if (dd > dN) break;
+        if (dd > d0) marks.push({ x: XD(dd), y: y, m: m });
+        m++; if (m > 12) { m = 1; y++; }
+      }
+      // ラベルの間隔: 1か月あたりの幅から、重ならない最小の間隔を選ぶ
+      var perMonth = innerW / Math.max(1, (dN - d0) / 30.44);
+      var every = [1, 2, 3, 6, 12].filter(function (k) { return perMonth * k >= 46; })[0] || 12;
+      marks.forEach(function (mk) {
+        svg.appendChild(el('line', {
+          x1: mk.x, x2: mk.x, y1: PAD.t, y2: H - PAD.b,
+          stroke: 'var(--grid)', 'stroke-width': 1, 'shape-rendering': 'crispEdges',
+        }));
+        svg.appendChild(el('line', {
+          x1: mk.x, x2: mk.x, y1: H - PAD.b, y2: H - PAD.b + 4,
+          stroke: 'var(--muted)', 'stroke-width': 1, 'shape-rendering': 'crispEdges',
+        }));
+        if ((mk.m - 1) % every !== 0) return;
+        var xl = el('text', {
+          x: mk.x, y: H - 5, 'text-anchor': 'middle',
+          fill: 'var(--muted)', 'font-size': 10,
+        });
+        xl.style.fontVariantNumeric = 'tabular-nums';
+        xl.textContent = mk.m === 1 ? mk.y + '年1月' : mk.m + '月';
+        svg.appendChild(xl);
+      });
+    }
 
     // --- 系列 ---
     series.forEach(function (s) {

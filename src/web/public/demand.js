@@ -1319,6 +1319,11 @@
         html: function (r) { return signedCell(r.busCoOku, 0, 'inv'); },
       },
       {
+        key: 'propOku', label: '自己', grp: '投資部門別ネット(億円)', num: true,
+        title: '証券会社が自己勘定で売買した分の差引',
+        html: function (r) { return signedCell(r.propOku, 0, 'inv'); },
+      },
+      {
         key: 'arbNetOku', label: '裁定ネット', grp: '裁定取引残高(億円)', num: true,
         title: '買残 − 売残。増加は将来の解消売り圧力の蓄積で、強気とは限りません',
         html: function (r) { return signedCell(r.arbNetOku, 0, 'arb'); },
@@ -1380,6 +1385,7 @@
       host.appendChild(d);
       spec.group = 'macro';
       spec.dates = dates;
+      spec.monthGrid = true;
       DemandChart.draw(d, spec);
     }
 
@@ -1400,6 +1406,13 @@
         { name: '信託銀行', values: col('trstBnkOku'), mode: 'line', colorVar: '--inv-3', digits: 0, unit: '億円' },
         { name: '事業法人', values: col('busCoOku'), mode: 'line', colorVar: '--inv-4', digits: 0, unit: '億円' },
       ],
+    });
+
+    card({
+      title: '自己の差引(億円)',
+      note: '証券会社が自己勘定で売買した分。プラスが買い越し',
+      zeroBase: true,
+      series: [{ name: '自己', values: col('propOku'), mode: 'line', colorVar: '--series-1', digits: 0, unit: '億円' }],
     });
 
     card({

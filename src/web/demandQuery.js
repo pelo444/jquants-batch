@@ -373,7 +373,8 @@ async function fetchMacro(connection, opts) {
                SUM(v.frgn_bal)         AS frgn_bal,
                SUM(v.ind_bal)          AS ind_bal,
                SUM(v.trst_bnk_bal)     AS trst_bnk_bal,
-               SUM(v.bus_co_bal)       AS bus_co_bal
+               SUM(v.bus_co_bal)       AS bus_co_bal,
+               SUM(v.prop_bal)         AS prop_bal
         FROM v_investor_type_trading_latest v
         WHERE v.section = :section
           AND v.en_date > TRUNC(SYSDATE) - :weeksBack * 7
@@ -459,7 +460,7 @@ async function fetchMacro(connection, opts) {
                tpx.close_price                                   AS topix_close,
                idx.growth_close / NULLIF(idx.value_close, 0)     AS gv_ratio,
                idx.elec_close,
-               inv.frgn_bal, inv.ind_bal, inv.trst_bnk_bal, inv.bus_co_bal,
+               inv.frgn_bal, inv.ind_bal, inv.trst_bnk_bal, inv.bus_co_bal, inv.prop_bal,
                arb.net_val                                       AS arb_net_val,
                mgn.long_val / NULLIF(mgn.shrt_val, 0)            AS margin_ratio,
                mgn.long_val                                      AS margin_long_val,
@@ -487,6 +488,7 @@ async function fetchMacro(connection, opts) {
             ROUND(ind_bal      / 100000, 0)                          AS ind_oku,
             ROUND(trst_bnk_bal / 100000, 0)                          AS trst_bnk_oku,
             ROUND(bus_co_bal   / 100000, 0)                          AS bus_co_oku,
+            ROUND(prop_bal     / 100000, 0)                          AS prop_oku,
             ROUND((frgn_bal - LAG(frgn_bal) OVER (ORDER BY week_start))
                   / 100000, 0)                                       AS frgn_wow_oku,
             ROUND(arb_net_val / 100000000, 0)                        AS arb_net_oku,
