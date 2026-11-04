@@ -544,7 +544,7 @@
     if (slot.innerHTML) { slot.innerHTML = ''; return; }
     slot.innerHTML = '<div class="snap"><span class="pending">読み込み中…</span></div>';
     try {
-      var p = await api('GET', BASE_PATH + '/api/journal/decisions/' + id + BASE_PATH + '/snapshot');
+      var p = await api('GET', BASE_PATH + '/api/journal/decisions/' + id + '/snapshot');
       slot.innerHTML = snapshotHtml(p);
     } catch (e) {
       slot.innerHTML = '<div class="snap"><span class="status error">' + esc(e.message) + '</span></div>';
@@ -627,7 +627,7 @@
       var st = form.querySelector('.status');
       st.textContent = '保存中…';
       try {
-        await api('POST', BASE_PATH + '/api/journal/decisions/' + id + BASE_PATH + '/reviews', formData(form));
+        await api('POST', BASE_PATH + '/api/journal/decisions/' + id + '/reviews', formData(form));
         flash('振り返りを記録しました');
         loadDecisions();
       } catch (e) {
@@ -1303,7 +1303,7 @@
     if ((el = t.closest('[data-save-trans]'))) {
       var id = el.dataset.saveTrans;
       var ta = document.querySelector('[data-trans="' + id + '"]');
-      try { await api('PUT', BASE_PATH + '/api/journal/images/' + id + BASE_PATH + '/transcription', { text: ta.value }); flash('文字起こしを保存しました'); } catch (e) { flash(e.message, true); }
+      try { await api('PUT', BASE_PATH + '/api/journal/images/' + id + '/transcription', { text: ta.value }); flash('文字起こしを保存しました'); } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-del-capital]'))) {

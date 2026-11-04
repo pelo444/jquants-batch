@@ -424,7 +424,7 @@
     if (!currentList) return false;
     $('saveBtn').disabled = true;
     try {
-      var out = await api('PUT', BASE_PATH + '/api/purchase/lists/' + currentList.listId + BASE_PATH + '/items', {
+      var out = await api('PUT', BASE_PATH + '/api/purchase/lists/' + currentList.listId + '/items', {
         items: items.map(function (i) { return { code: i.code, from: i.from, detail: i.detail }; }),
       });
       await openList(currentList.listId);
@@ -459,7 +459,7 @@
     var reopen = !!currentList.closedAt;
     if (!reopen && !confirm('このリストの検討を終えますか?(リストは消えず、プルダウンにも残ります)')) return;
     try {
-      await api('POST', BASE_PATH + '/api/purchase/lists/' + currentList.listId + BASE_PATH + '/close', { reopen: reopen });
+      await api('POST', BASE_PATH + '/api/purchase/lists/' + currentList.listId + '/close', { reopen: reopen });
       await openList(currentList.listId);
       await reloadLists(currentList.listId);
     } catch (e) {
@@ -741,7 +741,7 @@
     btn.disabled = true;
     btn.textContent = '計算中…';
     try {
-      var data = await api('GET', BASE_PATH + '/api/purchase/lists/' + currentList.listId + (kind === 'tech' ? BASE_PATH + '/technicals' : BASE_PATH + '/fundamentals'));
+      var data = await api('GET', BASE_PATH + '/api/purchase/lists/' + currentList.listId + (kind === 'tech' ? '/technicals' : '/fundamentals'));
       if (kind === 'tech') renderTechnicals(data); else renderFundamentals(data);
       $('refPane').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
