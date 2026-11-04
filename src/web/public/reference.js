@@ -134,6 +134,86 @@
     return h + '</tbody>';
   }
 
+  // 保存した表: 列の type で書き方を変える(src/web/savedTables.js の冒頭)
+  function savedCell(type, v) {
+    if (type === 'code') return codeCell(String(v == null ? '' : v));
+    if (type === 'name') return `<td class="name">${esc(v)}</td>`;
+    if (type === 'dim') return `<td class="dim">${esc(v)}</td>`;
+    if (type === 'pct') return `<td class="num-col ${v == null ? '' : pctCls(v)}">${pct(v)}</td>`;
+    const m = /^num(\d)$/.exec(type || '');
+    if (m) return `<td class="num-col">${v == null ? '—' : fix(v, Number(m[1]))}</td>`;
+    return `<td>${esc(v)}</td>`;
+  }
+
+  function savedTable(d) {
+    const cols = d.columns || [];
+    const nCols = cols.length || 1;
+    let h = '<thead><tr>' + cols.map((c) =>
+      `<th${/^(pct|num\d)$/.test(c.type) ? ' class="num-col"' : ''}>${esc(c.label)}</th>`).join('') + '</tr></thead><tbody>';
+    const groups = d.groups || [];
+    if (!groups.length) h += `<tr class="none"><td colspan="${nCols}">行がありません</td></tr>`;
+    for (const g of groups) {
+      if (g.name) {
+        const stats = (g.stats || []).map((x) =>
+          `<span class="grp-stat">${esc(x.label)} ` +
+          (x.pct != null ? `<span class="${pctCls(x.pct)}">${pct(x.pct)}</span>` : esc(x.num == null ? '—' : fix(x.num, 2))) + '</span>').join('');
+        h += `<tr class="grp"><th colspan="${nCols}">${esc(g.name)}${stats}<span class="grp-note">${(g.rows || []).length}銘柄</span></th></tr>`;
+      }
+      if (!(g.rows || []).length) h += `<tr class="none"><td colspan="${nCols}">該当する銘柄がありません</td></tr>`;
+      for (const r of g.rows || []) h += '<tr>' + cols.map((c) => savedCell(c.type, r[c.key])).join('') + '</tr>';
+    }
+    return h + '</tbody>';
+  }
+
+  function renderSaved(d) {
+    $('empty').hidden = true;
+    $('resultPane').hidden = false;
+    $('resultTitle').innerHTML = esc(d.title || '') + (d.condition ? `<span class="h2-note">${esc(d.condition)}</span>` : '');
+    $('notice').hidden = true;
+    $('refTable').innerHTML = savedTable(d);
+    $('resultNote').textContent = d.note || '';
+  }
+
+  async function runSaved() {
+    const id = $('savedSel').value;
+    if (!id) return;
+    history.replaceState(null, '', BASE_PATH + '/reference?saved=' + encodeURIComponent(id));
+    $('savedBtn').disabled = true;
+    $('flash').hidden = true;
+    try {
+      const res = await fetch(BASE_PATH + '/api/reference/saved/' + encodeURIComponent(id));
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      renderSaved(j);
+    } catch (err) {
+      $('flash').textContent = `読み込めませんでした: ${err.message}`;
+      $('flash').hidden = false;
+    } finally {
+      $('savedBtn').disabled = false;
+    }
+  }
+
+  async function initSaved() {
+    const u = new URLSearchParams(location.search);
+    try {
+      const res = await fetch(BASE_PATH + '/api/reference/saved');
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      $('savedSel').innerHTML = j.items.length
+        ? '<option value="">選んでください</option>' + j.items.map((x) =>
+          `<option value="${esc(x.id)}">${esc(x.title)}</option>`).join('')
+        : '<option value="">保存した表はありません</option>';
+    } catch (err) {
+      $('savedSel').innerHTML = '<option value="">読み込めませんでした</option>';
+      return;
+    }
+    const id = u.get('saved');
+    if (id && Array.from($('savedSel').options).some((o) => o.value === id)) {
+      $('savedSel').value = id;
+      runSaved();
+    }
+  }
+
   function render(d) {
     $('empty').hidden = true;
     $('resultPane').hidden = false;
@@ -239,6 +319,7 @@
     if (u.get('theme')) run();
   }
 
+  $('savedForm').addEventListener('submit', (e) => { e.preventDefault(); runSaved(); });
   $('refForm').addEventListener('submit', (e) => { e.preventDefault(); run(); });
   $('theme').addEventListener('change', syncOptions);
   $('date').addEventListener('change', () => { dateTouched = true; });
@@ -252,5 +333,6 @@
     updateSectorSummary();
   });
 
+  initSaved();
   init();
 })();

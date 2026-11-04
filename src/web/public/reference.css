@@ -40,3 +40,7 @@
 /* 決算発表の予定: 日付未定のチェック(ほかの入力と下端をそろえる) */
 .ref-tbd { font-size: 12px; color: var(--text-secondary); padding-bottom: 6px; }
 #refTable td.changed { color: var(--warning-ink); }
+
+/* 保存した表(src/web/saved/*.json)。テーマの入力と線で分ける */
+.ref-saved { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+#refTable .grp-stat { font-weight: 400; margin-left: 10px; }

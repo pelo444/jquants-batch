@@ -6,7 +6,7 @@
 <title>参考情報</title>
 <link rel="stylesheet" href="/style.css?v=20261020a">
 <!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため) -->
-<link rel="stylesheet" href="/reference.css?v=20261021a">
+<link rel="stylesheet" href="/reference.css?v=20261104a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='3' width='12' height='10' rx='1.5' fill='none' stroke='%236B705C' stroke-width='1.4'/%3E%3Cpath d='M2 6.5h12M6 6.5V13' stroke='%236B705C' stroke-width='1.2'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -29,6 +29,13 @@
   <div class="flash error" id="flash" role="status" hidden></div>
 
   <section class="panel" id="refPanel">
+    <form id="savedForm" class="ref-row ref-saved">
+      <label class="field-label ref-theme">保存した表
+        <select id="savedSel"><option value="">読み込み中…</option></select>
+      </label>
+      <button class="btn primary" id="savedBtn" type="submit">表示</button>
+    </form>
+
     <form id="refForm" class="ref-form">
       <div class="ref-row">
         <label class="field-label ref-theme">テーマ
@@ -82,6 +89,6 @@
   <div class="empty" id="empty">テーマを選んで「表示」を押してください。</div>
 
 </div>
-<script src="/reference.js?v=20261021a"></script>
+<script src="/reference.js?v=20261104b"></script>
 </body>
 </html>

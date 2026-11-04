@@ -44,6 +44,7 @@ const demandQuery = require('./demandQuery');
 const marketQuery = require('./marketQuery');
 const eventsQuery = require('./eventsQuery');
 const referenceQuery = require('./referenceQuery');
+const savedTables = require('./savedTables');
 const dailyQuery = require('./dailyQuery');
 const journalRoutes = require('./journalRoutes');
 const purchaseRoutes = require('./purchaseRoutes');
@@ -908,6 +909,28 @@ app.get(['/reference', '/reference/'], (req, res) => {
 app.get('/api/reference/meta', async (req, res, next) => {
   try {
     res.json(await referenceMeta());
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 保存した表(src/web/saved/*.json)。DB は見ない。ファイルを置けば一覧に出る
+app.get('/api/reference/saved', (req, res, next) => {
+  try {
+    res.json({ items: savedTables.listSaved() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/reference/saved/:id', (req, res, next) => {
+  try {
+    const d = savedTables.readSaved(req.params.id);
+    if (!d) {
+      res.status(404).json({ error: 'その表はありません' });
+      return;
+    }
+    res.json(d);
   } catch (err) {
     next(err);
   }
