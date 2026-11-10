@@ -27,6 +27,11 @@
 .daily-wrap .empty-row td { color: var(--muted); text-align: left; }
 .daily-wrap .line + .line { margin-top: 2px; }
 
+/* 予想の上方・下方(増配・減配)を含む行は、行全体に蛍光ペンを引く。
+   tbody tr:hover(style.css)より強くして、マウスを載せても消えないようにする */
+.daily-wrap tbody tr.hl-up, .daily-wrap tbody tr.hl-up:hover { background: var(--hl-up); }
+.daily-wrap tbody tr.hl-down, .daily-wrap tbody tr.hl-down:hover { background: var(--hl-down); }
+
 /* 狭い幅: 表を1行1枚のカードにする(横スクロールを出さない) */
 @media (max-width: 720px) {
   .period-row { flex-direction: column; align-items: stretch; }

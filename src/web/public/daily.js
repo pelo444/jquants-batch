@@ -56,6 +56,13 @@
     if (e.forecastPrev != null) s += `(前回 ${oku(e.forecastPrev)}から${CHG[e.forecastChg]})`;
     return s;
   }
+  /** 蛍光ペンの行: 予想の上方・下方(決算短信・業績予想の修正)、増配・減配(配当予想の修正)。両方あれば下方を優先 */
+  function hlClass(e) {
+    const c = [e.forecastChg, e.divChg];
+    if (c.includes('down')) return ' class="hl-down"';
+    if (c.includes('up')) return ' class="hl-up"';
+    return '';
+  }
   function eventLines(e) {
     switch (e.kind) {
       case 'fin':
@@ -100,7 +107,7 @@
       h += '<tr class="empty-row"><td colspan="5">この期間に入った出来事はありません</td></tr>';
     }
     for (const e of d.events) {
-      h += `<tr><td data-label="公表日">${esc(md(e.date))}</td>` +
+      h += `<tr${hlClass(e)}><td data-label="公表日">${esc(md(e.date))}</td>` +
         `<td class="stock" data-label="銘柄">${stock(e)}</td>` +
         `<td class="tags-cell" data-label="区分">${tags(e)}</td>` +
         `<td data-label="種類">${esc(e.type)}</td>` +
