@@ -1,0 +1,122 @@
+/* 個別チャート(/stockchart)。色は style.css の :root のトークンだけを使う */
+
+.stk-page {
+  /* ローソク足・出来高の色。陽線 = 上がった色の枠(中は地の色)、陰線 = 下がった色の塗り。
+     ほかの画面と同じく 上がった = 緑、下がった = 赤茶。変えるときはここだけ */
+  --candle-up: var(--good);
+  --candle-down: var(--critical);
+  --candle-flat: var(--muted);
+  /* 移動平均線(短い順)。ローソク足の緑・赤茶と見分けられる4色
+     (色覚の違いを模した差・通常の見え方の差・地の色とのコントラストを検証済み。200日線の濃い赤紫だけ4色の外) */
+  --ma-1: var(--inv-1);
+  --ma-2: var(--inv-2);
+  --ma-3: var(--inv-4);
+  --ma-4: #A61E78;
+  /* ボリンジャーバンド。中心線と ±1σ〜±3σ は同じ色で、外側ほど薄くする(同じ指標の一族と分かるように) */
+  --bb: var(--inv-1);
+  /* 信用残 */
+  --mg-long: var(--series-1);
+  --mg-short: var(--series-3);
+  padding-bottom: 0;
+}
+
+/* ---------- 条件 ---------- */
+.stk-controls { padding: 10px 16px; }
+.stk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.stk-row .spacer { flex: 1 1 0; min-width: 0; }
+.stk-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.stk-code {
+  font: inherit; font-size: 13px; padding: 5px 8px; width: 84px;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.stk-controls .lookup { width: min(340px, 100%); }
+.stk-checks { gap: 12px; }
+.stk-checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.stk-checks input { margin: 0; }
+
+/* ---------- チャートの枠 ---------- */
+.stk-chart { gap: 4px; padding: 10px 12px 12px; }
+.stk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.stk-head .panel-title { font-size: 15px; }
+
+/* 上の2行: その足の値と、線の凡例 */
+.stk-info, .stk-legend {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px;
+  font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums;
+  min-height: 18px;
+}
+.stk-info .lbl, .stk-legend .lbl { color: var(--muted); margin-right: 3px; }
+.stk-info .date { color: var(--text-secondary); }
+.stk-info .up { color: var(--good); }
+.stk-info .down { color: var(--critical); }
+.stk-legend .sw { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.stk-legend .sw.ma1 { border-color: var(--ma-1); }
+.stk-legend .sw.ma2 { border-color: var(--ma-2); }
+.stk-legend .sw.ma3 { border-color: var(--ma-3); }
+.stk-legend .sw.ma4 { border-color: var(--ma-4); }
+.stk-legend .sw.bb-mid { border-color: var(--bb); }
+.stk-legend .sw.bb1 { border-color: var(--bb); opacity: .8; }
+.stk-legend .sw.bb2 { border-color: var(--bb); opacity: .55; }
+.stk-legend .sw.long { border-color: var(--mg-long); }
+.stk-legend .sw.short { border-color: var(--mg-short); }
+.stk-legend .earn-tag { background: var(--sel-wash); border-radius: 3px; padding: 0 5px; }
+
+.stk-wrap { width: 100%; }
+.stk-svg { display: block; width: 100%; cursor: crosshair; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.stk-svg.dragging { cursor: grabbing; }
+
+/* ---------- SVG の中 ---------- */
+.stk-svg text { font-family: inherit; font-size: 11px; fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.stk-svg .frame { fill: none; stroke: var(--baseline); stroke-width: 1; shape-rendering: crispEdges; }
+.stk-svg .grid { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+.stk-svg .ptitle { fill: var(--muted); }
+
+.stk-svg .wick-up, .stk-svg .body-up { stroke: var(--candle-up); }
+.stk-svg .wick-down, .stk-svg .body-down { stroke: var(--candle-down); }
+.stk-svg .wick-up, .stk-svg .wick-down { fill: none; stroke-width: 1; shape-rendering: crispEdges; }
+.stk-svg .body-up { fill: var(--surface-1); stroke-width: 1; shape-rendering: crispEdges; }
+.stk-svg .body-down { fill: var(--candle-down); stroke-width: 1; shape-rendering: crispEdges; }
+/* 足が細くて枠だけでは見えないとき(1本が3px未満)は、陽線も塗る */
+.stk-svg .body-up.thin { fill: var(--candle-up); }
+
+.stk-svg .ma { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.stk-svg .ma1 { stroke: var(--ma-1); }
+.stk-svg .ma2 { stroke: var(--ma-2); }
+.stk-svg .ma3 { stroke: var(--ma-3); }
+.stk-svg .ma4 { stroke: var(--ma-4); }
+
+.stk-svg .bb { fill: none; stroke: var(--bb); stroke-linejoin: round; stroke-linecap: round; stroke-width: 1.2; }
+.stk-svg .bb-mid { stroke-width: 1.5; }
+.stk-svg .bb1 { opacity: .8; }
+.stk-svg .bb2 { opacity: .55; }
+
+.stk-svg .vol-up { fill: var(--candle-up); }
+.stk-svg .vol-down { fill: var(--candle-down); }
+.stk-svg .vol-flat { fill: var(--candle-flat); }
+
+.stk-svg .mg { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.stk-svg .mg-long { stroke: var(--mg-long); }
+.stk-svg .mg-short { stroke: var(--mg-short); }
+.stk-svg .mg-dot-long { fill: var(--mg-long); }
+.stk-svg .mg-dot-short { fill: var(--mg-short); }
+
+/* 高安値のラベル。足や線の上でも読めるよう、地の色でふちどる */
+.stk-svg .pv { fill: var(--text-primary); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
+
+/* 決算発表日 */
+.stk-svg .earn-line { stroke: var(--series-3); stroke-width: 1; stroke-dasharray: 3 3; shape-rendering: crispEdges; }
+/* 札は 地の色 の上に 強調の背景色 を重ねる(後ろの線が透けないように) */
+.stk-svg .earn-box { fill: var(--surface-1); }
+.stk-svg .earn-wash { fill: var(--sel-wash); stroke: var(--series-3); stroke-width: 1; }
+.stk-svg .earn-text { fill: var(--text-primary); font-size: 10px; }
+
+/* カーソルの位置 */
+.stk-svg .cross { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 2 2; shape-rendering: crispEdges; pointer-events: none; }
+.stk-svg .tag-box { fill: var(--text-primary); }
+.stk-svg .tag-text { fill: var(--surface-1); }
+
+@media (max-width: 720px) {
+  .stk-row .spacer { display: none; }
+  .stk-chart { padding: 8px 6px 10px; }
+}

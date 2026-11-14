@@ -18,6 +18,8 @@
  *      データは marketQuery.js。設計は claude/market_page_design.md。
  *   7. 日々の確認(保有・ウォッチ・検討中の銘柄の出来事・値動き・予定)を /daily で見る
  *      データは dailyQuery.js。設計は claude/daily_page_design.md。
+ *   8. 個別チャート(1銘柄のローソク足・移動平均線・出来高・信用残・決算発表日)を /stockchart で見る
+ *      データは stockChartQuery.js、描画は public/stockchart.js。設計は claude/stock_chart_design.md。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -51,6 +53,7 @@ const purchaseRoutes = require('./purchaseRoutes');
 const purchaseQuery = require('./purchaseQuery');
 const { fetchMarginChecks } = require('./marginCheck');
 const stockLookup = require('./stockLookup');
+const stockChartQuery = require('./stockChartQuery');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 const { BASE_PATH, sendPage, pageNameFor } = require('./basePath');
@@ -354,7 +357,10 @@ app.get('/api/meta', async (req, res, next) => {
         chartMaxCodes: CHART_MAX_CODES,
         chartMaxYears: CHART_MAX_YEARS,
         tableMaxYears: TABLE_MAX_YEARS,
+        chartMaxExt: EXT_MAX,
       },
+      // グラフに重ねられる材料(/events の列と同じ)
+      extSeries: eventsQuery.COLUMNS.map((c) => ({ code: c.code, label: c.label, unit: c.unit })),
     });
   } catch (err) {
     next(err);
@@ -452,6 +458,70 @@ app.get('/api/sector-performance', async (req, res, next) => {
   }
 });
 
+/**
+ * ?ext=CL=F,DGS10 → 重ねる材料の定義。名前は材料のページ(/events)の列と同じものを使う。
+ * 2本までにしているのは、線が増えると銘柄の線が読めなくなるため
+ */
+const EXT_MAX = 2;
+function parseExtSeries(raw) {
+  if (!raw) return [];
+  const want = Array.from(new Set(String(raw).split(',').map((s) => s.trim()).filter(Boolean)));
+  if (want.length > EXT_MAX) throw new BadRequest(`重ねられる材料は${EXT_MAX}件までです(指定: ${want.length}件)`);
+  return want.map((code) => {
+    const col = eventsQuery.COLUMNS.find((c) => c.code === code);
+    if (!col) throw new BadRequest(`材料「${code}」は選べません`);
+    return { code: col.code, label: col.label, unit: col.unit, dec: col.dec };
+  });
+}
+
+//---------------------------------------------------------- 33業種の折れ線グラフ(チャートHTMLと同じ形)
+//
+// 業種別株価指数を、銘柄のチャートと同じ「1業種1グラフ」の形で出す。材料(ext)も同じように重ねられる。
+// 指数なので分割の調整は無い。TOPIX も1本目として入れる(業種の比較の基準として見るため)。
+app.get('/sector-chart', async (req, res, next) => {
+  try {
+    const meta = await getMeta();
+    const { from, to, notice } = resolvePeriod(req.query, meta.latestDate, CHART_MAX_YEARS);
+    const extDefs = parseExtSeries(req.query.ext);
+
+    const key = JSON.stringify(['sectorChart', from, to, extDefs.map((e) => e.code)]);
+    let html = cacheGet(key);
+    if (!html) {
+      const { rows, extRows } = await db.withConnection(async (conn) => ({
+        rows: await webQuery.fetchSectorIndexSeries(conn, { from, to }),
+        extRows: await chartQuery.fetchExtSeries(conn, extDefs.map((e) => e.code), from, to),
+      }));
+      if (rows.length === 0) throw new BadRequest(`${from} 〜 ${to} に東証業種別株価指数の値がありません`);
+
+      // 並びは期間の騰落率の高い順(横棒グラフと同じ)。TOPIX だけは先頭に置く
+      const last = new Map();
+      const first = new Map();
+      for (const r of rows) {
+        if (!first.has(r.code)) first.set(r.code, r.adjClose);
+        last.set(r.code, r.adjClose);
+      }
+      const codes = Array.from(first.keys()).sort((a, b) => {
+        if (a === '0000') return -1;
+        if (b === '0000') return 1;
+        return (last.get(b) / first.get(b)) - (last.get(a) / first.get(a));
+      });
+
+      const payload = buildPayload(rows, codes, {
+        from,
+        to,
+        source: '東証業種別株価指数(33業種)と TOPIX' + (notice.length ? ' ・' + notice.join(' ') : ''),
+        generatedAt: new Date().toISOString(),
+        scale: extDefs.length ? 'idx' : undefined,
+      }, { defs: extDefs, rows: extRows });
+      html = buildHtml(payload);
+      cacheSet(key, html);
+    }
+    res.type('html').send(html);
+  } catch (err) {
+    next(err);
+  }
+});
+
 //---------------------------------------------------------- チャートHTML
 //
 // iframe に読み込ませる前提で、chart.js と同じ自己完結型HTMLを返す。
@@ -464,6 +534,7 @@ app.get('/chart', async (req, res, next) => {
     const { from, to, notice } = resolvePeriod(req.query, meta.latestDate, CHART_MAX_YEARS);
     const limit = parseInt0(req.query.limit, '表示件数', 1, CHART_MAX_CODES, 30);
     const order = req.query.order === 'asc' ? 'asc' : 'desc';
+    const extDefs = parseExtSeries(req.query.ext);
 
     let codes;
     let source;
@@ -522,12 +593,13 @@ app.get('/chart', async (req, res, next) => {
         (perf.length > codes.length ? `(全${perf.length}銘柄中)` : '');
     }
 
-    const chartKey = JSON.stringify(['chart', codes, from, to, source]);
+    const chartKey = JSON.stringify(['chart', codes, from, to, source, extDefs.map((e) => e.code)]);
     let html = cacheGet(chartKey);
     if (!html) {
-      const rows = await db.withConnection((conn) =>
-        chartQuery.fetchAdjustedCloses(conn, codes, from, to)
-      );
+      const { rows, extRows } = await db.withConnection(async (conn) => ({
+        rows: await chartQuery.fetchAdjustedCloses(conn, codes, from, to),
+        extRows: await chartQuery.fetchExtSeries(conn, extDefs.map((e) => e.code), from, to),
+      }));
       if (rows.length === 0) {
         throw new BadRequest('該当するデータが0件でした。銘柄コードと期間を確認してください。');
       }
@@ -536,7 +608,9 @@ app.get('/chart', async (req, res, next) => {
         to,
         source: source + (notice.length ? ' ・' + notice.join(' ') : ''),
         generatedAt: new Date().toISOString(),
-      });
+        // 材料を重ねるときは指数表示で開く(実額には重ねないため)
+        scale: extDefs.length ? 'idx' : undefined,
+      }, { defs: extDefs, rows: extRows });
       html = buildHtml(payload);
       cacheSet(chartKey, html);
     }
@@ -990,6 +1064,34 @@ app.get('/api/events', async (req, res, next) => {
 });
 
 //==================================================================
+// 個別チャート (/stockchart)
+//   1銘柄のローソク足・移動平均線・出来高・信用残・決算発表日。API は分割調整済みの日足を全期間ぶん返し、
+//   週足・月足へのまとめと描画は画面側で行う(stockChartQuery.js / public/stockchart.js の冒頭)。
+//   設計は claude/stock_chart_design.md。
+//==================================================================
+app.get(['/stockchart', '/stockchart/'], (req, res) => {
+  sendPage(res, 'stockchart.html');
+});
+
+app.get('/api/stockchart', async (req, res, next) => {
+  try {
+    const raw = String(req.query.code || '').trim();
+    if (!/^[0-9A-Za-z]{4,5}$/.test(raw)) {
+      throw new BadRequest('銘柄コードは4桁または5桁で指定してください');
+    }
+    const code = normalizeCode(raw);
+    const data = await withCache('stockchart:' + code, CACHE_TTL_MS, async () => {
+      const d = await db.withConnection((conn) => stockChartQuery.fetchStockChart(conn, code));
+      return d || { notFound: true };
+    });
+    if (data.notFound) throw new BadRequest(`銘柄コード ${shortCode(code)} は銘柄マスタにありません`);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+//==================================================================
 // 売買記録 (/journal)
 //   判断は追記のみ・保有は約定から計算・写真は画面側で縮小、の約束は journalRoutes.js 冒頭。
 //==================================================================
@@ -1016,7 +1118,7 @@ app.use((err, req, res, next) => {
   }
   // 内部エラーの詳細はクライアントに返さない
   const message = status >= 500 ? 'サーバー側でエラーが発生しました' : err.message;
-  if (req.path === '/chart') {
+  if (req.path === '/chart' || req.path === '/sector-chart') {
     // iframe に表示されるのでHTMLで返す
     res
       .status(status)

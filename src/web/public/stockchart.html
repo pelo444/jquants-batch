@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>個別チャート</title>
+<link rel="stylesheet" href="/style.css?v=20261115b">
+<!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
+<link rel="stylesheet" href="/stockchart.css?v=20261115b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 2v12M12 1v13' stroke='%236B705C' stroke-width='1'/%3E%3Crect x='2.5' y='5' width='3' height='6' fill='%23F7F9FA' stroke='%236B705C'/%3E%3Crect x='10.5' y='4' width='3' height='5' fill='%236B705C' stroke='%236B705C'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root stk-page">
+
+  <header class="topbar">
+    <h1>個別チャート</h1>
+    <span class="meta" id="dataMeta"></span>
+    <span class="spacer"></span>
+    <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/events">材料</a>
+    <a class="btn" href="/daily">日々の確認</a>
+    <a class="btn" href="/">騰落率一覧</a>
+    <a class="btn" href="/stockchart" aria-current="page">個別チャート</a>
+    <a class="btn" href="/reference">参考情報</a>
+    <a class="btn" href="/demand">需給3階層</a>
+    <a class="btn" href="/purchase">銘柄購入</a>
+    <a class="btn" href="/journal">売買記録</a>
+  </header>
+
+  <div class="flash error" id="flash" role="status" hidden></div>
+
+  <section class="panel stk-controls">
+    <div class="stk-row">
+      <label class="stk-ctl" for="codeInput">銘柄コード
+        <input type="text" id="codeInput" class="stk-code" autocomplete="off" spellcheck="false" maxlength="5" placeholder="例: 6613">
+      </label>
+      <button type="button" class="btn primary" id="showBtn">表示</button>
+      <div class="lookup" data-target="codeInput"></div>
+      <span class="spacer"></span>
+      <span class="stk-ctl">足
+        <span class="seg" id="tfSeg" role="group" aria-label="足の種類">
+          <button type="button" class="seg-btn" data-tf="d">日足</button>
+          <button type="button" class="seg-btn" data-tf="w">週足</button>
+          <button type="button" class="seg-btn" data-tf="m">月足</button>
+        </span>
+      </span>
+      <span class="stk-ctl">期間
+        <span class="seg" id="rangeSeg" role="group" aria-label="表示する期間">
+          <button type="button" class="seg-btn" data-range="3m">3か月</button>
+          <button type="button" class="seg-btn" data-range="6m">6か月</button>
+          <button type="button" class="seg-btn" data-range="1y">1年</button>
+          <button type="button" class="seg-btn" data-range="2y">2年</button>
+          <button type="button" class="seg-btn" data-range="5y">5年</button>
+          <button type="button" class="seg-btn" data-range="all">全期間</button>
+        </span>
+      </span>
+      <span class="stk-ctl">指標
+        <span class="seg" id="indSeg" role="group" aria-label="株価に重ねる指標">
+          <button type="button" class="seg-btn" data-ind="ma">移動平均線</button>
+          <button type="button" class="seg-btn" data-ind="bb">ボリンジャーバンド</button>
+        </span>
+      </span>
+      <span class="stk-ctl stk-checks">
+        <label><input type="checkbox" id="showPivot" checked> 高安値</label>
+        <label><input type="checkbox" id="showMargin" checked> 信用残</label>
+        <label><input type="checkbox" id="showEarn" checked> 決算発表日</label>
+      </span>
+    </div>
+  </section>
+
+  <section class="panel stk-chart" id="chartPanel" hidden>
+    <div class="stk-head">
+      <h2 class="panel-title" id="stockTitle"></h2>
+      <span class="meta" id="stockMeta"></span>
+    </div>
+    <div class="stk-info" id="infoRow"></div>
+    <div class="stk-legend" id="legendRow"></div>
+    <div class="stk-wrap" id="chartWrap">
+      <svg id="chart" class="stk-svg" role="img" aria-label="株価チャート"></svg>
+    </div>
+  </section>
+
+</div>
+<script src="/codeLookup.js?v=20261021a"></script>
+<script src="/stockchartCalc.js?v=20261115b"></script>
+<script src="/stockchart.js?v=20261115b"></script>
+</body>
+</html>
