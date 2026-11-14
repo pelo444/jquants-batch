@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/style.css?v=20261021a">
 <!-- ?v= は更新のたびに上げる。静的ファイルはブラウザに1時間キャッシュされるため(server.js の maxAge)、
      上げないと新しいHTMLに古いJSが組み合わさって、新しいボタンが反応しない -->
-<link rel="stylesheet" href="/journal.css?v=20261017d">
+<link rel="stylesheet" href="/journal.css?v=20261115a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='2' width='10' height='12' rx='1.5' fill='none' stroke='%232a78d6' stroke-width='1.6'/%3E%3Cpath d='M5.5 6h5M5.5 9h5' stroke='%232a78d6' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -117,9 +117,8 @@
       <span class="h2-note">判断前の値動きと、その後20/60営業日の対TOPIXの差は株価から自動で付きます(分割調整済み・業種規模は未調整)</span>
     </h2>
     <div class="filter-row">
-      <input type="text" id="decisionFilter" class="code-input" placeholder="銘柄で絞る">
-      <button class="btn" id="decisionFilterBtn" type="button">絞る</button>
-      <button class="link" id="decisionFilterClear" type="button">解除</button>
+      <select id="decisionAction" class="code-select" aria-label="最新の行動で絞る"><option value="">最新の行動で絞る(すべて)</option></select>
+      <select id="decisionFilter" class="code-select" aria-label="銘柄で絞る"><option value="">銘柄で絞る(すべて)</option></select>
       <span class="status" id="decisionListStatus"></span>
     </div>
     <div id="decisionList"></div>
@@ -171,7 +170,7 @@
     <h2>メモ</h2>
     <div class="filter-row">
       <input type="text" id="noteQ" placeholder="本文を検索">
-      <input type="text" id="noteCode" class="code-input" placeholder="銘柄で絞る">
+      <select id="noteCode" class="code-select" aria-label="銘柄で絞る"><option value="">銘柄で絞る(すべて)</option></select>
       <button class="btn" id="noteSearchBtn" type="button">検索</button>
       <button class="link" id="noteSearchClear" type="button">解除</button>
       <span class="status" id="noteListStatus"></span>
@@ -271,6 +270,6 @@
   </section>
 
 </div>
-<script src="/journal.js?v=20261104a"></script>
+<script src="/journal.js?v=20261115c"></script>
 </body>
 </html>

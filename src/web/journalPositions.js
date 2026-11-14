@@ -250,4 +250,79 @@ function summarizeRealized(realized) {
     a.year === b.year ? a.account.localeCompare(b.account) : b.year.localeCompare(a.year));
 }
 
-module.exports = { computePositions, summarizeRealized, _internal: { splitFactorAfter } };
+/**
+ * 保有1件を終値で評価する。終値が無ければ全部 null。
+ * 信用売りは評価額を出さず、損益 = (平均単価 − 終値) × 数量。損益率は取得額(平均単価 × 数量)に対する割合。
+ */
+function valuePosition(p, close) {
+  if (close === null || close === undefined) return { value: null, pnl: null, pnlPct: null };
+  let value = null;
+  let pnl;
+  if (p.kind === 'MSHORT') {
+    pnl = (p.avgCost - close) * p.qty;
+  } else {
+    value = close * p.qty;
+    pnl = value - p.cost;
+  }
+  return { value, pnl, pnlPct: p.cost ? (pnl / p.cost) * 100 : null };
+}
+
+/** 売った約定1件の損益率(%)。取得額が分からなければ null */
+function realizedPct(r) {
+  if (r.pnl === null || r.pnl === undefined || !r.costBasis) return null;
+  return (r.pnl / r.costBasis) * 100;
+}
+
+/** 約定ID → その約定で確定した損益。売り(決済・現渡)の約定だけが入る */
+function realizedByTrade(realized) {
+  const m = new Map();
+  for (const r of realized) {
+    m.set(r.tradeId, { pnl: r.pnl, pnlPct: realizedPct(r), approx: !!r.approx });
+  }
+  return m;
+}
+
+/**
+ * 銘柄ごとの損益: いまの含み損益(held)と、売った約定ごとの損益(sells、新しい順)。
+ * held は口座・種別をまたいで合計する。終値の無い保有が1つでもあれば pnl は null(一部だけの合計を出さない)。
+ * @param {object[]} positions computePositions の positions
+ * @param {Map<string,{date:string, close:number}>} quotes 銘柄 → 最新終値
+ * @param {object[]} realized computePositions の realized
+ * @returns {Map<string, {held:object|null, sells:object[], realizedTotal:number, realizedUnknown:number}>}
+ */
+function pnlByCode(positions, quotes, realized) {
+  const out = new Map();
+  const get = (code) => {
+    if (!out.has(code)) out.set(code, { held: null, sells: [], realizedTotal: 0, realizedUnknown: 0 });
+    return out.get(code);
+  };
+  for (const p of positions) {
+    const e = get(p.code);
+    const q = quotes.get(p.code);
+    const v = valuePosition(p, q ? q.close : null);
+    if (!e.held) e.held = { cost: 0, pnl: 0, pnlPct: null, close: q ? q.close : null, closeDate: q ? q.date : null };
+    e.held.cost += p.cost;
+    e.held.pnl = e.held.pnl === null || v.pnl === null ? null : e.held.pnl + v.pnl;
+  }
+  for (const e of out.values()) {
+    if (e.held && e.held.pnl !== null && e.held.cost) e.held.pnlPct = (e.held.pnl / e.held.cost) * 100;
+  }
+  for (const r of realized) {
+    const e = get(r.code);
+    e.sells.push({
+      tradeId: r.tradeId, tradeDate: r.tradeDate, account: r.account, kind: r.kind, qty: round(r.qty),
+      pnl: r.pnl, pnlPct: realizedPct(r), approx: !!r.approx,
+    });
+    if (r.pnl === null || r.pnl === undefined) e.realizedUnknown += 1;
+    else e.realizedTotal += r.pnl;
+  }
+  for (const e of out.values()) {
+    e.sells.sort((a, b) => (a.tradeDate < b.tradeDate ? 1 : a.tradeDate > b.tradeDate ? -1 : b.tradeId - a.tradeId));
+  }
+  return out;
+}
+
+module.exports = {
+  computePositions, summarizeRealized, valuePosition, realizedByTrade, pnlByCode,
+  _internal: { splitFactorAfter },
+};

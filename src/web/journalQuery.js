@@ -15,8 +15,9 @@ const oracledb = require('oracledb');
 const OBJ = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 
 const ACTIONS = ['BUY', 'ADD', 'TRIM', 'SELL', 'PASS', 'HOLD'];
+// SHALLOW(深堀り不足)は 2026-11-15 に追加。DB の CHECK 制約は ddl/36_journal_reason_shallow.sql
 const REASONS = ['EARNINGS', 'DIP', 'MOMENTUM', 'NEWS', 'THEME', 'VALUE', 'DIVIDEND',
-  'RECOMMEND', 'REBALANCE', 'STOPLOSS', 'TAKEPROFIT', 'OTHER'];
+  'RECOMMEND', 'REBALANCE', 'STOPLOSS', 'TAKEPROFIT', 'SHALLOW', 'OTHER'];
 const SOURCES = ['OWN_SCREEN', 'NEWS', 'SNS', 'DISCLOSURE', 'MEDIA', 'PERSON', 'APP', 'OTHER'];
 const VERDICTS = ['RIGHT', 'PARTLY', 'WRONG', 'UNKNOWN'];
 const ASSIGNEES = ['SELF', 'CLAUDE'];
@@ -174,6 +175,37 @@ async function fetchRecordCounts(conn) {
   return out;
 }
 
+/**
+ * 「銘柄で絞る」のプルダウンの選択肢。判断かメモのある銘柄を、コード順に返す。
+ * action は、その銘柄の最新の判断の行動(訂正された元の行は除く。同じ日なら後から書いたもの)。判断が無ければ null。
+ * @returns {Promise<{code:string, name:string|null, action:string|null, decisions:number, notes:number}[]>}
+ */
+async function fetchCodeOptions(conn) {
+  const m = new Map();
+  const get = (code) => {
+    if (!m.has(code)) m.set(code, { code, name: null, action: null, decisions: 0, notes: 0 });
+    return m.get(code);
+  };
+  const d = await conn.execute(
+    `SELECT d.code, COUNT(*) AS n,
+            MAX(d.action) KEEP (DENSE_RANK LAST ORDER BY d.decision_date, d.decision_id) AS action
+     FROM jnl_decision d
+     WHERE NOT EXISTS (SELECT 1 FROM jnl_decision s WHERE s.supersedes_id = d.decision_id)
+     GROUP BY d.code`, {}, OBJ
+  );
+  d.rows.forEach((x) => { const e = get(x.CODE); e.decisions = x.N; e.action = x.ACTION; });
+  const n = await conn.execute(`SELECT codes FROM jnl_note WHERE codes IS NOT NULL`);
+  n.rows.forEach((x) => {
+    new Set(String(x[0]).split(',').filter(Boolean)).forEach((c) => { get(c).notes += 1; });
+  });
+  for (const part of chunks(Array.from(m.keys()), 500)) {
+    const { sql, binds } = inBinds('c', part);
+    const r = await conn.execute(`SELECT code, co_name FROM equity_master WHERE code IN (${sql})`, binds, OBJ);
+    r.rows.forEach((x) => { m.get(x.CODE).name = x.CO_NAME; });
+  }
+  return Array.from(m.values()).sort((a, b) => a.code.localeCompare(b.code));
+}
+
 /** 分割(AdjFactor≠1)の日。銘柄ごとに日付順 */
 async function fetchSplits(conn, codes, fromDate) {
   const out = new Map();
@@ -313,8 +345,12 @@ async function fetchDecisionSnapshot(conn, decisionId) {
   return r.rows.length ? JSON.parse(r.rows[0].PAYLOAD) : null;
 }
 
-/** 判断の一覧(評価ビューの値と振り返りを付ける) */
-async function fetchDecisions(conn, { limit = 200, code = null } = {}) {
+/**
+ * 判断の一覧(評価ビューの値と振り返りを付ける)。
+ * latestAction を渡すと、その行動が最新になっている銘柄の判断だけを返す(例: 新規買いのまま次の判断を書いていない銘柄)。
+ * 最新かどうかは、訂正された元の行を除いて、判断した日・判断IDの順で見る(fetchCodeOptions と同じ)
+ */
+async function fetchDecisions(conn, { limit = 200, code = null, latestAction = null } = {}) {
   const r = await conn.execute(
     `SELECT d.decision_id, TO_CHAR(d.decision_date,'YYYY-MM-DD') AS decision_date, d.code, m.co_name,
             d.action, d.reason_cat, d.reason_text, d.idea_source, d.expect_ret_pct, d.horizon_weeks,
@@ -325,11 +361,19 @@ async function fetchDecisions(conn, { limit = 200, code = null } = {}) {
             CASE WHEN EXISTS (SELECT 1 FROM jnl_decision_snapshot s WHERE s.decision_id = d.decision_id) THEN 'Y' END AS has_snap
      FROM (SELECT * FROM jnl_decision
            WHERE (:code IS NULL OR code = :code)
+             AND (:latestAction IS NULL OR code IN (
+                   SELECT x.code FROM (
+                     SELECT d2.code,
+                            MAX(d2.action) KEEP (DENSE_RANK LAST ORDER BY d2.decision_date, d2.decision_id) AS action
+                     FROM jnl_decision d2
+                     WHERE NOT EXISTS (SELECT 1 FROM jnl_decision s2 WHERE s2.supersedes_id = d2.decision_id)
+                     GROUP BY d2.code) x
+                   WHERE x.action = :latestAction))
            ORDER BY decision_date DESC, decision_id DESC FETCH FIRST :n ROWS ONLY) d
      JOIN jnl_decision_eval_v e ON e.decision_id = d.decision_id
      LEFT JOIN equity_master m ON m.code = d.code
      ORDER BY d.decision_date DESC, d.decision_id DESC`,
-    { code, n: limit }, OBJ
+    { code, latestAction, n: limit }, OBJ
   );
   const ids = r.rows.map((x) => x.DECISION_ID);
   const reviews = new Map();
@@ -663,7 +707,7 @@ async function noteExists(conn, id) {
 
 module.exports = {
   ACTIONS, REASONS, SOURCES, VERDICTS, ASSIGNEES, Q_STATUSES,
-  importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, fetchVolatility, lookupCode, fetchRecordCounts,
+  importTrades, fetchImportBatches, fetchTrades, fetchSplits, fetchQuotes, fetchVolatility, lookupCode, fetchRecordCounts, fetchCodeOptions,
   insertDecision, insertReview, fetchDecisions, decisionExists, fetchDecisionSnapshot,
   insertNote, updateNote, deleteNote, deleteImage, fetchNotes, fetchImage, updateTranscription, exportUntranscribed,
   upsertSnapshot, deleteSnapshot, fetchSnapshots,

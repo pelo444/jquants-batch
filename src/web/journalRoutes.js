@@ -22,7 +22,7 @@ const { sendPage } = require('./basePath');
 
 const jq = require('./journalQuery');
 const { parseRakutenCsv } = require('./journalCsv');
-const { computePositions, summarizeRealized } = require('./journalPositions');
+const { computePositions, summarizeRealized, valuePosition, realizedByTrade, pnlByCode } = require('./journalPositions');
 const { syncJournalTags } = require('./journalTags');
 const capital = require('../capital');
 
@@ -203,6 +203,14 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
     }
   }
 
+  /** 約定を読んで保有と実現損益を計算する。code を渡すとその銘柄だけ */
+  async function loadBook(c, { code = null } = {}) {
+    const trades = await jq.fetchTrades(c, { code });
+    const codes = Array.from(new Set(trades.map((t) => t.code)));
+    const splits = trades.length ? await jq.fetchSplits(c, codes, trades[0].tradeDate) : new Map();
+    return { trades, ...computePositions(trades, splits) };
+  }
+
   router.get(['/journal', '/journal/'], (req, res) => {
     sendPage(res, 'journal.html');
   });
@@ -225,15 +233,23 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
     res.json(info);
   }));
 
+  // 「銘柄で絞る」のプルダウンの選択肢(判断かメモのある銘柄と、最新の行動)
+  router.get('/api/journal/codes', wrap(async (req, res) => {
+    const rows = await db.withConnection((c) => jq.fetchCodeOptions(c));
+    res.json({ rows });
+  }));
+
   // 判断を書くときに、その銘柄の過去の売買と今の保有を横に出す(保有タブと同じ計算)
   router.get('/api/journal/code-history', wrap(async (req, res) => {
     const code = vCode(req.query.code);
     const out = await db.withConnection(async (c) => {
-      const trades = await jq.fetchTrades(c, { code });
-      const splits = trades.length ? await jq.fetchSplits(c, [code], trades[0].tradeDate) : new Map();
-      return { trades, positions: computePositions(trades, splits).positions };
+      const book = await loadBook(c, { code });
+      const quotes = book.positions.length ? await jq.fetchQuotes(c, [code]) : new Map();
+      return { ...book, quote: quotes.get(code) || null };
     });
     const recent = out.trades.slice().reverse();
+    const sold = realizedByTrade(out.realized);
+    const close = out.quote ? out.quote.close : null;
     res.json({
       code,
       total: recent.length,
@@ -242,8 +258,14 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
       trades: recent.slice(0, 30).map((t) => ({
         tradeDate: t.tradeDate, accountType: t.accountType, tradeType: t.tradeType, sideRaw: t.sideRaw,
         side: t.side, positionKind: t.positionKind, positionEffect: t.positionEffect, qty: t.qty, price: t.price,
+        // 売った約定だけ: その約定で確定した損益。pnl が null なら取得額が分からない(履歴不足)
+        sold: sold.get(t.tradeId) || null,
       })),
-      positions: out.positions.map((p) => ({ account: p.account, kind: p.kind, qty: p.qty, avgCost: p.avgCost })),
+      closeDate: out.quote ? out.quote.date : null,
+      positions: out.positions.map((p) => {
+        const v = valuePosition(p, close);
+        return { account: p.account, kind: p.kind, qty: p.qty, avgCost: p.avgCost, close, pnl: v.pnl, pnlPct: v.pnlPct };
+      }),
     });
   }));
 
@@ -288,9 +310,14 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
 
   //---------------------------------------------------------- 約定と保有
   router.get('/api/journal/trades', wrap(async (req, res) => {
-    const rows = await db.withConnection((c) => jq.fetchTrades(c));
-    rows.reverse();
-    res.json({ count: rows.length, rows: rows.slice(0, 1000) });
+    const book = await db.withConnection((c) => loadBook(c));
+    const sold = realizedByTrade(book.realized);
+    const rows = book.trades.slice().reverse();
+    res.json({
+      count: rows.length,
+      // sold: 売った約定だけ。その約定で確定した損益(保有タブの実現損益と同じ計算)
+      rows: rows.slice(0, 1000).map((t) => ({ ...t, sold: sold.get(t.tradeId) || null })),
+    });
   }));
 
   router.get('/api/journal/positions', wrap(async (req, res) => {
@@ -313,21 +340,11 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
     const positions = out.positions.map((p) => {
       const q = out.quotes.get(p.code);
       const close = q ? q.close : null;
-      let value = null;
-      let pnl = null;
-      if (close !== null) {
-        if (p.kind === 'MSHORT') {
-          pnl = (p.avgCost - close) * p.qty;
-        } else {
-          value = close * p.qty;
-          pnl = value - p.cost;
-        }
-      }
+      const { value, pnl, pnlPct } = valuePosition(p, close);
       if (p.kind === 'CASH' && value !== null) {
         totalValue += value;
         totalCost += p.cost;
       }
-      const pnlPct = pnl !== null && p.cost ? (pnl / p.cost) * 100 : null;
       const v = out.vols.get(p.code);
       const vol13w = v ? v.vol13w : null;
       return {
@@ -355,8 +372,18 @@ module.exports = function journalRoutes({ db, onTagsChanged = () => {} }) {
   router.get('/api/journal/decisions', wrap(async (req, res) => {
     const code = vCode(req.query.code, '銘柄コード', { required: false });
     const limit = vNum(req.query.limit, '件数', { min: 1, max: 1000, int: true }) || 200;
-    const rows = await db.withConnection((c) => jq.fetchDecisions(c, { limit, code }));
-    res.json({ count: rows.length, rows });
+    const latestAction = vEnum(req.query.latestAction, jq.ACTIONS, '最新の行動', { required: false });
+    const out = await db.withConnection(async (c) => {
+      const rows = await jq.fetchDecisions(c, { limit, code, latestAction });
+      // 一覧に出る銘柄の、いまの含み損益と売った約定ごとの損益(保有タブと同じ計算)
+      const book = await loadBook(c, { code });
+      const quotes = await jq.fetchQuotes(c, Array.from(new Set(book.positions.map((p) => p.code))));
+      const all = pnlByCode(book.positions, quotes, book.realized);
+      const pnl = {};
+      new Set(rows.map((d) => d.code)).forEach((cd) => { if (all.has(cd)) pnl[cd] = all.get(cd); });
+      return { rows, pnl };
+    });
+    res.json({ count: out.rows.length, rows: out.rows, pnl: out.pnl });
   }));
 
   router.post('/api/journal/decisions', wrap(async (req, res) => {

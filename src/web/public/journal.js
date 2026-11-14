@@ -12,7 +12,7 @@
     reason: {
       EARNINGS: '決算・業績', DIP: '押し目', MOMENTUM: '上昇の勢い', NEWS: 'ニュース', THEME: 'テーマ',
       VALUE: '割安', DIVIDEND: '配当・優待', RECOMMEND: '人の推奨', REBALANCE: '比率の調整',
-      STOPLOSS: '損切り', TAKEPROFIT: '利益確定', OTHER: 'その他'
+      STOPLOSS: '損切り', TAKEPROFIT: '利益確定', SHALLOW: '深堀り不足', OTHER: 'その他'
     },
     source: {
       OWN_SCREEN: '自分の調べ', NEWS: 'ニュース', SNS: 'SNS', DISCLOSURE: '適時開示・決算資料',
@@ -59,6 +59,56 @@
     return '<span class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : '') + '">' + s + '</span>';
   }
   function short(code) { return code && code.length === 5 && code[4] === '0' ? code.slice(0, 4) : code; }
+  /** 損益を「+12,300円(+8.1%)」の形にする。金額が分からなければ「不明」 */
+  function pnlText(pnl, pct) {
+    if (pnl === null || pnl === undefined) return '<span class="pending">不明</span>';
+    return signed(pnl, 0, '円') + (pct === null || pct === undefined ? '' : '(' + signed(pct, 1, '%') + ')');
+  }
+
+  //------------------------------------------------------------------ 「銘柄で絞る」のプルダウン(判断・メモ)
+  var codeOptions = [];
+  /** プルダウンの値を銘柄コードにする。選択肢に無い銘柄なら、その場で1行足す */
+  function setCodeSelect(sel, code) {
+    if (code && !Array.prototype.some.call(sel.options, function (o) { return o.value === code; })) {
+      var o = document.createElement('option');
+      o.value = code;
+      o.textContent = short(code);
+      sel.appendChild(o);
+    }
+    sel.value = code || '';
+  }
+  function fillCodeSelect(sel, rows) {
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">銘柄で絞る(すべて)</option>' + rows.map(function (c) {
+      return '<option value="' + esc(c.code) + '">' + esc(short(c.code)) + ' ' + esc(c.name || '') +
+        (c.action ? ' ・ ' + esc(LABELS.action[c.action] || c.action) : '') + '</option>';
+    }).join('');
+    // 選んでいた銘柄が新しい選択肢に無ければ、絞り込みを外す(例: 行動を変えて、その行動の判断が無い銘柄だったとき)
+    sel.value = Array.prototype.some.call(sel.options, function (o) { return o.value === cur; }) ? cur : '';
+  }
+  /** 選択肢を取り直す。判断は判断のある銘柄、メモはメモのある銘柄。表示は「コード 銘柄名 ・ 最新の行動」 */
+  async function refreshCodeOptions() {
+    try {
+      codeOptions = (await api('GET', BASE_PATH + '/api/journal/codes')).rows;
+    } catch (e) {
+      flash('銘柄の一覧を読み込めませんでした: ' + e.message, true);
+      return;
+    }
+    fillDecisionCodes();
+    fillCodeSelect($('noteCode'), codeOptions.filter(function (c) { return c.notes > 0; }));
+  }
+
+  /**
+   * 判断タブの銘柄のプルダウン。最新の行動を選んでいるときは、その行動が最新になっている銘柄だけにする
+   * (例: 新規買いのまま次の判断を書いていない銘柄)。
+   * 選んでいた銘柄が残らなければ、銘柄の絞り込みは外れる(「すべて」に戻る)
+   */
+  function fillDecisionCodes() {
+    var act = $('decisionAction').value;
+    fillCodeSelect($('decisionFilter'), codeOptions.filter(function (c) {
+      return act ? c.action === act : c.decisions > 0;
+    }));
+  }
 
   async function api(method, url, body) {
     var opt = { method: method, headers: {} };
@@ -252,12 +302,15 @@
       $('tradesNote').textContent = '新しい順。全' + r.count + '件' + (r.count > r.rows.length ? '(先頭' + r.rows.length + '件)' : '');
       $('tradesTable').innerHTML = r.rows.length
         ? '<thead><tr><th>約定日</th><th>口座</th><th>取引</th><th>売買</th><th>コード</th><th>銘柄</th>' +
-          '<th class="num-col">数量</th><th class="num-col">単価</th><th class="num-col">手数料</th><th class="num-col">税</th><th class="num-col">受渡金額</th></tr></thead><tbody>' +
+          '<th class="num-col">数量</th><th class="num-col">単価</th><th class="num-col">手数料</th><th class="num-col">税</th><th class="num-col">受渡金額</th>' +
+          '<th class="num-col" title="売った約定で確定した損益。取得単価は移動平均">売却の損益</th><th class="num-col" title="売却の損益 ÷ 売った分の取得額">損益率</th></tr></thead><tbody>' +
           r.rows.map(function (t) {
             return '<tr><td>' + esc(t.tradeDate) + '</td><td>' + esc(t.accountType || '') + '</td><td>' + esc(t.tradeType || '') +
               '</td><td>' + esc(t.sideRaw || '') + '</td><td class="code">' + esc(short(t.code)) + '</td><td class="name">' + esc(t.name || '') +
               '</td><td class="num-col">' + num(t.qty) + '</td><td class="num-col">' + num(t.price, 1) + '</td><td class="num-col">' +
-              yen(t.fee) + '</td><td class="num-col">' + yen(t.tax) + '</td><td class="num-col">' + yen(t.settleAmount) + '</td></tr>';
+              yen(t.fee) + '</td><td class="num-col">' + yen(t.tax) + '</td><td class="num-col">' + yen(t.settleAmount) + '</td>' +
+              '<td class="num-col">' + (t.sold ? (t.sold.pnl === null ? '<span class="pending">不明</span>' : signed(t.sold.pnl, 0)) : '') + '</td>' +
+              '<td class="num-col">' + (t.sold && t.sold.pnlPct !== null ? signed(t.sold.pnlPct, 1, '%') : '') + '</td></tr>';
           }).join('') + '</tbody>'
         : '<tbody><tr><td class="dim">約定はまだありません</td></tr></tbody>';
     } catch (e) {
@@ -336,7 +389,8 @@
       var held = r.positions.length
         ? r.positions.map(function (p) {
           return esc(p.account) + (p.kind !== 'CASH' ? '・' + esc(LABELS.kind[p.kind]) : '') + ' ' + num(p.qty) + '株' +
-            '(平均 ' + num(p.avgCost, 1) + ')';
+            '(平均 ' + num(p.avgCost, 1) + ')' +
+            (p.pnl === null || p.pnl === undefined ? '' : ' 含み損益 ' + pnlText(p.pnl, p.pnlPct));
         }).join('、')
         : 'いまは保有なし';
       var shown = r.trades.slice(0, 8);
@@ -347,7 +401,8 @@
           return '<li><span class="ch-date">' + esc(t.tradeDate) + '</span>' +
             '<span class="ch-side ' + dir + '">' + esc(t.sideRaw || (t.side === 'B' ? '買' : '売')) + '</span>' +
             '<span class="ch-qty">' + num(t.qty) + '株' + (noPrice ? '' : ' @' + num(t.price, t.price % 1 ? 1 : 0)) + '</span>' +
-            '<span class="ch-acc">' + esc(t.accountType || '') + '</span></li>';
+            '<span class="ch-acc">' + esc(t.accountType || '') + '</span>' +
+            (t.sold ? '<span class="ch-pnl">損益 ' + pnlText(t.sold.pnl, t.sold.pnlPct) + '</span>' : '') + '</li>';
         }).join('') + '</ul>' +
         (r.total > shown.length ? '<div class="ch-more">ほか ' + (r.total - shown.length) + '件(最初の売買 ' + esc(r.firstDate) + ')</div>' : '');
     } catch (e) {
@@ -445,19 +500,49 @@
       document.querySelectorAll('#emotionChips .chip').forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
       setSupersede(null);
       loadDecisions();
+      refreshCodeOptions();   // 最新の行動が変わる
     } catch (e) {
       setStatus('decisionStatus', e.message, true);
     }
   }
 
+  /**
+   * 「銘柄で絞る」で銘柄を選んだとき、上段の記録入力欄の銘柄コードにも同じ銘柄を入れる
+   * (絞った銘柄の判断を続けて書くことが多いため)。銘柄名と売買記録も出す。
+   * 「すべて」に戻したときは入力欄を触らない(書きかけの銘柄を消さないため)
+   */
+  function onDecisionFilterChange() {
+    var code = $('decisionFilter').value;
+    if (code) {
+      var f = $('decisionForm');
+      f.elements.code.value = short(code);
+      f.elements.code.dispatchEvent(new Event('blur'));
+    }
+    loadDecisions();
+  }
+
+  /** 最新の行動を変えたとき: 銘柄のプルダウンを作り直してから、一覧を読み直す */
+  function onDecisionActionChange() {
+    fillDecisionCodes();
+    loadDecisions();
+  }
+
   var decisionCache = [];
+  var decisionPnl = {};          // 銘柄 → いまの含み損益と、売った約定ごとの損益
   async function loadDecisions() {
-    var code = $('decisionFilter').value.trim();
+    var qs = [];
+    var code = $('decisionFilter').value;
+    var act = $('decisionAction').value;
+    if (code) qs.push('code=' + encodeURIComponent(code));
+    if (act) qs.push('latestAction=' + encodeURIComponent(act));
     setStatus('decisionListStatus', '読み込み中…');
     try {
-      var r = await api('GET', BASE_PATH + '/api/journal/decisions' + (code ? '?code=' + encodeURIComponent(code) : ''));
+      var r = await api('GET', BASE_PATH + '/api/journal/decisions' + (qs.length ? '?' + qs.join('&') : ''));
       decisionCache = r.rows;
-      setStatus('decisionListStatus', r.count + '件');
+      decisionPnl = r.pnl || {};
+      var codes = {};
+      r.rows.forEach(function (d) { codes[d.code] = 1; });
+      setStatus('decisionListStatus', r.count + '件(' + Object.keys(codes).length + '銘柄)');
       renderDecisions(r.rows);
     } catch (e) {
       setStatus('decisionListStatus', e.message, true);
@@ -490,6 +575,30 @@
       (e.baseDate ? kv('基準', esc(e.baseDate) + ' 終値 ' + num(e.baseClose, 1)) : '');
   }
 
+  /**
+   * 判断のカードの右の列に出す損益。その銘柄をいま持っていれば含み損益、売った約定があれば約定ごとの損益(新しい順に3件まで)。
+   * どちらも無い銘柄(見送りなど)では何も出さない
+   */
+  function pnlHtml(p) {
+    if (!p || (!p.held && !p.sells.length)) return '';
+    var h = '<dt class="dside-h">損益</dt>';
+    if (p.held) {
+      h += kv('<span title="' + esc(p.held.closeDate || '') + ' の終値で計算">今の含み損益</span>', pnlText(p.held.pnl, p.held.pnlPct));
+    }
+    if (p.sells.length) {
+      var lines = p.sells.slice(0, 3).map(function (s) {
+        return '<div class="pnl-line">' + esc(s.tradeDate) + ' ' + pnlText(s.pnl, s.pnlPct) + '</div>';
+      });
+      if (p.sells.length > 3) lines.push('<div class="pnl-line">ほか ' + (p.sells.length - 3) + '回</div>');
+      if (p.sells.length > 1) {
+        lines.push('<div class="pnl-line">合計 ' + signed(p.realizedTotal, 0, '円') +
+          (p.realizedUnknown ? '(不明 ' + p.realizedUnknown + '回を除く)' : '') + '</div>');
+      }
+      h += kv('売却の損益', lines.join(''));
+    }
+    return h;
+  }
+
   function renderDecisions(rows) {
     if (!rows.length) {
       $('decisionList').innerHTML = '<p class="empty">まだ判断の記録がありません。</p>';
@@ -508,8 +617,10 @@
       }
       if (d.plannedStopPct !== null) chips += chip('損切り', d.plannedStopPct + '%下');
       if (d.sizeNote) chips += chip('サイズ', esc(d.sizeNote));
-      return '<div class="dcard' + (d.superseded ? ' superseded' : '') + '" data-id="' + d.decisionId + '">' +
-        '<div class="dhead"><span class="id">#' + d.decisionId + '</span><span>' + esc(d.decisionDate) + '</span>' +
+      return '<div class="dcard' + (d.superseded ? ' superseded collapsed' : '') + '" data-id="' + d.decisionId + '">' +
+        '<div class="dhead"' + (d.superseded ? ' role="button" tabindex="0" aria-expanded="false" title="押すと中身が出ます"' : '') + '>' +
+        (d.superseded ? '<span class="fold">▶</span>' : '') +
+        '<span class="id">#' + d.decisionId + '</span><span>' + esc(d.decisionDate) + '</span>' +
         '<span class="act ' + d.action + '">' + esc(LABELS.action[d.action]) + '</span>' +
         '<span class="code">' + esc(short(d.code)) + '</span><span class="nm">' + esc(d.name || '') + '</span>' +
         (d.supersedesId ? '<span class="flag">#' + d.supersedesId + ' の訂正</span>' : '') +
@@ -523,7 +634,7 @@
           return '<div class="review"><span class="verdict">' + esc(v.reviewDate) + ' ' + esc(LABELS.verdict[v.reasonVerdict]) + '</span>' +
             esc(v.outcomeNote || '') + (v.lesson ? '<br><span class="pending">教訓: </span>' + esc(v.lesson) : '') + '</div>';
         }).join('') + '</div>' : '') +
-        '</div><dl class="dside">' + evalHtml(d.eval) + '</dl></div>' +
+        '</div><dl class="dside">' + evalHtml(d.eval) + pnlHtml(decisionPnl[d.code]) + '</dl></div>' +
         '<div class="dchips">' + chips + '</div>' +
         '<div class="dactions">' +
         (d.hasSnapshot ? '<button class="link" type="button" data-snap="' + d.decisionId + '">判断時の値</button>' : '') +
@@ -776,6 +887,7 @@
       setStatus('noteStatus', '');
       resetNoteForm();
       loadNotes();
+      refreshCodeOptions();
     } catch (e) {
       setStatus('noteStatus', e.message, true);
     }
@@ -784,7 +896,7 @@
   var noteCache = [];
   async function loadNotes() {
     var q = $('noteQ').value.trim();
-    var code = $('noteCode').value.trim();
+    var code = $('noteCode').value;
     var qs = [];
     if (q) qs.push('q=' + encodeURIComponent(q));
     if (code) qs.push('code=' + encodeURIComponent(code));
@@ -1235,7 +1347,9 @@
       return;
     }
     if ((el = t.closest('[data-goto-decisions]'))) {
-      $('decisionFilter').value = short(el.dataset.gotoDecisions);
+      $('decisionAction').value = '';
+      fillDecisionCodes();
+      setCodeSelect($('decisionFilter'), el.dataset.gotoDecisions);
       var wasD = loaded.decisions;
       showTab('decisions');
       if (wasD) loadDecisions();
@@ -1243,7 +1357,7 @@
       return;
     }
     if ((el = t.closest('[data-goto-notes]'))) {
-      $('noteCode').value = short(el.dataset.gotoNotes);
+      setCodeSelect($('noteCode'), el.dataset.gotoNotes);
       $('noteQ').value = '';
       var wasN = loaded.notes;
       showTab('notes');
@@ -1251,6 +1365,7 @@
       $('noteList').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
+    if ((el = t.closest('.dcard.superseded > .dhead'))) { toggleCard(el); return; }
     if ((el = t.closest('[data-snap]'))) { toggleSnapshot(el.closest('.dcard'), Number(el.dataset.snap)); return; }
     if ((el = t.closest('[data-review]'))) { openReviewForm(el.closest('.dcard'), Number(el.dataset.review)); return; }
     if ((el = t.closest('[data-supersede]'))) { startSupersede(Number(el.dataset.supersede)); return; }
@@ -1292,7 +1407,7 @@
     if ((el = t.closest('[data-edit-note]'))) { startEditNote(Number(el.dataset.editNote)); return; }
     if ((el = t.closest('[data-del-note]'))) {
       if (!window.confirm('メモ #' + el.dataset.delNote + ' を写真ごと削除します。よろしいですか?')) return;
-      try { await api('DELETE', BASE_PATH + '/api/journal/notes/' + el.dataset.delNote); flash('削除しました'); loadNotes(); loaded.positions = false; } catch (e) { flash(e.message, true); }
+      try { await api('DELETE', BASE_PATH + '/api/journal/notes/' + el.dataset.delNote); flash('削除しました'); loadNotes(); refreshCodeOptions(); loaded.positions = false; } catch (e) { flash(e.message, true); }
       return;
     }
     if ((el = t.closest('[data-del-img]'))) {
@@ -1329,6 +1444,23 @@
     } catch (e) { flash(e.message, true); }
   });
 
+  /** 訂正済みのカードの開閉 */
+  function toggleCard(head) {
+    var card = head.parentNode;
+    var open = card.classList.toggle('collapsed') === false;
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    var f = head.querySelector('.fold');
+    if (f) f.textContent = open ? '▼' : '▶';
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var head = ev.target.closest && ev.target.closest('.dcard.superseded > .dhead');
+    if (!head) return;
+    ev.preventDefault();
+    toggleCard(head);
+  });
+
   //================================================================== 起動
   async function init() {
     try {
@@ -1345,8 +1477,12 @@
     $('syncTagsBtn').onclick = syncTags;
     refreshQuestionMeta();
     $('dataMeta').textContent = '';
-    $('decisionFilterBtn').onclick = loadDecisions;
-    $('decisionFilterClear').onclick = function () { $('decisionFilter').value = ''; loadDecisions(); };
+    fillSelect($('decisionAction'), meta.actions, LABELS.action, false);
+    $('decisionAction').insertAdjacentHTML('afterbegin', '<option value="" selected>最新の行動で絞る(すべて)</option>');
+    refreshCodeOptions();
+    $('decisionAction').onchange = onDecisionActionChange;
+    $('decisionFilter').onchange = onDecisionFilterChange;
+    $('noteCode').onchange = loadNotes;
     $('noteSearchBtn').onclick = loadNotes;
     $('noteSearchClear').onclick = function () { $('noteQ').value = ''; $('noteCode').value = ''; loadNotes(); };
     $('exportImagesBtn').onclick = async function () {

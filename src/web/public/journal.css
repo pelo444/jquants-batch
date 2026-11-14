@@ -266,3 +266,19 @@ details.more .more-body { display: flex; flex-direction: column; gap: 10px; marg
 .after-t thead th:first-child, .after-t tbody th { text-align: left; font-weight: 600; color: var(--text-secondary); }
 .after-t td { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 .after-t td[colspan] { text-align: left; }
+
+/* 「銘柄で絞る」のプルダウン(判断・メモ)。選択肢は「コード 銘柄名 ・ 最新の行動」 */
+.filter-row select.code-select {
+  font: inherit; font-size: 13px; padding: 5px 8px; max-width: 100%;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary);
+}
+/* 損益: 判断のカード(右の列)と、判断フォームの売買記録の枠 */
+.dside dd .pnl-line { white-space: nowrap; }
+.code-history .ch-pnl { font-variant-numeric: tabular-nums; }
+
+/* 訂正済みの判断は一番上の行だけ出す。行を押すと中身が出る */
+.dcard.collapsed .dgrid, .dcard.collapsed .dchips, .dcard.collapsed .dactions,
+.dcard.collapsed .snap-slot, .dcard.collapsed .review-slot { display: none; }
+.dcard.superseded .dhead { cursor: pointer; }
+.dhead .fold { color: var(--muted); font-size: 10px; width: 1em; }
