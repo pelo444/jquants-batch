@@ -10,12 +10,16 @@
  *   ・出力HTMLのサイズが小さくなる(日付文字列を銘柄ごとに持たない)
  *   ・全グラフのクロスヘアを同じ日付で同期できる
  *
+ * 材料(原油・金利など)を重ねるときは ext を渡す。値は株価と同じ dates の並びに合わせ、
+ * 国内の営業日に無い日の値は落とす(グラフは指数表示でだけ重ねるので、水準は揃えなくてよい)。
+ *
  * @param {{code:string,name:string,market:string,date:string,adjClose:number,isSplit:number}[]} rows
  * @param {string[]} orderedCodes 表示したい順の銘柄コード
  * @param {object} meta from / to / source など、そのままペイロードに載せる情報
- * @returns {{dates:string[], series:object[]}}
+ * @param {{defs:{code:string,label:string,unit:string,dec:number}[], rows:{code:string,date:string,value:number}[]}} [ext]
+ * @returns {{dates:string[], series:object[], ext:object[]}}
  */
-function buildPayload(rows, orderedCodes, meta) {
+function buildPayload(rows, orderedCodes, meta, ext) {
   const dateSet = new Set();
   for (const r of rows) dateSet.add(r.date);
   const dates = Array.from(dateSet).sort();
@@ -47,7 +51,22 @@ function buildPayload(rows, orderedCodes, meta) {
     }
   });
 
-  return { ...meta, dates, series };
+  const extOut = [];
+  if (ext && ext.defs && ext.defs.length) {
+    const byExt = new Map();
+    for (const r of ext.rows || []) {
+      const i = dateIndex.get(r.date);
+      if (i === undefined) continue;          // 国内の営業日に無い日
+      if (!byExt.has(r.code)) byExt.set(r.code, new Array(dates.length).fill(null));
+      byExt.get(r.code)[i] = r.value;
+    }
+    for (const def of ext.defs) {
+      const values = byExt.get(def.code);
+      if (values) extOut.push({ ...def, values });
+    }
+  }
+
+  return { ...meta, dates, series, ext: extOut };
 }
 
 module.exports = { buildPayload };

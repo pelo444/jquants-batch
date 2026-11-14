@@ -32,6 +32,9 @@ const STYLE = `
   --border: rgba(138,126,138,0.30);
   --hover-wash: rgba(138,126,138,0.10);
   --series-1: #6B705C;
+  /* 材料(原油・金利など)を重ねるときの2本目・3本目。2026-10-15 の4色から */
+  --series-2: #C2A649;
+  --series-3: #8A7E8A;
   --on-accent: #ffffff;
   --good: #4A6B3A;
   --critical: #A3432F;
@@ -59,6 +62,12 @@ body {
 .toolbar .meta { font-size: 12px; color: var(--text-secondary); }
 .toolbar .spacer { flex: 1 1 auto; }
 .ctl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.legend { display: inline-flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-secondary); }
+.legend span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.legend i { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; display: inline-block; }
+.legend .l1 { border-top-color: var(--series-1); }
+.legend .l2 { border-top-color: var(--series-2); border-top-style: dashed; }
+.legend .l3 { border-top-color: var(--series-3); border-top-style: dashed; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .seg button {
   font: inherit; font-size: 12px; padding: 4px 10px; border: 0; cursor: pointer;
@@ -167,7 +176,10 @@ const CLIENT = `
   var DATA = window.__DATA__;
   var dates = DATA.dates;
   var charts = [];
-  var state = { scale: 'abs', sort: 'given' };
+  var state = { scale: DATA.scale === 'idx' ? 'idx' : 'abs', sort: 'given' };
+  // 材料(原油・金利など)。指数表示のときだけ、銘柄の線に重ねて描く
+  var EXT = DATA.ext || [];
+  var EXT_COLORS = ['var(--series-2)', 'var(--series-3)'];
 
   var tip = document.createElement('div');
   tip.className = 'tip';
@@ -230,6 +242,23 @@ const CLIENT = `
     return s;
   }
 
+  /**
+   * 材料の指数。銘柄の起点(firstIdx)以降で最初に値のある日を100にする。
+   * 銘柄より後からしかデータが無い材料(日本10年金利・SOX・VIXは2026-07-22から)は、
+   * その日から線が始まる
+   */
+  function extIndexed(e, firstIdx) {
+    var base = null;
+    for (var i = Math.max(0, firstIdx); i < e.values.length; i++) {
+      if (e.values[i] != null) { base = e.values[i]; break; }
+    }
+    var out = new Array(e.values.length);
+    for (var j = 0; j < e.values.length; j++) {
+      out[j] = (j < firstIdx || e.values[j] == null || !base) ? null : (e.values[j] / base) * 100;
+    }
+    return out;
+  }
+
   //---------------------------------------------------------------- SVG生成
   var NS = 'http://www.w3.org/2000/svg';
   function el(name, attrs) {
@@ -256,13 +285,25 @@ const CLIENT = `
       return;
     }
 
-    var lo = Infinity, hi = -Infinity;
-    for (var i = 0; i < vals.length; i++) {
-      var v = vals[i];
-      if (v == null) continue;
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
+    // 指数表示のときだけ材料を重ねる(実額(円)に原油(ドル)や金利(%)は重ねない)
+    var overlays = [];
+    if (state.scale === 'idx') {
+      for (var oi = 0; oi < EXT.length; oi++) {
+        overlays.push({ def: EXT[oi], vals: extIndexed(EXT[oi], series._first), color: EXT_COLORS[oi % EXT_COLORS.length] });
+      }
     }
+
+    var lo = Infinity, hi = -Infinity;
+    function span1(arr) {
+      for (var q = 0; q < arr.length; q++) {
+        var x = arr[q];
+        if (x == null) continue;
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+      }
+    }
+    span1(vals);
+    for (var ov = 0; ov < overlays.length; ov++) span1(overlays[ov].vals);
     var span = hi - lo;
     if (span === 0) { lo -= 1; hi += 1; span = 2; }
     var pad = span * 0.08;
@@ -316,6 +357,23 @@ const CLIENT = `
       svg.appendChild(xl);
     }
 
+    // --- 材料の線(破線1.5px。銘柄の線より先に描いて、銘柄を上に重ねる) ---
+    for (var m = 0; m < overlays.length; m++) {
+      var ovals = overlays[m].vals;
+      var od = '', open2 = false;
+      for (var oq = 0; oq < ovals.length; oq++) {
+        if (ovals[oq] == null) { open2 = false; continue; }
+        od += (open2 ? 'L' : 'M') + X(oq).toFixed(1) + ' ' + Y(ovals[oq]).toFixed(1) + ' ';
+        open2 = true;
+      }
+      if (od) {
+        svg.appendChild(el('path', {
+          d: od, fill: 'none', stroke: overlays[m].color, 'stroke-width': 1.5,
+          'stroke-dasharray': '4 3', 'stroke-linejoin': 'round', 'stroke-linecap': 'round'
+        }));
+      }
+    }
+
     // --- 折れ線(2px、round join/cap、欠損は線を切る) ---
     var d = '', pen = false;
     for (var p = 0; p < vals.length; p++) {
@@ -364,7 +422,7 @@ const CLIENT = `
 
     wrap.appendChild(svg);
 
-    c.X = X; c.Y = Y; c.vals = vals; c.cg = cg; c.cl = cl; c.cd = cd;
+    c.X = X; c.Y = Y; c.vals = vals; c.overlays = overlays; c.cg = cg; c.cl = cl; c.cd = cd;
     c.hit = hit; c.w = w;
     c.endText = endLb;
   }
@@ -407,7 +465,8 @@ const CLIENT = `
         '<div>' + dates[i] + (jj !== i ? '<span class="tip-sub"> (直近 ' + dates[jj] + ')</span>' : '') + '</div>' +
         '<div>' + (state.scale === 'abs'
             ? fmtPrice(vv) + ' 円'
-            : fmtIndex(vv) + ' <span class="tip-sub">(実額 ' + fmtPrice(raw) + ' 円)</span>') + '</div>';
+            : fmtIndex(vv) + ' <span class="tip-sub">(実額 ' + fmtPrice(raw) + ' 円)</span>') + '</div>' +
+        extTipRows(srcChart, i);
       tip.classList.add('on');
       var tw = tip.offsetWidth, th = tip.offsetHeight;
       var left = clientX + 14, top = clientY - th - 12;
@@ -416,6 +475,22 @@ const CLIENT = `
       tip.style.left = left + 'px';
       tip.style.top = top + 'px';
     }
+  }
+
+  /** ツールチップの材料の行。指数と、その日の実額(無い日は直近の日付を添える) */
+  function extTipRows(c, i) {
+    var out = '';
+    for (var m = 0; m < (c.overlays || []).length; m++) {
+      var o = c.overlays[m];
+      var j = i, v = o.vals[j];
+      while (v == null && j > 0) { j--; v = o.vals[j]; }
+      if (v == null) continue;
+      var raw = o.def.values[j];
+      out += '<div class="tip-ext"><span class="tip-sub">' + esc(o.def.label) + '</span> ' + fmtIndex(v) +
+        ' <span class="tip-sub">(' + raw.toLocaleString('ja-JP', { minimumFractionDigits: o.def.dec, maximumFractionDigits: o.def.dec }) +
+        ' ' + esc(o.def.unit) + (j !== i ? '・' + dates[j] : '') + ')</span></div>';
+    }
+    return out;
   }
 
   function hideAll() {
@@ -664,10 +739,20 @@ function escapeHtml(s) {
  * @param {string} [payload.source] 銘柄の指定方法(タグ名など)の説明
  * @param {string[]} payload.dates
  * @param {object[]} payload.series
+ * @param {object[]} [payload.ext] 重ねる材料(原油・金利など)
+ * @param {string} [payload.scale] 'idx' なら指数表示で開く
  * @returns {string} HTML全文
  */
 function buildHtml(payload) {
   const title = `株価チャート一覧 ${payload.from} 〜 ${payload.to}`;
+  const idx = payload.scale === 'idx';
+  const ext = payload.ext || [];
+  // 材料を重ねたときだけ凡例を出す。材料は指数表示のときだけ描くので、そのことも書く
+  const legend = ext.length
+    ? `<span class="legend"><span><i class="l1"></i>銘柄</span>` +
+      ext.map((e, i) => `<span><i class="l${i + 2}"></i>${escapeHtml(e.label)}</span>`).join('') +
+      `<span class="tip-sub">材料は指数表示のときだけ出ます</span></span>`
+    : '';
   // </script> がデータ中に現れてもHTMLが壊れないようにエスケープする
   const json = JSON.stringify(payload).replace(/</g, '\\u003c');
 
@@ -689,10 +774,11 @@ function buildHtml(payload) {
     <span class="spacer"></span>
     <span class="ctl">表示
       <span class="seg">
-        <button id="scaleAbs" type="button" aria-pressed="true">実額</button>
-        <button id="scaleIdx" type="button" aria-pressed="false">指数(起点=100)</button>
+        <button id="scaleAbs" type="button" aria-pressed="${idx ? 'false' : 'true'}">実額</button>
+        <button id="scaleIdx" type="button" aria-pressed="${idx ? 'true' : 'false'}">指数(起点=100)</button>
       </span>
     </span>
+    ${legend}
     <span class="ctl">並び順
       <select id="sortSel">
         <option value="given">指定順</option>

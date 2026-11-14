@@ -15,7 +15,7 @@
       STOPLOSS: '損切り', TAKEPROFIT: '利益確定', SHALLOW: '深堀り不足', OTHER: 'その他'
     },
     source: {
-      OWN_SCREEN: '自分の調べ', NEWS: 'ニュース', SNS: 'SNS', DISCLOSURE: '適時開示・決算資料',
+      OWN_SCREEN: '自分の調べ', POLICY: '基本方針', NEWS: 'ニュース', SNS: 'SNS', DISCLOSURE: '適時開示・決算資料',
       MEDIA: '雑誌・本・番組', PERSON: '人から', APP: '証券アプリ', OTHER: 'その他'
     },
     verdict: { RIGHT: '当たっていた', PARTLY: '一部当たった', WRONG: '外れた', UNKNOWN: 'まだ分からない' },

@@ -31,7 +31,8 @@
 5. 騰落率一覧で売買記録のタグを使うなら `ddl/28_journal_tags.sql` を GD_JQUANTS で流す(TAG_MASTER に3行足すだけ)
 6. 理由の分類「深堀り不足」を使うなら `ddl/36_journal_reason_shallow.sql` を GD_JQUANTS で流す
    (CHECK 制約の作り直し。流す前に選ぶと、保存のときに ORA-02290 になる)
-7. `npm run web` を再起動し、http://127.0.0.1:3000/journal を開く
+7. 情報源「基本方針」を使うなら `ddl/37_journal_source_policy.sql` を GD_JQUANTS で流す(同上)
+8. `npm run web` を再起動し、http://127.0.0.1:3000/journal を開く
 
 依存パッケージの追加は無い(express・csv-parse・oracledb は既存)。
 

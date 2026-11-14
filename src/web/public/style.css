@@ -368,3 +368,24 @@ tr.detail td { white-space: normal; background: var(--page); padding: 10px 14px 
 .lookup-list .lk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lookup-list .lk-mkt, .lookup-list .lk-state { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .lookup-foot { font-size: 12px; color: var(--muted); padding: 4px 10px; border-top: 1px solid var(--grid); }
+
+/* チャートに重ねる材料(原油・金利など)のプルダウン */
+.ext-sel {
+  font: inherit; font-size: 12px; padding: 3px 6px; max-width: 200px;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary);
+}
+.ext-note { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+
+/* 33業種のグラフの表示切り替え(横棒 / 折れ線)。チャートHTMLの .seg と同じ見た目 */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg .seg-btn {
+  font: inherit; font-size: 12px; padding: 3px 10px; border: 0; cursor: pointer;
+  background: var(--surface-1); color: var(--text-secondary);
+}
+.seg .seg-btn[aria-pressed="true"] { background: var(--series-1); color: #fff; }
+.seg .seg-btn:hover:not([aria-pressed="true"]) { background: var(--hover-wash); }
+#sectorFrame {
+  width: 100%; height: calc(100vh - 220px); min-height: 420px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1);
+}

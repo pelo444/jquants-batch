@@ -18,7 +18,8 @@ const ACTIONS = ['BUY', 'ADD', 'TRIM', 'SELL', 'PASS', 'HOLD'];
 // SHALLOW(深堀り不足)は 2026-11-15 に追加。DB の CHECK 制約は ddl/36_journal_reason_shallow.sql
 const REASONS = ['EARNINGS', 'DIP', 'MOMENTUM', 'NEWS', 'THEME', 'VALUE', 'DIVIDEND',
   'RECOMMEND', 'REBALANCE', 'STOPLOSS', 'TAKEPROFIT', 'SHALLOW', 'OTHER'];
-const SOURCES = ['OWN_SCREEN', 'NEWS', 'SNS', 'DISCLOSURE', 'MEDIA', 'PERSON', 'APP', 'OTHER'];
+// POLICY(基本方針)は 2026-11-15 に追加。DB の CHECK 制約は ddl/37_journal_source_policy.sql
+const SOURCES = ['OWN_SCREEN', 'POLICY', 'NEWS', 'SNS', 'DISCLOSURE', 'MEDIA', 'PERSON', 'APP', 'OTHER'];
 const VERDICTS = ['RIGHT', 'PARTLY', 'WRONG', 'UNKNOWN'];
 const ASSIGNEES = ['SELF', 'CLAUDE'];
 const Q_STATUSES = ['OPEN', 'DOING', 'DONE', 'DROPPED'];

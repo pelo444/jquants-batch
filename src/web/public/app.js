@@ -107,6 +107,7 @@
         $('dFrom').value = shiftMonths($('dTo').value, 12);
         setPrevDay($('dTo').value);
         $('chartLimit').max = m.limits.chartMaxCodes;
+        fillExtSelects(m.extSeries || []);
       })
       .catch(function (e) {
         $('dataMeta').textContent = '接続エラー';
@@ -332,6 +333,7 @@
       })
       .then(function (j) {
         renderSectorChart(j);
+        if (sectorView === 'line') loadSectorFrame();
         $('empty').hidden = true;
         $('tabs').hidden = true;
         $('paneTable').hidden = true;
@@ -459,11 +461,97 @@
       : '選択' + selected.size + '件をグラフ表示';
   }
 
+  //---------------------------------------------------------------- チャートに重ねる材料
+  //
+  // 材料(原油・金利など)は材料のページ(/events)と同じ系列。指数表示のときだけ線が出る。
+  // データは2026-05-22から(日本10年金利・SOX・VIXは2026-07-22から)なので、
+  // それより前の期間を指定しても、その手前には線が出ない。
+  var EXT_SELS = { chart: ['extA', 'extB'], sector: ['extSA', 'extSB'] };
+
+  function fillExtSelects(list) {
+    var opts = '<option value="">なし</option>' + list.map(function (e) {
+      return '<option value="' + esc(e.code) + '">' + esc(e.label) + '</option>';
+    }).join('');
+    ['extA', 'extB', 'extSA', 'extSB'].forEach(function (id) { $(id).innerHTML = opts; });
+  }
+
+  /** 選んだ材料(重複は除く)。2件まで。which は 'chart'(銘柄) か 'sector'(33業種) */
+  function extCodes(which) {
+    var ids = EXT_SELS[which || 'chart'];
+    var a = $(ids[0]).value, b = $(ids[1]).value;
+    var out = [];
+    if (a) out.push(a);
+    if (b && b !== a) out.push(b);
+    return out;
+  }
+
+  function setExtParam(p, which) {
+    var codes = extCodes(which);
+    if (codes.length) p.set('ext', codes.join(','));
+    else p.delete('ext');
+    return p;
+  }
+
+  var EXT_NOTE = '材料は指数表示のグラフにだけ出ます。材料のデータは2026-05-22から' +
+    '(日本10年金利・日本20年金利・SOX・VIX・SKEWは2026-07-22から)で、それより前には線が出ません。';
+
+  /** 材料を選び直したとき、今出ているグラフをその場で描き直す */
+  function onExtChange() {
+    $('extNote').hidden = !extCodes('chart').length;
+    $('extNote').textContent = EXT_NOTE;
+    var src = $('chartFrame').src;
+    if (!src) return;
+    var u = new URL(src, location.href);
+    setExtParam(u.searchParams, 'chart');
+    $('chartFrame').src = u.pathname + '?' + u.searchParams.toString();
+    $('chartOpenBtn').href = $('chartFrame').src;
+  }
+
+  //---------------------------------------------------------------- 33業種のグラフ(横棒 / 折れ線)
+  //
+  // 折れ線は銘柄のチャートと同じ形(1業種1グラフ)。/sector-chart が返すHTMLを iframe に出す。
+  // 材料(金利・原油・SOXなど)も銘柄のチャートと同じように重ねられる。
+  var sectorView = 'bar';
+
+  function sectorChartUrl() {
+    var p = new URLSearchParams();
+    p.set('from', $('dFrom').value);
+    p.set('to', $('dTo').value);
+    setExtParam(p, 'sector');
+    return BASE_PATH + '/sector-chart?' + p.toString();
+  }
+
+  function loadSectorFrame() {
+    var url = sectorChartUrl();
+    $('sectorFrame').src = url;
+    $('sectorOpenBtn').href = url;
+  }
+
+  function setSectorView(name) {
+    sectorView = name;
+    $('secViewBar').setAttribute('aria-pressed', name === 'bar' ? 'true' : 'false');
+    $('secViewLine').setAttribute('aria-pressed', name === 'line' ? 'true' : 'false');
+    $('sectorChart').hidden = name !== 'bar';
+    $('secBarLegend').hidden = name !== 'bar';
+    $('sectorFrame').hidden = name !== 'line';
+    $('secLineCtl').hidden = name !== 'line';
+    $('extNoteSector').hidden = !(name === 'line' && extCodes('sector').length);
+    $('extNoteSector').textContent = EXT_NOTE;
+    if (name === 'line') loadSectorFrame();
+  }
+
+  function onExtChangeSector() {
+    $('extNoteSector').hidden = !extCodes('sector').length;
+    $('extNoteSector').textContent = EXT_NOTE;
+    if (sectorView === 'line' && $('sectorFrame').src) loadSectorFrame();
+  }
+
   //---------------------------------------------------------------- チャート
   function prepareChartUrl(params, order) {
     var p = new URLSearchParams(params.toString());
     p.set('limit', $('chartLimit').value || '30');
     p.set('order', order);
+    setExtParam(p);
     var url = BASE_PATH + '/chart?' + p.toString();
     $('chartFrame').dataset.pending = url;
     $('chartOpenBtn').href = url;
@@ -505,6 +593,7 @@
     p.set('codes', codes.join(','));
     p.set('from', $('dFrom').value);
     p.set('to', $('dTo').value);
+    setExtParam(p);
     showChart(BASE_PATH + '/chart?' + p.toString(), '選択した' + codes.length + '銘柄');
   }
 
@@ -665,6 +754,12 @@
     $('chartTopBtn').addEventListener('click', function () { chartByOrder('desc'); });
     $('chartBottomBtn').addEventListener('click', function () { chartByOrder('asc'); });
     $('chartSelBtn').addEventListener('click', chartBySelection);
+    $('extA').addEventListener('change', onExtChange);
+    $('extB').addEventListener('change', onExtChange);
+    $('extSA').addEventListener('change', onExtChangeSector);
+    $('extSB').addEventListener('change', onExtChangeSector);
+    $('secViewBar').addEventListener('click', function () { setSectorView('bar'); });
+    $('secViewLine').addEventListener('click', function () { setSectorView('line'); });
     $('csvBtn').addEventListener('click', downloadCsv);
 
     $('tabs').addEventListener('click', function (ev) {

@@ -136,9 +136,41 @@ async function fetchAdjustedCloses(connection, codes, dFrom, dTo) {
   }));
 }
 
+/**
+ * 材料(/events)の系列を取る。EXT_SERIES_DAILY は原油・金利・ドル円などの日次の値。
+ *
+ * 株価と違って調整は要らない(そのままの水準)。日付は取得元の国の日付で入っているので、
+ * 国内の営業日に無い日(米国だけが開いていた日など)は、グラフ側で落ちる。
+ *
+ * @param {import('oracledb').Connection} connection
+ * @param {string[]} seriesCodes 例: ['CL=F', 'DGS10']
+ * @param {string} dFrom 'YYYY-MM-DD'
+ * @param {string} dTo   'YYYY-MM-DD'
+ * @returns {Promise<{code:string, date:string, value:number}[]>}
+ */
+async function fetchExtSeries(connection, seriesCodes, dFrom, dTo) {
+  if (!seriesCodes || seriesCodes.length === 0) return [];
+  const binds = { dFrom, dTo };
+  const placeholders = seriesCodes.map((code, i) => {
+    binds[`s${i}`] = code;
+    return `:s${i}`;
+  }).join(', ');
+  const result = await connection.execute(
+    `SELECT series_code, TO_CHAR(obs_date, 'YYYY-MM-DD'), value
+     FROM ext_series_daily
+     WHERE series_code IN (${placeholders})
+       AND obs_date BETWEEN TO_DATE(:dFrom, 'YYYY-MM-DD') AND TO_DATE(:dTo, 'YYYY-MM-DD')
+       AND value IS NOT NULL
+     ORDER BY series_code, obs_date`,
+    binds
+  );
+  return result.rows.map((r) => ({ code: r[0], date: r[1], value: r[2] }));
+}
+
 module.exports = {
   fetchLatestPriceDate,
   fetchCodesByTag,
   fetchTagList,
   fetchAdjustedCloses,
+  fetchExtSeries,
 };

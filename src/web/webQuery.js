@@ -278,6 +278,38 @@ async function fetchSectorPerformance(connection, { from, to }) {
 }
 
 /**
+ * 東証業種別株価指数(33本)と TOPIX の日次の終値。業種ごとの折れ線グラフ用。
+ *
+ * 指数なので分割の調整は要らない。チャートの共通の形(chartPayload.buildPayload)に合わせて、
+ * 銘柄の行と同じ名前の項目で返す(code=指数コード、name=業種名、adjClose=終値)。
+ * 対象の指数コードの範囲は fetchSectorPerformance と同じ。
+ *
+ * @param {import('oracledb').Connection} connection
+ * @param {{from: string, to: string}} opts
+ * @returns {Promise<{code:string, name:string, market:string, date:string, adjClose:number, isSplit:number}[]>}
+ */
+async function fetchSectorIndexSeries(connection, { from, to }) {
+  const r = await connection.execute(
+    `SELECT p.index_code, m.index_name, TO_CHAR(p.price_date, 'YYYY-MM-DD'), p.close_price
+       FROM index_price_daily p
+       LEFT JOIN index_master m ON m.index_code = p.index_code
+      WHERE p.price_date BETWEEN TO_DATE(:dFrom, 'YYYY-MM-DD') AND TO_DATE(:dTo, 'YYYY-MM-DD')
+        AND p.close_price IS NOT NULL
+        AND (p.index_code = '0000' OR p.index_code BETWEEN '0040' AND '0060')
+      ORDER BY p.index_code, p.price_date`,
+    { dFrom: from, dTo: to }
+  );
+  return r.rows.map((x) => ({
+    code: x[0],
+    name: String(x[1] || x[0]).replace(/^東証業種別\s*/, ''),
+    market: '',
+    date: x[2],
+    adjClose: x[3],
+    isSplit: 0,
+  }));
+}
+
+/**
  * 33業種ごとの銘柄の騰落率の中央値(2026-10-23 ユーザー要望。指数は時価総額の大きい銘柄に引っ張られるため並べて見る)。
  * - 期間は TOPIX の期間内の最初と最後の営業日(d1・d2)。両日に終値がある銘柄だけを数える(指数と同じ区間にそろえる)
  * - 分割の調整: d1 の終値に、d1 より後〜d2 の ADJ_FACTOR の積を掛けてから比べる
@@ -362,5 +394,6 @@ module.exports = {
   fetchTags,
   fetchPerformance,
   fetchSectorPerformance,
+  fetchSectorIndexSeries,
   shapeSectorPerformance,
 };
