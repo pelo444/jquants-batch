@@ -348,7 +348,8 @@ async function fetchDecisionSnapshot(conn, decisionId) {
 /**
  * 判断の一覧(評価ビューの値と振り返りを付ける)。
  * latestAction を渡すと、その行動が最新になっている銘柄の判断だけを返す(例: 新規買いのまま次の判断を書いていない銘柄)。
- * 最新かどうかは、訂正された元の行を除いて、判断した日・判断IDの順で見る(fetchCodeOptions と同じ)
+ * 最新かどうかは、訂正された元の行を除いて、判断した日・判断IDの順で見る(fetchCodeOptions と同じ)。
+ * 返す順は 銘柄(昇順) → 判断ID(降順)。件数の上限は、判断した日の新しいものから数える
  */
 async function fetchDecisions(conn, { limit = 200, code = null, latestAction = null } = {}) {
   const r = await conn.execute(
@@ -372,7 +373,7 @@ async function fetchDecisions(conn, { limit = 200, code = null, latestAction = n
            ORDER BY decision_date DESC, decision_id DESC FETCH FIRST :n ROWS ONLY) d
      JOIN jnl_decision_eval_v e ON e.decision_id = d.decision_id
      LEFT JOIN equity_master m ON m.code = d.code
-     ORDER BY d.decision_date DESC, d.decision_id DESC`,
+     ORDER BY d.code, d.decision_id DESC`,
     { code, latestAction, n: limit }, OBJ
   );
   const ids = r.rows.map((x) => x.DECISION_ID);

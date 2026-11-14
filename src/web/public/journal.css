@@ -282,3 +282,9 @@ details.more .more-body { display: flex; flex-direction: column; gap: 10px; marg
 .dcard.collapsed .snap-slot, .dcard.collapsed .review-slot { display: none; }
 .dcard.superseded .dhead { cursor: pointer; }
 .dhead .fold { color: var(--muted); font-size: 10px; width: 1em; }
+
+/* 同じ銘柄の、最新ではない判断。左に下げて幅を狭め、最新の判断にぶら下がる形にする */
+.dcard.older { margin-left: 32px; max-width: 900px; }
+@media (max-width: 760px) {
+  .dcard.older { margin-left: 12px; max-width: none; }
+}

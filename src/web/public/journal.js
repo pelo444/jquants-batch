@@ -604,7 +604,13 @@
       $('decisionList').innerHTML = '<p class="empty">まだ判断の記録がありません。</p>';
       return;
     }
+    // 同じ銘柄で判断が複数あるとき、最新(判断IDが一番大きいもの)以外は幅を狭めて左に下げる
+    var newest = {};
+    rows.forEach(function (d) {
+      if (!newest[d.code] || d.decisionId > newest[d.code]) newest[d.code] = d.decisionId;
+    });
     $('decisionList').innerHTML = rows.map(function (d) {
+      var older = d.decisionId === newest[d.code] ? '' : ' older';
       // 判断のときの項目(枠の下部に、1項目ずつ角丸の背景で並べる)
       function chip(k, v) { return '<span class="dchip">' + k + '：' + v + '</span>'; }
       var chips = chip('理由の分類', esc(LABELS.reason[d.reasonCat] || d.reasonCat));
@@ -617,7 +623,7 @@
       }
       if (d.plannedStopPct !== null) chips += chip('損切り', d.plannedStopPct + '%下');
       if (d.sizeNote) chips += chip('サイズ', esc(d.sizeNote));
-      return '<div class="dcard' + (d.superseded ? ' superseded collapsed' : '') + '" data-id="' + d.decisionId + '">' +
+      return '<div class="dcard' + older + (d.superseded ? ' superseded collapsed' : '') + '" data-id="' + d.decisionId + '">' +
         '<div class="dhead"' + (d.superseded ? ' role="button" tabindex="0" aria-expanded="false" title="押すと中身が出ます"' : '') + '>' +
         (d.superseded ? '<span class="fold">▶</span>' : '') +
         '<span class="id">#' + d.decisionId + '</span><span>' + esc(d.decisionDate) + '</span>' +
