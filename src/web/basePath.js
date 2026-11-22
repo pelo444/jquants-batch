@@ -47,9 +47,10 @@ function sendPage(res, name) {
   res.type('html').set('Cache-Control', 'no-cache').send(html);
 }
 
-/** public/ にある HTML ファイル名か（"/" は index.html） */
+/** public/ にある HTML ファイル名か（"/" は server.js で /market へ転送するのでここでは扱わない） */
 function pageNameFor(reqPath) {
-  const name = reqPath === '/' ? 'index.html' : reqPath.replace(/^\//, '');
+  if (reqPath === '/') return null;
+  const name = reqPath.replace(/^\//, '');
   if (!/^[A-Za-z0-9_-]+\.html$/.test(name)) return null;
   return fs.existsSync(path.join(PUBLIC_DIR, name)) ? name : null;
 }

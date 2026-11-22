@@ -1,5 +1,5 @@
 #
-# 株価タグ分析Webアプリ の systemd ユニット雛形
+# 大福帳 Webアプリ の systemd ユニット雛形
 #
 # 使い方:
 #   sudo cp src/web/jquants-web.service /etc/systemd/system/
@@ -9,7 +9,7 @@
 #   journalctl -u jquants-web -f
 #
 [Unit]
-Description=jquants 株価タグ分析 Webアプリ
+Description=jquants 大福帳 Webアプリ
 Documentation=file:///home/opc/jquants-batch/src/web/README.md
 After=network-online.target
 Wants=network-online.target

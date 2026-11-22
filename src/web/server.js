@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 株価タグ分析 Webアプリ (Express)
+ * 大福帳 Webアプリ (Express)
  *
  * 機能:
  *   1. タグと期間を指定して、分割調整済みの騰落率を降順の表で見る
@@ -330,6 +330,10 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// サイトの入口は「市場」。騰落率一覧（index.html）は /performance に置く
+app.get('/', (req, res) => res.redirect(BASE_PATH + '/market'));
+app.get(['/performance', '/performance/'], (req, res) => sendPage(res, 'index.html'));
 
 // 画面(HTML)は公開パスを反映して返す（basePath.js）。CSS・JS・画像は express.static のまま
 app.use((req, res, next) => {
@@ -930,41 +934,96 @@ app.get(['/market', '/market/'], (req, res) => {
   sendPage(res, 'market.html');
 });
 
+// DB分と Yahoo の日足は、取りに行く処理を関数にしておく(画面の要求と、下の先読みの両方から使う)
+function marketDbLoad(today) {
+  const from = marketQuery.periodStart(today);
+  return db.withConnection((conn) =>
+    marketQuery.fetchDbPart(conn, {
+      lookFrom: marketQuery.addDays(from, -14), // 前日比・期間前比のため
+      weekFrom: marketQuery.addDays(from, -35), // 週次の前回比のため
+      histFrom: marketQuery.addDays(from, -380), // Zスコアの平均・標準偏差(過去1年)のため
+      to: today,
+    })
+  );
+}
+
+/** 何にどれだけかかったかをログに出す(市場のページの初回表示が遅いときの切り分け用) */
+async function timed(label, fn) {
+  const t0 = Date.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[market] ${label} ${Date.now() - t0}ms`);
+  }
+}
+
+/** キャッシュを見ずに取り直して入れ直す。実行中なら相乗りする(withCache と同じ inFlight を使う) */
+function refreshCache(key, fn, ttlOf) {
+  if (inFlight.has(key)) return inFlight.get(key);
+  const promise = (async () => {
+    try {
+      const value = await fn();
+      cacheSet(key, value, ttlOf(value));
+      return value;
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+  inFlight.set(key, promise);
+  return promise;
+}
+
+const extTtl = (ext) => (ext.errors.length ? MARKET_RETRY_MS : MARKET_TTL_MS);
+
+function marketDb(today, force) {
+  const key = 'market:db:' + today;
+  if (!force) {
+    const hit = cacheGet(key);
+    if (hit) return Promise.resolve(hit);
+  }
+  return refreshCache(key, () => timed('DB', () => marketDbLoad(today)), () => MARKET_TTL_MS);
+}
+
+function marketExt(today, now, force) {
+  const key = 'market:ext:' + today;
+  if (!force) {
+    const hit = cacheGet(key);
+    if (hit) return Promise.resolve(hit);
+  }
+  return refreshCache(key, () => timed('Yahoo日足', () => marketQuery.fetchExternalPart(now)), extTtl);
+}
+
+function marketLive(now) {
+  const hit = cacheGet('market:live');
+  if (hit) return Promise.resolve(hit);
+  return refreshCache('market:live', () => timed('日経先物の現在値', () => marketQuery.fetchLivePart(now)),
+    () => MARKET_LIVE_TTL_MS);
+}
+
 app.get('/api/market', async (req, res, next) => {
   try {
     const now = Date.now();
     const today = marketQuery.ymdIn(new Date(now), marketQuery.TZ_JP);
-    const from = marketQuery.periodStart(today);
-
-    const dbPart = await withCache('market:db:' + today, MARKET_TTL_MS, () =>
-      db.withConnection((conn) =>
-        marketQuery.fetchDbPart(conn, {
-          lookFrom: marketQuery.addDays(from, -14), // 前日比・期間前比のため
-          weekFrom: marketQuery.addDays(from, -35), // 週次の前回比のため
-          histFrom: marketQuery.addDays(from, -380), // Zスコアの平均・標準偏差(過去1年)のため
-          to: today,
-        })
-      )
-    );
-
-    const extKey = 'market:ext:' + today;
-    let ext = cacheGet(extKey);
-    if (!ext) {
-      ext = await marketQuery.fetchExternalPart(now);
-      cacheSet(extKey, ext, ext.errors.length ? MARKET_RETRY_MS : MARKET_TTL_MS);
-    }
-
-    let live = cacheGet('market:live');
-    if (!live) {
-      live = await marketQuery.fetchLivePart(now);
-      cacheSet('market:live', live, MARKET_LIVE_TTL_MS);
-    }
-
+    // 3つは互いに関係ないので同時に取りに行く(以前は DB → 日足 → 現在値 の順に待っていた)
+    const [dbPart, ext, live] = await Promise.all([
+      marketDb(today), marketExt(today, now), marketLive(now),
+    ]);
     res.json(marketQuery.buildMarketTable({ today, db: dbPart, ext, live }));
   } catch (err) {
     next(err);
   }
 });
+
+// 先読み: 起動時と MARKET_PREFETCH_MS ごとに DB分と Yahoo の日足を取り直しておく。
+// キャッシュ(10分)が切れる前に入れ替わるので、ページを開いたときはキャッシュから返せる。
+// 日経先物の現在値は「開いた時点の値段」なので先読みしない(2026-10-19 ユーザー判断のまま)。
+const MARKET_PREFETCH_MS = 9 * 60 * 1000;
+function prefetchMarket() {
+  const now = Date.now();
+  const today = marketQuery.ymdIn(new Date(now), marketQuery.TZ_JP);
+  Promise.all([marketDb(today, true), marketExt(today, now, true)])
+    .catch((err) => console.error('[market] 先読みに失敗しました:', err.message));
+}
 
 //==================================================================
 // 参考情報 (/reference)
@@ -1202,7 +1261,9 @@ if (BASE_PATH) {
 }
 
 const server = root.listen(PORT, HOST, () => {
-  console.log(`株価タグ分析Webアプリを起動しました: http://${HOST}:${PORT}${BASE_PATH}/`);
+  console.log(`大福帳を起動しました: http://${HOST}:${PORT}${BASE_PATH}/`);
+  prefetchMarket();
+  setInterval(prefetchMarket, MARKET_PREFETCH_MS).unref();
   if (HOST === '0.0.0.0') {
     console.warn(
       '[警告] 0.0.0.0 で待ち受けています。認証が未実装のため、' +
