@@ -6,7 +6,7 @@
  * 機能:
  *   1. タグと期間を指定して、分割調整済みの騰落率を降順の表で見る
  *   2. 同じ条件で、終値の折れ線グラフを縦に並べて見る(chart.js のHTML生成を再利用)
- *   3. 需給3階層(マクロ / ウォッチリスト / シグナル)を /demand で見る
+ *   3. シグナル(旧称 需給3階層。ウォッチリスト / シグナル)を /demand で見る。第一階層(マクロ)は /market のマクロタブへ移した
  *      クエリは demandQuery.js。読み方の約束は docs/DEMAND_WEB.md と
  *      docs/DEMAND_SIGNAL_RUNBOOK.md を参照。
  *   4. 自分の売買・判断・メモの記録を /journal で付ける
@@ -14,7 +14,7 @@
  *      個人の財務情報なので、127.0.0.1 以外で待ち受けるなら認証を先に入れること。
  *   5. 銘柄購入の流れ(購入検討リスト → 参考情報 → 損失回避チェック → 判断メモ)を /purchase で行う
  *      ルーティングは purchaseRoutes.js。設計は claude/purchase_flow_design.md。
- *   6. 市場(米国3指数・日経先物・日経平均・TOPIX・投資部門別・信用残・裁定残・33業種)を /market で1枚の表で見る
+ *   6. 市場(米国3指数・日経先物・日経平均・TOPIX・投資部門別・信用残・裁定残・33業種)を /market で1枚の表で見る(直近タブ)。週次のマクロ(旧 需給3階層の第一階層)はマクロタブ
  *      データは marketQuery.js。設計は claude/market_page_design.md。
  *   7. 日々の確認(保有・ウォッチ・検討中の銘柄の出来事・値動き・予定)を /daily で見る
  *      データは dailyQuery.js。設計は claude/daily_page_design.md。

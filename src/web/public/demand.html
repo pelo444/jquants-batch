@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>需給3階層 | 大福帳</title>
+<title>シグナル | 大福帳</title>
 <link rel="stylesheet" href="/style.css?v=20261021a">
 <link rel="stylesheet" href="/demand.css?v=20261021a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12L6 7l3 3 5-7' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
@@ -12,7 +12,7 @@
 <div class="viz-root">
 
   <header class="topbar">
-    <h1>需給3階層</h1>
+    <h1>シグナル</h1>
     <span class="meta" id="dataMeta">読み込み中…</span>
     <span class="spacer"></span>
     <a class="btn" href="/market">市場</a>
@@ -21,7 +21,7 @@
     <a class="btn" href="/performance">騰落率一覧</a>
     <a class="btn" href="/stockchart">個別チャート</a>
     <a class="btn" href="/reference">参考情報</a>
-    <a class="btn" href="/demand" aria-current="page">需給3階層</a>
+    <a class="btn" href="/demand" aria-current="page">シグナル</a>
     <a class="btn" href="/purchase">銘柄購入</a>
     <a class="btn" href="/journal">売買記録</a>
   </header>
@@ -48,9 +48,6 @@
     </button>
     <button class="tab" data-tab="watchlist" aria-selected="false" type="button">
       ウォッチリスト<span class="tab-sub">第二階層</span>
-    </button>
-    <button class="tab" data-tab="macro" aria-selected="false" type="button">
-      マクロ<span class="tab-sub">第一階層</span>
     </button>
   </nav>
 
@@ -175,43 +172,10 @@
     </details>
   </section>
 
-  <!-- ==================== 第一階層 ==================== -->
-  <section class="pane" id="paneMacro" hidden>
-    <div class="result-bar">
-      <span class="ctl">
-        <label class="opt">投資部門別の区分
-          <select id="macroSection" class="btn"></select>
-        </label>
-      </span>
-      <span class="ctl">
-        <label class="opt">期間
-          <select id="macroWeeks" class="btn">
-            <option value="26">半年</option>
-            <option value="52" selected>1年</option>
-            <option value="104">2年</option>
-            <option value="156">3年</option>
-            <option value="260">5年</option>
-          </select>
-        </label>
-      </span>
-      <span class="status" id="macroStatus"></span>
-      <span class="spacer"></span>
-      <button class="btn" id="macroCsvBtn" type="button">CSV</button>
-    </div>
-    <p class="note" id="macroNotice" hidden></p>
-
-    <div id="macroCharts"></div>
-
-    <h2>週次の一覧 <span class="h2-note">新しい週が上</span></h2>
-    <div class="table-wrap">
-      <table id="macroTable"><thead></thead><tbody></tbody></table>
-    </div>
-  </section>
-
   <footer class="calib" id="calib"></footer>
 
 </div>
 <script src="/demandChart.js?v=20261015y"></script>
-<script src="/demand.js?v=20261021a"></script>
+<script src="/demand.js?v=20261122a"></script>
 </body>
 </html>

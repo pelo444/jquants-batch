@@ -1,0 +1,56 @@
+/*
+ * 市場 (/market) の「マクロ」タブ。もとは demand.css にあった第一階層のぶん。
+ * demand.css をそのまま読むと、市場の表(#marketTable)の見出し行の書式とぶつかるので、
+ * 表まわりは #paneMacro の中だけに効かせる。色は style.css のトークンだけを使う。
+ */
+
+/* 2段ヘッダーの表 */
+#paneMacro thead tr.grp th {
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary); font-weight: 600; font-size: 12px;
+}
+#paneMacro th.grp-start, #paneMacro td.grp-start { border-left: 1px solid var(--baseline); }
+
+/* 「無い」は 0 ではない。—(ダッシュ)で出し、理由を title に持たせる */
+#paneMacro .na { color: var(--na-ink); cursor: help; border-bottom: 1px dotted var(--na-ink); }
+
+/* グラフ(demandChart.js) */
+.chart-card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px 6px; margin-bottom: 10px;
+}
+.chart-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 2px;
+}
+.chart-title { font-size: 12px; font-weight: 600; }
+.chart-note { font-size: 11px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-left: auto; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-secondary); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.legend-swatch.dashed { border: 1px dashed currentColor; background: none; }
+.chart-svg { display: block; width: 100%; }
+/* 画面いっぱいだと横長すぎるので、右側を空けて幅を狭める */
+#macroCharts .chart-card { margin-right: 22%; }
+
+.tooltip {
+  position: fixed; z-index: 60; pointer-events: none;
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--baseline); border-radius: 6px;
+  padding: 6px 8px; font-size: 11px; line-height: 1.6;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+  font-variant-numeric: tabular-nums;
+}
+.tooltip .tt-date { color: var(--muted); margin-bottom: 2px; }
+.tooltip .tt-row { display: flex; align-items: center; gap: 6px; }
+.tooltip .tt-sw { width: 8px; height: 8px; border-radius: 2px; }
+.tooltip .tt-name { color: var(--text-secondary); }
+.tooltip .tt-val { margin-left: auto; font-weight: 600; }
+
+.tabs .tab .tab-sub { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+/* タブの下に表の枠が来るので、枠の上の余白をそろえる */
+#marketTabs { margin-top: 10px; }
+
+@media (max-width: 720px) {
+  #macroCharts .chart-card { margin-right: 0; }
+}

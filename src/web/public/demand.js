@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 需給3階層 (/demand) のフロントエンド。依存ライブラリなし。
+ * シグナル (/demand。旧称 需給3階層) のフロントエンド。第一階層(マクロ)は市場のページのマクロタブ(marketMacro.js)へ移した。依存ライブラリなし。
  *
  * ============================================================
  * 【この画面の設計方針 — 表示層でここを潰すと3階層の意味が無くなる】
@@ -465,7 +465,6 @@
     });
     $('paneSignal').hidden = name !== 'signal';
     $('paneWatchlist').hidden = name !== 'watchlist';
-    $('paneMacro').hidden = name !== 'macro';
     if (LOADERS[name]) LOADERS[name]();
     try { history.replaceState(null, '', '#' + name); } catch (e) { /* 無視 */ }
   }
@@ -1271,207 +1270,6 @@
     });
   }
 
-  //================================================================ 第一階層
-  function macroCols() {
-    return [
-      { key: 'weekStart', label: '週(月曜)', grp: '週' },
-      {
-        key: 'topixClose', label: 'TOPIX', grp: '指数', num: true,
-        html: function (r) { return numCell(r.topixClose, 2, 'generic'); },
-      },
-      {
-        key: 'topixWowPct', label: '前週比', grp: '指数', num: true,
-        html: function (r) { return signedCell(r.topixWowPct, 2, 'generic', '%'); },
-      },
-      {
-        key: 'gvRatio', label: 'G/V', grp: '指数', num: true,
-        title: 'グロース指数 ÷ バリュー指数。上昇はグロース優位',
-        html: function (r) { return numCell(r.gvRatio, 4, 'generic'); },
-      },
-      {
-        key: 'gvRatioWow', label: '前週比', grp: '指数', num: true,
-        html: function (r) { return signedCell(r.gvRatioWow, 2, 'generic', '%'); },
-      },
-      {
-        key: 'elecWowPct', label: '電機', grp: '指数', num: true,
-        title: '電気機器指数の前週比',
-        html: function (r) { return signedCell(r.elecWowPct, 2, 'generic', '%'); },
-      },
-      {
-        key: 'frgnOku', label: '海外', grp: '投資部門別ネット(億円)', num: true,
-        title: 'プラスが買い越し。空欄はこの区分のその週のデータがありません(0ではありません)',
-        html: function (r) { return signedCell(r.frgnOku, 0, 'inv'); },
-      },
-      {
-        key: 'frgnWowOku', label: '海外前週差', grp: '投資部門別ネット(億円)', num: true,
-        html: function (r) { return signedCell(r.frgnWowOku, 0, 'inv'); },
-      },
-      {
-        key: 'indOku', label: '個人', grp: '投資部門別ネット(億円)', num: true,
-        html: function (r) { return signedCell(r.indOku, 0, 'inv'); },
-      },
-      {
-        key: 'trstBnkOku', label: '信託銀行', grp: '投資部門別ネット(億円)', num: true,
-        html: function (r) { return signedCell(r.trstBnkOku, 0, 'inv'); },
-      },
-      {
-        key: 'busCoOku', label: '事業法人', grp: '投資部門別ネット(億円)', num: true,
-        html: function (r) { return signedCell(r.busCoOku, 0, 'inv'); },
-      },
-      {
-        key: 'propOku', label: '自己', grp: '投資部門別ネット(億円)', num: true,
-        title: '証券会社が自己勘定で売買した分の差引',
-        html: function (r) { return signedCell(r.propOku, 0, 'inv'); },
-      },
-      {
-        key: 'arbNetOku', label: '裁定ネット', grp: '裁定取引残高(億円)', num: true,
-        title: '買残 − 売残。増加は将来の解消売り圧力の蓄積で、強気とは限りません',
-        html: function (r) { return signedCell(r.arbNetOku, 0, 'arb'); },
-      },
-      {
-        key: 'arbNetWowOku', label: '前週差', grp: '裁定取引残高(億円)', num: true,
-        html: function (r) { return signedCell(r.arbNetWowOku, 0, 'arb'); },
-      },
-      {
-        key: 'marginRatio', label: '信用倍率', grp: '信用取引残高(金額)', num: true,
-        title: '申込日終値で金額換算してから合計した倍率。低いほど売り長。3月・9月はつなぎ売りで必ず下がります',
-        html: function (r) { return numCell(r.marginRatio, 2, 'margin'); },
-      },
-      {
-        key: 'marginRatioWow', label: '前週差', grp: '信用取引残高(金額)', num: true,
-        html: function (r) { return signedCell(r.marginRatioWow, 2, 'margin'); },
-      },
-      {
-        key: 'marginLongOku', label: '買残(億円)', grp: '信用取引残高(金額)', num: true,
-        html: function (r) { return numCell(r.marginLongOku, 0, 'margin'); },
-      },
-      {
-        key: 'marginShrtOku', label: '売残(億円)', grp: '信用取引残高(金額)', num: true,
-        html: function (r) { return numCell(r.marginShrtOku, 0, 'margin'); },
-      },
-      {
-        key: 'marginCodesCnt', label: '銘柄数', grp: '信用取引残高(金額)', num: true,
-        title: '集計に入った銘柄数。急に減った週は取込を疑ってください',
-        html: function (r) { return numCell(r.marginCodesCnt, 0, 'margin'); },
-      },
-      {
-        key: 'shortRatioPct', label: '空売り比率', grp: '空売り', num: true,
-        title: '高いほど売り圧力が強い一方で、極端な高水準は反転の目印にもなります',
-        html: function (r) { return numCell(r.shortRatioPct, 2, 'generic', '%'); },
-      },
-      {
-        key: 'shortRatioWow', label: '前週差', grp: '空売り', num: true,
-        html: function (r) { return signedCell(r.shortRatioWow, 2, 'generic', 'pt'); },
-      },
-    ];
-  }
-
-  var macroState = { cols: null, rows: [] };
-
-  function renderMacroCharts(rows) {
-    var host = $('macroCharts');
-    host.innerHTML = '';
-    DemandChart.resetGroup('macro');
-    if (rows.length === 0) return;
-    var dates = rows.map(function (r) { return r.weekStart; });
-    function col(key) {
-      return rows.map(function (r) {
-        var v = r[key];
-        return (v === null || v === undefined) ? null : Number(v);
-      });
-    }
-    function card(spec) {
-      var d = document.createElement('div');
-      host.appendChild(d);
-      spec.group = 'macro';
-      spec.dates = dates;
-      spec.monthGrid = true;
-      DemandChart.draw(d, spec);
-    }
-
-    card({
-      title: 'TOPIX(週の最終営業日)',
-      series: [{ name: 'TOPIX', values: col('topixClose'), mode: 'line', colorVar: '--series-1', digits: 2 }],
-    });
-
-    card({
-      title: '投資部門別ネット(億円)',
-      note: 'プラスが買い越し。線が切れている週はこの区分のデータがありません(0ではありません)。' +
-        '2022年4月の市場区分再編で系列が断絶しているので、長期は TokyoNagoya で見ます',
-      zeroBase: true,
-      height: 250,
-      series: [
-        { name: '海外', values: col('frgnOku'), mode: 'line', colorVar: '--inv-1', digits: 0, unit: '億円' },
-        { name: '個人', values: col('indOku'), mode: 'line', colorVar: '--inv-2', digits: 0, unit: '億円' },
-        { name: '信託銀行', values: col('trstBnkOku'), mode: 'line', colorVar: '--inv-3', digits: 0, unit: '億円' },
-        { name: '事業法人', values: col('busCoOku'), mode: 'line', colorVar: '--inv-4', digits: 0, unit: '億円' },
-      ],
-    });
-
-    card({
-      title: '自己の差引(億円)',
-      note: '証券会社が自己勘定で売買した分。プラスが買い越し',
-      zeroBase: true,
-      series: [{ name: '自己', values: col('propOku'), mode: 'line', colorVar: '--series-1', digits: 0, unit: '億円' }],
-    });
-
-    card({
-      title: '裁定取引残高ネット(億円)',
-      note: '増加は将来の解消売り圧力の蓄積で、両義的に読みます。' +
-        'JPXの週間資料を手動取込しており、バックナンバーが直近4年分しかないためそれ以前は空です',
-      zeroBase: true,
-      series: [{ name: '裁定ネット', values: col('arbNetOku'), mode: 'line', colorVar: '--series-1', digits: 0, unit: '億円' }],
-    });
-
-    card({
-      title: '信用倍率(金額ベース)',
-      note: '低いほど売り長で踏み上げ余地が大きい。ただし3月・9月はつなぎ売りで必ず下がります',
-      series: [{ name: '信用倍率', values: col('marginRatio'), mode: 'line', colorVar: '--series-1', digits: 2, unit: '倍' }],
-    });
-
-    card({
-      title: '空売り比率(%)',
-      note: '高いほど売り圧力が強い一方で、極端な高水準は反転の目印にもなります',
-      series: [{ name: '空売り比率', values: col('shortRatioPct'), mode: 'line', colorVar: '--series-1', digits: 2, unit: '%' }],
-    });
-  }
-
-  function loadMacro(force) {
-    var section = $('macroSection').value || 'TokyoNagoya';
-    var weeks = $('macroWeeks').value || '52';
-    var key = 'macro:' + section + ':' + weeks;
-    if (cache[key] && !force) { renderMacro(cache[key]); return; }
-    setStatus($('macroStatus'), '読み込み中…');
-    api(BASE_PATH + '/api/demand/macro?section=' + encodeURIComponent(section) +
-        '&weeks=' + encodeURIComponent(weeks))
-      .then(function (d) {
-        cache[key] = d;
-        renderMacro(d);
-      })
-      .catch(function (e) { setStatus($('macroStatus'), e.message, true); });
-  }
-
-  function renderMacro(d) {
-    var cols = macroCols();
-    macroState = { cols: cols, rows: d.rows };
-    setStatus($('macroStatus'), d.count + '週');
-
-    // 系列をはみ出した期間・終了した系列の警告。黙ってNULLが並ぶのを防ぐ
-    var notice = $('macroNotice');
-    if (d.notice && d.notice.length) {
-      notice.hidden = false;
-      notice.innerHTML = '<span class="pct down">⚠</span> ' +
-        d.notice.map(function (s) { return esc(s); }).join('<br>');
-    } else {
-      notice.hidden = true;
-      notice.innerHTML = '';
-    }
-
-    // 表は新しい週が上、グラフは古い週が左
-    renderMacroCharts(d.rows.slice().reverse());
-    renderTable($('macroTable'), cols, d.rows, {});
-  }
-
   //================================================================ 鮮度の読み込み
   function loadFreshness() {
     api(BASE_PATH + '/api/demand/freshness').then(function (d) {
@@ -1491,21 +1289,9 @@
     $('dataMeta').textContent = parts.join(' ・ ');
   }
 
-  function fillSections() {
-    var sel = $('macroSection');
-    sel.innerHTML = (meta.sections || []).map(function (s) {
-      return '<option value="' + esc(s.section) + '">' + esc(s.section) +
-        '(' + esc(s.fromDate) + '〜' + esc(s.toDate) + ')</option>';
-    }).join('');
-    // 市場区分再編をまたいで連続している唯一の系列を既定にする
-    var has = (meta.sections || []).some(function (s) { return s.section === 'TokyoNagoya'; });
-    if (has) sel.value = 'TokyoNagoya';
-  }
-
   function init() {
     LOADERS.signal = loadSignals;
     LOADERS.watchlist = loadWatchlist;
-    LOADERS.macro = loadMacro;
 
     $('tabs').addEventListener('click', function (ev) {
       var t = ev.target.closest ? ev.target.closest('.tab') : null;
@@ -1537,12 +1323,6 @@
     $('sheetCsvBtn').addEventListener('click', function () {
       if (sheetState.cols) downloadCsv('demand_watchlist', sheetState.cols, sheetState.rows);
     });
-    $('macroCsvBtn').addEventListener('click', function () {
-      if (macroState.cols) downloadCsv('demand_macro', macroState.cols, macroState.rows);
-    });
-
-    $('macroSection').addEventListener('change', function () { loadMacro(); });
-    $('macroWeeks').addEventListener('change', function () { loadMacro(); });
 
     $('detailWeeks').addEventListener('change', function () {
       if (state.detailCode) openDetail(state.detailCode);
@@ -1560,9 +1340,8 @@
       P = m.params || {};
       renderDataMeta();
       renderCalib();
-      fillSections();
       var hash = (location.hash || '').replace('#', '');
-      showTab(['signal', 'watchlist', 'macro'].indexOf(hash) >= 0 ? hash : 'signal');
+      showTab(['signal', 'watchlist'].indexOf(hash) >= 0 ? hash : 'signal');
     }).catch(function (e) {
       fail($('dataMeta'), e);
       // しきい値が取れないと「疑う列」の判定ができない。点灯だけ出すより黙って止める
