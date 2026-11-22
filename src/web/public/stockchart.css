@@ -17,6 +17,8 @@
   /* 信用残 */
   --mg-long: var(--series-1);
   --mg-short: var(--series-3);
+  /* 価格帯別出来高の棒。オリーブドラブを明るくした色(2026-11-22 PELO の指定で明るい色に) */
+  --vp-bar: #A8AD8F;
   padding-bottom: 0;
 }
 
@@ -34,6 +36,26 @@
 .stk-checks { gap: 12px; }
 .stk-checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .stk-checks input { margin: 0; }
+
+/* ---------- 調査対象 ---------- */
+.stk-watch { gap: 6px; padding: 8px 16px 10px; }
+.stk-watch .panel-title { font-size: 13px; }
+.stk-watch-paste { display: flex; gap: 8px; align-items: flex-start; }
+.stk-watch-paste textarea {
+  flex: 1 1 auto; font: inherit; font-size: 13px; padding: 6px 8px; resize: vertical;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+}
+.stk-watch-msg { font-size: 12px; color: var(--text-secondary); }
+/* 銘柄が多いときは3行ぶんの高さで止めて、中を縦にスクロールする */
+.stk-watch-list { display: flex; flex-wrap: wrap; gap: 4px 6px; max-height: 92px; overflow-y: auto; }
+.stk-watch-list:empty { display: none; }
+.wl-item { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; font-size: 12px; }
+.wl-item button { font: inherit; border: 0; background: transparent; color: var(--text-primary); cursor: pointer; padding: 3px 8px; }
+.wl-item .wl-pick { font-variant-numeric: tabular-nums; }
+.wl-item .wl-del { color: var(--muted); padding: 3px 6px; border-left: 1px solid var(--border); }
+.wl-item .wl-pick:hover, .wl-item .wl-del:hover { background: var(--hover-wash); }
+/* 表示中の銘柄は背景色で示す(文字の太さ・大きさは変えない) */
+.wl-item[aria-current="true"] { background: var(--sel-wash); }
 
 /* ---------- チャートの枠 ---------- */
 .stk-chart { gap: 4px; padding: 10px 12px 12px; }
@@ -60,6 +82,8 @@
 .stk-legend .sw.bb2 { border-color: var(--bb); opacity: .55; }
 .stk-legend .sw.long { border-color: var(--mg-long); }
 .stk-legend .sw.short { border-color: var(--mg-short); }
+.stk-info .sw { display: inline-block; width: 14px; height: 0; vertical-align: middle; margin-right: 4px; }
+.stk-info .sw.vp-close-sw { border-top: 1px dashed var(--text-primary); }
 .stk-legend .earn-tag { background: var(--sel-wash); border-radius: 3px; padding: 0 5px; }
 
 .stk-wrap { width: 100%; }
@@ -111,6 +135,14 @@
 .stk-svg .earn-wash { fill: var(--sel-wash); stroke: var(--series-3); stroke-width: 1; }
 .stk-svg .earn-text { fill: var(--text-primary); font-size: 10px; }
 
+/* 価格帯別出来高 */
+.stk-svg.stk-vp { cursor: default; }
+.stk-svg .vp-bar { fill: var(--vp-bar); }
+/* 価格帯別出来高の欄は横幅の2/3で左に寄せる(2026-11-22 PELO の指定。幅720px以下では全幅) */
+#profilePanel { width: 67%; margin-right: auto; }
+.stk-svg .vp-row { fill: var(--sel-wash); }
+.stk-svg .vp-close { stroke: var(--text-primary); stroke-width: 1; stroke-dasharray: 4 3; shape-rendering: crispEdges; }
+
 /* カーソルの位置 */
 .stk-svg .cross { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 2 2; shape-rendering: crispEdges; pointer-events: none; }
 .stk-svg .tag-box { fill: var(--text-primary); }
@@ -118,5 +150,6 @@
 
 @media (max-width: 720px) {
   .stk-row .spacer { display: none; }
+  #profilePanel { width: auto; }
   .stk-chart { padding: 8px 6px 10px; }
 }

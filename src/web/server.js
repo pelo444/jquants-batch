@@ -54,6 +54,7 @@ const purchaseQuery = require('./purchaseQuery');
 const { fetchMarginChecks } = require('./marginCheck');
 const stockLookup = require('./stockLookup');
 const stockChartQuery = require('./stockChartQuery');
+const chartWatch = require('./chartWatch');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 const { BASE_PATH, sendPage, pageNameFor } = require('./basePath');
@@ -1088,6 +1089,57 @@ app.get('/api/stockchart', async (req, res, next) => {
     res.json(data);
   } catch (err) {
     next(err);
+  }
+});
+
+// 調査対象の一覧(順に見ていく銘柄)。表は ddl/39_chart_watch.sql、扱いは chartWatch.js 冒頭
+function watchError(err, next) {
+  if (err && err.errorNum === 942) {
+    next(new BadRequest('調査対象の表がありません。ddl/39_chart_watch.sql を GD_JQUANTS で流してください'));
+    return;
+  }
+  next(err);
+}
+
+app.get('/api/stockchart/watch', async (req, res, next) => {
+  try {
+    const items = await db.withConnection((conn) => chartWatch.fetchWatch(conn));
+    res.json({ items });
+  } catch (err) {
+    // 表がまだ無いときも画面は開けるように、空の一覧と案内を返す
+    if (err && err.errorNum === 942) { res.json({ items: [], tableMissing: true }); return; }
+    next(err);
+  }
+});
+
+app.post('/api/stockchart/watch', express.json({ limit: '200kb' }), async (req, res, next) => {
+  try {
+    const input = req.body && req.body.codes;
+    if (input == null || (typeof input !== 'string' && !Array.isArray(input))) {
+      throw new BadRequest('codes(銘柄コードの文字列か配列)がありません');
+    }
+    res.json(await db.withConnection((conn) => chartWatch.addWatch(conn, input)));
+  } catch (err) {
+    watchError(err, next);
+  }
+});
+
+app.delete('/api/stockchart/watch/:code', async (req, res, next) => {
+  try {
+    const raw = String(req.params.code || '').trim();
+    if (!/^[0-9A-Za-z]{4,5}$/.test(raw)) throw new BadRequest('銘柄コードは4桁または5桁で指定してください');
+    const code = normalizeCode(raw);
+    res.json(await db.withConnection((conn) => chartWatch.removeWatch(conn, code)));
+  } catch (err) {
+    watchError(err, next);
+  }
+});
+
+app.delete('/api/stockchart/watch', async (req, res, next) => {
+  try {
+    res.json(await db.withConnection((conn) => chartWatch.clearWatch(conn)));
+  } catch (err) {
+    watchError(err, next);
   }
 });
 

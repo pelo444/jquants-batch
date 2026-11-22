@@ -6,7 +6,7 @@
 <title>個別チャート</title>
 <link rel="stylesheet" href="/style.css?v=20261115b">
 <!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
-<link rel="stylesheet" href="/stockchart.css?v=20261115b">
+<link rel="stylesheet" href="/stockchart.css?v=20261122c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 2v12M12 1v13' stroke='%236B705C' stroke-width='1'/%3E%3Crect x='2.5' y='5' width='3' height='6' fill='%23F7F9FA' stroke='%236B705C'/%3E%3Crect x='10.5' y='4' width='3' height='5' fill='%236B705C' stroke='%236B705C'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -64,8 +64,29 @@
         <label><input type="checkbox" id="showPivot" checked> 高安値</label>
         <label><input type="checkbox" id="showMargin" checked> 信用残</label>
         <label><input type="checkbox" id="showEarn" checked> 決算発表日</label>
+        <label><input type="checkbox" id="showProfile" checked> 価格帯別出来高</label>
       </span>
     </div>
+  </section>
+
+  <!-- 調査対象の一覧。表は ddl/39_chart_watch.sql -->
+  <section class="panel stk-watch" id="watchPanel">
+    <div class="stk-row">
+      <h2 class="panel-title">調査対象</h2>
+      <span class="meta" id="watchCount"></span>
+      <button type="button" class="btn" id="watchPrev">← 前へ</button>
+      <button type="button" class="btn" id="watchNext">次へ →</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="watchAddCur">表示中の銘柄を追加</button>
+      <button type="button" class="btn" id="watchPasteBtn" aria-expanded="false">まとめて追加</button>
+      <button type="button" class="btn" id="watchClear">全部消す</button>
+    </div>
+    <div class="stk-watch-paste" id="watchPasteBox" hidden>
+      <textarea id="watchPaste" rows="3" spellcheck="false" placeholder="銘柄コードを貼り付け(改行・カンマ・空白で区切る)  例: 6613, 5033, 285A"></textarea>
+      <button type="button" class="btn primary" id="watchPasteOk">追加</button>
+    </div>
+    <div class="stk-watch-msg" id="watchMsg" hidden></div>
+    <div class="stk-watch-list" id="watchList"></div>
   </section>
 
   <section class="panel stk-chart" id="chartPanel" hidden>
@@ -80,9 +101,21 @@
     </div>
   </section>
 
+  <!-- 価格帯別出来高。期間はチャートに出している範囲(左右に引いてずらすと一緒に変わる) -->
+  <section class="panel stk-chart" id="profilePanel" hidden>
+    <div class="stk-head">
+      <h2 class="panel-title">価格帯別出来高</h2>
+      <span class="meta" id="profileMeta"></span>
+    </div>
+    <div class="stk-info" id="profileInfo"></div>
+    <div class="stk-wrap" id="profileWrap">
+      <svg id="profile" class="stk-svg stk-vp" role="img" aria-label="価格帯別出来高"></svg>
+    </div>
+  </section>
+
 </div>
 <script src="/codeLookup.js?v=20261021a"></script>
-<script src="/stockchartCalc.js?v=20261115b"></script>
-<script src="/stockchart.js?v=20261115b"></script>
+<script src="/stockchartCalc.js?v=20261122b"></script>
+<script src="/stockchart.js?v=20261122c"></script>
 </body>
 </html>

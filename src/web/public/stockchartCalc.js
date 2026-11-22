@@ -7,6 +7,7 @@
  *   pivots      高安値表示(山と谷)の位置を決める
  *   niceTicks   軸の目盛り
  *   attachMargin / attachEarnings  信用残・決算発表日を足の位置に当てる
+ *   volumeProfile  価格帯別出来高(どの価格帯でどれだけ売買が成立したか)
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -147,13 +148,17 @@
     return { mid: mid, sd: sd };
   }
 
+  /** raw 以上でいちばん近い、1・2・2.5・5 × 10^n の刻み */
+  function niceStep(raw) {
+    var p = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+    var f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  }
+
   /** 軸の目盛り(1・2・2.5・5 × 10^n の刻み)。min〜max の中に入るものだけ返す */
   function niceTicks(min, max, target) {
     if (!(max > min)) return { step: 1, ticks: [min] };
-    var raw = (max - min) / Math.max(1, target);
-    var p = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
-    var f = raw / p;
-    var step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+    var step = niceStep((max - min) / Math.max(1, target));
     var ticks = [];
     var start = Math.ceil(min / step - 1e-9) * step;
     for (var v = start; v <= max + step * 1e-9; v += step) ticks.push(Math.round(v / step) * step + 0); // + 0 は -0 を 0 にするため
@@ -207,7 +212,55 @@
     return out;
   }
 
+  /**
+   * 価格帯別出来高。日足のうち from〜to の日について、1日の出来高を その日の安値〜高値 に均等に配り、価格帯ごとに足し上げる。
+   *   手元には日足しかない(1件ごとの約定や分足が無い)ので、1日の中でどの値段で売買されたかは分からない。
+   *   安値〜高値に均等に配るのは、日足から描くチャートソフトの多くと同じ近似。
+   *   安値 = 高値 の日(値幅が0)は、その値段を含む帯に全部入れる。
+   * 帯の幅は (期間の高値 − 安値) ÷ targetBins を 1・2・2.5・5 × 10^n に丸めたもの。帯の境目はその幅の倍数にそろえる。
+   * 帯は下から上へ [p0, p1)。いちばん上の帯だけ p1 を含む。
+   * @param {{d:string[],h:number[],l:number[],v:number[]}} day 日足(昇順)
+   * @returns {null|{from:string,to:string,days:number,step:number,total:number,bins:Array<{p0:number,p1:number,v:number}>}}
+   */
+  function volumeProfile(day, from, to, targetBins) {
+    var a = barIndexOnOrAfter(day.d, from);
+    if (a < 0 || day.d[a] > to) return null;
+    var e = a, lo = Infinity, hi = -Infinity, i;
+    for (; e < day.d.length && day.d[e] <= to; e++) {
+      if (day.l[e] < lo) lo = day.l[e];
+      if (day.h[e] > hi) hi = day.h[e];
+    }
+    var step = hi > lo ? niceStep((hi - lo) / Math.max(1, targetBins)) : niceStep(Math.max(hi, 1) * 0.01);
+    var base = Math.floor(lo / step + 1e-9) * step;
+    var count = Math.max(1, Math.ceil((hi - base) / step - 1e-9));
+    var vol = new Array(count);
+    for (i = 0; i < count; i++) vol[i] = 0;
+    function binOf(price, upper) { // upper: 帯の上端ちょうどの値段は下の帯に入れる(値幅の上端)
+      var k = Math.floor((price - base) / step + (upper ? -1e-9 : 1e-9));
+      return Math.max(0, Math.min(count - 1, k));
+    }
+    var total = 0;
+    for (i = a; i < e; i++) {
+      var v = day.v[i];
+      if (!v) continue;
+      var l = day.l[i], h = day.h[i];
+      total += v;
+      if (!(h > l)) { vol[binOf(l, false)] += v; continue; }
+      var k0 = binOf(l, false), k1 = Math.max(k0, binOf(h, true));
+      for (var k = k0; k <= k1; k++) {
+        var over = Math.min(h, base + (k + 1) * step) - Math.max(l, base + k * step);
+        if (over > 0) vol[k] += v * over / (h - l);
+      }
+    }
+    var dec = step >= 1 ? 0 : 6;
+    function r(x) { return dec ? Math.round(x * 1e6) / 1e6 : Math.round(x); }
+    var bins = [];
+    for (i = 0; i < count; i++) bins.push({ p0: r(base + i * step), p1: r(base + (i + 1) * step), v: vol[i] });
+    return { from: day.d[a], to: day.d[e - 1], days: e - a, step: step, total: total, bins: bins };
+  }
+
   return {
+    volumeProfile: volumeProfile, niceStep: niceStep,
     aggregate: aggregate, sma: sma, bollinger: bollinger, pivots: pivots, niceTicks: niceTicks,
     attachMargin: attachMargin, attachEarnings: attachEarnings,
     weekKey: weekKey, dayDiff: dayDiff, barIndexOnOrAfter: barIndexOnOrAfter,

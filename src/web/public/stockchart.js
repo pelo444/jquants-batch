@@ -18,7 +18,13 @@
  *
  * 【操作】グラフの上で動かすとその足の値を上の行に出す。左右に引くと期間を前後にずらす。
  *
+ * 【価格帯別出来高】チャートの下の段。期間はチャートに出している範囲と同じ(引いてずらすと一緒に変わる)。
+ *   足種によらず日足から作る(週足・月足の1本の高値〜安値に配るより細かい)。計算は stockchartCalc.js の volumeProfile。
+ *
  * 【URL】?code=6613&tf=d&range=6m。開いている状態をそのまま URL に持つ(ブックマーク・貼り付け用)。
+ *
+ * 【調査対象】画面上部の一覧(DB の JNL_CHART_WATCH、ddl/39)。選ぶとその銘柄に切り替わる。
+ *   前へ・次へのボタンと、上下の矢印キー(入力欄にいないとき)で順に送る。表示中の銘柄は背景色で示す。
  */
 (function () {
   var C = window.StockChartCalc;
@@ -51,7 +57,7 @@
     tf: 'd',
     ind: 'ma',    // 株価に重ねる指標(移動平均線 / ボリンジャーバンド)
     range: { d: TF.d.range, w: TF.w.range, m: TF.m.range },
-    show: { pivot: true, margin: true, earn: true },
+    show: { pivot: true, margin: true, earn: true, profile: true },
     data: null,   // API の返り値
     bars: null,   // いまの足種の足
     ma: null,     // 移動平均(日足は4本、週足・月足は3本)
@@ -152,6 +158,7 @@
   }
 
   var loadingCode = null;
+  var loadSeq = 0; // 前へ・次へを続けて押したとき、後から届いた古い応答で上書きしないため
   function load(rawCode) {
     var code = normalizeCode(rawCode);
     $('codeInput').value = code;
@@ -166,11 +173,13 @@
       return;
     }
     loadingCode = code;
+    var seq = ++loadSeq;
     flash('');
     $('dataMeta').textContent = '読み込み中…';
     fetch(BASE_PATH + '/api/stockchart?code=' + encodeURIComponent(code))
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j; }); })
       .then(function (j) {
+        if (seq !== loadSeq) return;
         loadingCode = null;
         state.code = j.code;
         state.data = j;
@@ -178,6 +187,7 @@
         $('dataMeta').textContent = '';
         if (j.d.length === 0) {
           $('chartPanel').hidden = true;
+          $('profilePanel').hidden = true;
           flash(j.shortCode + ' ' + j.name + ' の株価データがありません');
           return;
         }
@@ -190,8 +200,10 @@
         applyRange();
         writeUrl();
         render();
+        renderWatch();
       })
       .catch(function (e) {
+        if (seq !== loadSeq) return;
         loadingCode = null;
         $('dataMeta').textContent = '';
         flash('表示できませんでした: ' + e.message);
@@ -497,7 +509,143 @@
     svg.innerHTML = s.join('');
     renderLegend(g);
     renderHover();
+    renderProfile();
   }
+
+  //---------------------------------------------------------------- 価格帯別出来高
+  var VP_BINS = 30;        // 帯の数の目安(帯の幅はこれを 1・2・2.5・5 × 10^n に丸めて決める)
+  var VP_ROW = { min: 8, max: 18, target: 360 }; // 1つの帯の高さ(px)と、段全体の高さの目安
+  var VP_BAR_RATIO = 0.45; // 棒の太さ = 帯の高さ × これ(残りは棒と棒の間)
+  var VP_BAR_MAX = 8;      // 棒の太さの上限(px)
+  var VP_PAD_L = 70;       // 左の株価の文字の幅
+  var VP_PAD_R = 16;
+  var vpSvg = $('profile');
+  var vp = { data: null, geo: null, hover: -1 };
+
+  function renderProfile() {
+    var panel = $('profilePanel');
+    if (!state.show.profile || !state.bars) { panel.hidden = true; vp.data = null; return; }
+    var b = state.bars;
+    var res = C.volumeProfile(state.data, b.d0[state.i0], b.d[state.i1 - 1], VP_BINS);
+    panel.hidden = false;
+    vp.data = res;
+    if (!res || res.total === 0) {
+      vpSvg.innerHTML = '';
+      $('profileMeta').textContent = '';
+      $('profileInfo').textContent = 'この期間の出来高がありません';
+      return;
+    }
+    var dec = res.step >= 1 ? 0 : res.step >= 0.1 ? 1 : 2;
+    $('profileMeta').textContent = ymdSlash(res.from) + '〜' + ymdSlash(res.to) + '(' + res.days + '営業日) ・ 帯の幅 ' +
+      fix(res.step, dec) + '円 ・ 1日の出来高を、その日の安値〜高値に均等に配って足し上げ';
+
+    var bins = res.bins, count = bins.length;
+    var rowH = Math.max(VP_ROW.min, Math.min(VP_ROW.max, Math.floor(VP_ROW.target / count)));
+    var W = Math.max(320, Math.floor($('profileWrap').clientWidth));
+    var top = 6;
+    var H = top + rowH * count + AXIS_H + 2;
+    var x0 = VP_PAD_L, x1 = W - VP_PAD_R, plotW = x1 - x0;
+    var vmax = 0;
+    bins.forEach(function (bn) { if (bn.v > vmax) vmax = bn.v; });
+    var vu = shareUnit(vmax);
+    var g = { W: W, H: H, x0: x0, x1: x1, top: top, rowH: rowH, count: count, dec: dec, unit: vu };
+    g.yRow = function (k) { return top + (count - 1 - k) * rowH; }; // 帯 k の上端(高い値段ほど上)
+    vp.geo = g;
+
+    vpSvg.setAttribute('width', W);
+    vpSvg.setAttribute('height', H);
+    vpSvg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    var s = [];
+    var axisY = top + rowH * count;
+
+    // 出来高の目盛り(縦線)。右端の単位の文字と重なる目盛りの数字は出さない
+    var unitTxt = '出来高(' + vu.label + ')';
+    var unitX0 = x1 - unitTxt.length * 11 - 6;
+    var vt = C.niceTicks(0, vmax / vu.div, Math.max(2, Math.floor(plotW / 110)));
+    vt.ticks.forEach(function (v) {
+      var x = x0 + (vmax > 0 ? v * vu.div / vmax : 0) * plotW;
+      var txt = fix(v, vt.step >= 1 ? 0 : 1);
+      if (v !== 0) s.push('<line class="grid" x1="' + px(x) + '" x2="' + px(x) + '" y1="' + top + '" y2="' + axisY + '"/>');
+      if (v !== 0 && x + txt.length * 3.5 > unitX0) return;
+      s.push('<text text-anchor="' + (v === 0 ? 'start' : 'middle') + '" x="' + f1(x) + '" y="' + (axisY + 15) + '">' + txt + '</text>');
+    });
+    s.push('<text class="ptitle" text-anchor="end" x="' + x1 + '" y="' + (axisY + 15) + '">' + unitTxt + '</text>');
+
+    // 帯ごとの棒。太さは帯の高さの45%(2〜8px)で、帯の中ほどに置く。帯の幅(刻み)は変えずに、棒と棒の間を空ける
+    // (2026-11-22 PELO の指定。上段の出来高の棒と並べたとき太く見えたため。帯の高さ13pxなら棒は6px)
+    var bars = '';
+    var thick = Math.max(2, Math.min(VP_BAR_MAX, Math.round(rowH * VP_BAR_RATIO)));
+    var off = Math.floor((rowH - thick) / 2);
+    bins.forEach(function (bn, k) {
+      if (!(bn.v > 0)) return;
+      var w = Math.max(1, Math.round(bn.v / vmax * plotW));
+      var y = g.yRow(k) + off;
+      bars += 'M' + x0 + ' ' + y + 'h' + w + 'v' + thick + 'h' + (-w) + 'Z';
+    });
+    s.push('<path class="vp-bar" d="' + bars + '"/>');
+    s.push('<g id="vpHover"></g>'); // カーソルのある帯の背景(棒の上に重ねる。強調は背景色だけ)
+
+    // 株価の目盛り(帯の境目)。文字が重ならない間隔で出す
+    var every = Math.max(1, Math.ceil(16 / rowH));
+    for (var k = 0; k <= count; k++) {
+      if (k % every !== 0 && k !== count) continue;
+      if (k === count && count % every !== 0 && (count % every) * rowH < 14) continue;
+      var y = top + (count - k) * rowH;
+      var p = k < count ? bins[k].p0 : bins[count - 1].p1;
+      s.push('<text text-anchor="end" x="' + (x0 - 6) + '" y="' + f1(y + 4) + '">' + fix(p, dec) + '</text>');
+    }
+
+    // 期間の最後の終値
+    var lastClose = b.c[state.i1 - 1];
+    var lo = bins[0].p0, hi = bins[count - 1].p1;
+    if (lastClose >= lo && lastClose <= hi) {
+      var yc = top + (hi - lastClose) / (hi - lo) * rowH * count;
+      s.push('<line class="vp-close" x1="' + x0 + '" x2="' + x1 + '" y1="' + px(yc) + '" y2="' + px(yc) + '"/>');
+    }
+    g.lastClose = lastClose;
+
+    s.push('<rect class="frame" x="' + px(x0 - 0.5) + '" y="' + px(top - 0.5) + '" width="' + plotW + '" height="' + (rowH * count) + '"/>');
+    vpSvg.innerHTML = s.join('');
+    if (vp.hover >= count) vp.hover = -1;
+    renderProfileHover();
+  }
+
+  /** 上の行(カーソルのある帯の出来高)と、その帯の背景 */
+  function renderProfileHover() {
+    var res = vp.data, g = vp.geo;
+    if (!res || !g) return;
+    var html;
+    var k = vp.hover;
+    if (k >= 0) {
+      var bn = res.bins[k];
+      html = '<span><span class="lbl">価格帯</span>' + fix(bn.p0, g.dec) + '〜' + fix(bn.p1, g.dec) + '円</span>' +
+        '<span><span class="lbl">出来高</span>' + int(bn.v) + '株</span>' +
+        '<span><span class="lbl">期間の出来高に占める割合</span>' + fix(bn.v / res.total * 100, 1) + '%</span>';
+    } else {
+      html = '<span><span class="lbl">期間の出来高</span>' + int(res.total) + '株</span>';
+    }
+    html += '<span><i class="sw vp-close-sw"></i><span class="lbl">' + ymdSlash(res.to) + ' の終値</span>' + price(g.lastClose) + '</span>';
+    $('profileInfo').innerHTML = html;
+    var layer = document.getElementById('vpHover');
+    if (!layer) return;
+    layer.innerHTML = k >= 0
+      ? '<rect class="vp-row" x="' + g.x0 + '" y="' + g.yRow(k) + '" width="' + (g.x1 - g.x0) + '" height="' + g.rowH + '"/>'
+      : '';
+  }
+
+  vpSvg.addEventListener('pointermove', function (ev) {
+    var g = vp.geo;
+    if (!vp.data || !g) return;
+    var r = vpSvg.getBoundingClientRect();
+    var y = ev.clientY - r.top;
+    var row = Math.floor((y - g.top) / g.rowH);
+    var k = row >= 0 && row < g.count ? g.count - 1 - row : -1;
+    if (k !== vp.hover) { vp.hover = k; renderProfileHover(); }
+  });
+  vpSvg.addEventListener('pointerleave', function (ev) {
+    if (ev.pointerType === 'touch') return;
+    if (vp.hover !== -1) { vp.hover = -1; renderProfileHover(); }
+  });
 
   /** 横軸の目盛り。月の変わり目のうち、間が詰まりすぎない間隔(1・2・3・6・12・24・60か月)で出す */
   function xTicks(g) {
@@ -707,7 +855,7 @@
     if (!state.data) return;
     writeUrl(); render();
   });
-  [['showPivot', 'pivot'], ['showMargin', 'margin'], ['showEarn', 'earn']].forEach(function (pair) {
+  [['showPivot', 'pivot'], ['showMargin', 'margin'], ['showEarn', 'earn'], ['showProfile', 'profile']].forEach(function (pair) {
     $(pair[0]).addEventListener('change', function () {
       state.show[pair[1]] = $(pair[0]).checked;
       if (state.data) render();
@@ -733,6 +881,138 @@
     resizeTimer = setTimeout(function () { if (state.data && !$('chartPanel').hidden) render(); }, 80);
   });
 
+  //---------------------------------------------------------------- 調査対象
+  var watch = { items: [], tableMissing: false };
+
+  function watchMsg(msg) {
+    var el = $('watchMsg');
+    el.textContent = msg || '';
+    el.hidden = !msg;
+  }
+  function watchApi(method, url, body) {
+    var opt = { method: method, headers: {} };
+    if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+    return fetch(BASE_PATH + url, opt)
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j; }); });
+  }
+  /** いま表示している銘柄が一覧の何番目か(無ければ -1) */
+  function watchIndex() {
+    if (!state.data) return -1;
+    for (var k = 0; k < watch.items.length; k++) if (watch.items[k].code === state.data.code) return k;
+    return -1;
+  }
+  function renderWatch() {
+    var cur = watchIndex();
+    var n = watch.items.length;
+    $('watchCount').textContent = watch.tableMissing ? '' : n === 0 ? '登録なし' : (cur >= 0 ? (cur + 1) + ' / ' : '') + n + '銘柄';
+    $('watchPrev').disabled = n === 0;
+    $('watchNext').disabled = n === 0;
+    $('watchAddCur').disabled = !state.data || cur >= 0 || watch.tableMissing;
+    $('watchClear').disabled = n === 0;
+    $('watchList').innerHTML = watch.items.map(function (it, k) {
+      return '<span class="wl-item"' + (k === cur ? ' aria-current="true"' : '') + '>' +
+        '<button type="button" class="wl-pick" data-k="' + k + '">' + esc(it.shortCode + ' ' + it.name) + '</button>' +
+        '<button type="button" class="wl-del" data-code="' + esc(it.shortCode) + '" title="一覧から外す" aria-label="' + esc(it.shortCode) + ' を一覧から外す">×</button>' +
+        '</span>';
+    }).join('');
+    // 表示中の銘柄が一覧の枠の外にあれば、見える位置まで送る
+    var curEl = $('watchList').querySelector('[aria-current="true"]');
+    if (curEl) {
+      var box = $('watchList');
+      if (curEl.offsetTop < box.scrollTop || curEl.offsetTop + curEl.offsetHeight > box.scrollTop + box.clientHeight) {
+        box.scrollTop = curEl.offsetTop - box.offsetTop;
+      }
+    }
+  }
+  function setWatch(items) { watch.items = items || []; renderWatch(); }
+
+  function loadWatch() {
+    watchApi('GET', '/api/stockchart/watch')
+      .then(function (j) {
+        watch.tableMissing = Boolean(j.tableMissing);
+        if (watch.tableMissing) watchMsg('調査対象の表がありません。ddl/39_chart_watch.sql を GD_JQUANTS で流してください');
+        setWatch(j.items);
+      })
+      .catch(function (e) { watchMsg('調査対象を読み込めませんでした: ' + e.message); });
+  }
+  function addWatch(codes) {
+    watchMsg('');
+    return watchApi('POST', '/api/stockchart/watch', { codes: codes })
+      .then(function (j) {
+        setWatch(j.items);
+        var parts = [];
+        if (j.added.length) parts.push(j.added.length + '銘柄を追加しました');
+        if (j.already.length) parts.push('登録済み: ' + j.already.join(', '));
+        if (j.unknown.length) parts.push('銘柄マスタに無いコード: ' + j.unknown.join(', '));
+        if (j.bad.length) parts.push('コードとして読めなかったもの: ' + j.bad.join(', '));
+        if (j.tooMany) parts.push('1回に追加できるのは500銘柄までです(それより後は追加していません)');
+        watchMsg(parts.join(' ・ '));
+        return j;
+      })
+      .catch(function (e) { watchMsg('追加できませんでした: ' + e.message); });
+  }
+  /** 一覧の k 番目を表示する */
+  function showWatch(k) {
+    var n = watch.items.length;
+    if (!n) return;
+    k = ((k % n) + n) % n; // 端まで行ったら反対の端へ
+    load(watch.items[k].shortCode);
+  }
+  function stepWatch(dir) {
+    var cur = watchIndex();
+    if (cur < 0) showWatch(dir > 0 ? 0 : watch.items.length - 1);
+    else showWatch(cur + dir);
+  }
+
+  $('watchPrev').addEventListener('click', function () { stepWatch(-1); });
+  $('watchNext').addEventListener('click', function () { stepWatch(1); });
+  $('watchAddCur').addEventListener('click', function () {
+    if (state.data) addWatch([state.data.shortCode]);
+  });
+  $('watchPasteBtn').addEventListener('click', function () {
+    var box = $('watchPasteBox');
+    box.hidden = !box.hidden;
+    $('watchPasteBtn').setAttribute('aria-expanded', String(!box.hidden));
+    if (!box.hidden) $('watchPaste').focus();
+  });
+  $('watchPasteOk').addEventListener('click', function () {
+    var text = $('watchPaste').value;
+    if (!text.trim()) return;
+    addWatch(text).then(function (j) {
+      if (j && !j.unknown.length && !j.bad.length) { $('watchPaste').value = ''; $('watchPasteBox').hidden = true; $('watchPasteBtn').setAttribute('aria-expanded', 'false'); }
+    });
+  });
+  $('watchClear').addEventListener('click', function () {
+    if (!watch.items.length) return;
+    if (!window.confirm('調査対象の ' + watch.items.length + '銘柄を全部消します。よろしいですか?')) return;
+    watchMsg('');
+    watchApi('DELETE', '/api/stockchart/watch')
+      .then(function (j) { setWatch(j.items); })
+      .catch(function (e) { watchMsg('消せませんでした: ' + e.message); });
+  });
+  $('watchList').addEventListener('click', function (ev) {
+    var del = ev.target.closest('.wl-del');
+    if (del) {
+      watchMsg('');
+      watchApi('DELETE', '/api/stockchart/watch/' + encodeURIComponent(del.getAttribute('data-code')))
+        .then(function (j) { setWatch(j.items); })
+        .catch(function (e) { watchMsg('外せませんでした: ' + e.message); });
+      return;
+    }
+    var pick = ev.target.closest('.wl-pick');
+    if (pick) showWatch(+pick.getAttribute('data-k'));
+  });
+  // 上下の矢印キーで前へ・次へ(入力欄・ボタンの上にいるときは、そちらの動きを優先する)
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+    if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    var t = ev.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (!watch.items.length) return;
+    ev.preventDefault();
+    stepWatch(ev.key === 'ArrowDown' ? 1 : -1);
+  });
+
   //---------------------------------------------------------------- 開始
   var initial = readUrl();
   if (!initial) {
@@ -746,6 +1026,8 @@
     } catch (e) { /* 読めなくても動く */ }
   }
   syncControls();
+  renderWatch();
+  loadWatch();
   if (initial) load(initial);
   else codeInput.focus();
 })();

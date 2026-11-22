@@ -3,6 +3,7 @@
 const assert = require('assert');
 const { _internal: q } = require('../src/web/stockChartQuery');
 const C = require('../src/web/public/stockchartCalc');
+const { _internal: watch } = require('../src/web/chartWatch');
 
 // 1. 分割調整: 3/3 に 1:2 の分割(AdjFactor 0.5)。それより前の株価は半分、出来高は2倍。当日以降はそのまま
 let d = q.adjustDaily([
@@ -106,5 +107,36 @@ assert.deepStrictEqual(C.niceTicks(0, 318, 2).ticks, [0, 200]);
   const flat = C.bollinger([5, 5, 5, 5], 3);
   assert.strictEqual(flat.sd[3], 0);
 }
+
+// 12. 価格帯別出来高: 1日の出来高を安値〜高値に均等に配る。値幅0の日はその値段の帯に全部
+{
+  const dd = {
+    d: ['2026-11-02', '2026-11-04', '2026-11-05', '2026-11-06'],
+    h: [999, 120, 110, 999],
+    l: [1, 100, 110, 1],
+    v: [9, 200, 50, 9],
+  };
+  // 11/4〜11/5 の高値 120・安値 100 を 4 帯 → 帯の幅 5。帯は [100,105) [105,110) [110,115) [115,120]
+  const vp = C.volumeProfile(dd, '2026-11-03', '2026-11-05', 4);
+  assert.strictEqual(vp.step, 5);
+  assert.deepStrictEqual([vp.from, vp.to, vp.days, vp.total], ['2026-11-04', '2026-11-05', 2, 250]);
+  assert.deepStrictEqual(vp.bins.map((b) => [b.p0, b.p1]), [[100, 105], [105, 110], [110, 115], [115, 120]]);
+  assert.deepStrictEqual(vp.bins.map((b) => b.v), [50, 50, 100, 50]);
+  // 帯の境目は幅の倍数にそろう(安値 101 → 最初の帯は 100 から)。配った合計は出来高の合計と同じ
+  const vp2 = C.volumeProfile({ d: ['2026-11-04'], h: [119], l: [101], v: [90] }, '2026-11-04', '2026-11-04', 4);
+  assert.strictEqual(vp2.bins[0].p0, 100);
+  assert.ok(Math.abs(vp2.bins.reduce((a, b) => a + b.v, 0) - 90) < 1e-9);
+  // 期間に日が無ければ null
+  assert.strictEqual(C.volumeProfile(dd, '2026-11-07', '2026-11-10', 4), null);
+  // 高値 = 安値 の日しかない期間でも帯を1つ以上作る
+  const vp3 = C.volumeProfile({ d: ['2026-11-04'], h: [500], l: [500], v: [10] }, '2026-11-04', '2026-11-04', 30);
+  assert.strictEqual(vp3.bins.reduce((a, b) => a + b.v, 0), 10);
+}
+
+// 13. 調査対象: 貼り付けた文字列からコードを取り出す。4桁は5桁に、同じコードは1つ、読めないものは bad
+assert.deepStrictEqual(watch.parseCodes('6613, 5033\n285a\t66130 12 abcde'),
+  { codes: ['66130', '50330', '285A0'], bad: ['12', 'abcde'] });
+assert.deepStrictEqual(watch.parseCodes(['6613', '7203']).codes, ['66130', '72030']);
+assert.deepStrictEqual(watch.parseCodes('').codes, []);
 
 console.log('stockChart.test.js: すべて通過');
