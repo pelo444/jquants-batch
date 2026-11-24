@@ -139,4 +139,61 @@ assert.deepStrictEqual(watch.parseCodes('6613, 5033\n285a\t66130 12 abcde'),
 assert.deepStrictEqual(watch.parseCodes(['6613', '7203']).codes, ['66130', '72030']);
 assert.deepStrictEqual(watch.parseCodes('').codes, []);
 
+// 14. 決算の一覧(stockFinQuery.js)
+{
+  const F = require('../src/web/stockFinQuery')._internal;
+  // 前年同期比のことば
+  assert.deepStrictEqual(F.yoy(120, 100), { p: 20 });
+  assert.deepStrictEqual(F.yoy(-5, 100), { t: '赤字転落' });
+  assert.deepStrictEqual(F.yoy(3, -10), { t: '黒字転換' });
+  assert.deepStrictEqual(F.yoy(-3, -10), { t: '赤字縮小' });
+  assert.deepStrictEqual(F.yoy(-30, -10), { t: '赤字拡大' });
+  assert.strictEqual(F.yoy(null, 10), null);
+  assert.strictEqual(F.fyLabel('2027-03-31'), '27/3期');
+  assert.strictEqual(F.basisLabel('2QFinancialStatements_NonConsolidated_JP'), '非連結・日本基準');
+  assert.strictEqual(F.basisLabel('FYFinancialStatements_Consolidated_IFRS'), '連結・IFRS');
+
+  const st = (o) => Object.assign({ DISC_TIME: '15:00:00', DOC_TYPE: '2QFinancialStatements_Consolidated_JP', CUR_PER_TYPE: '2Q' }, o);
+  const rows = [
+    // 前年同期(連結の短信が2件 = 訂正。新しいほうを相手にする)と、同じ期の非連結(相手にしない)
+    st({ DISC_DATE: '2025-11-10', DISC_NO: '1', CUR_PER_EN: '2025-09-30', CUR_FY_EN: '2026-03-31', SALES: 1000e6, OP: 100e6, EPS: 40 }),
+    st({ DISC_DATE: '2025-11-20', DISC_NO: '2', CUR_PER_EN: '2025-09-30', CUR_FY_EN: '2026-03-31', SALES: 1000e6, OP: 50e6, EPS: 40 }),
+    st({ DISC_DATE: '2025-11-21', DISC_NO: '3', DOC_TYPE: '2QFinancialStatements_NonConsolidated_JP', CUR_PER_EN: '2025-09-30', CUR_FY_EN: '2026-03-31', SALES: 1e6, OP: 1e6 }),
+    // 本決算: 予想は来期、配当予想も来期
+    st({ DISC_DATE: '2026-05-10', DISC_NO: '4', DOC_TYPE: 'FYFinancialStatements_Consolidated_JP', CUR_PER_TYPE: 'FY', CUR_PER_EN: '2026-03-31', CUR_FY_EN: '2026-03-31', NXT_FY_EN: '2027-03-31',
+      SALES: 2000e6, OP: 150e6, NXF_SALES: 2400e6, NXF_OP: 200e6, DIV_ANN: 30, NXF_DIV_ANN: 40, EQ_AR: 0.384, MAT_CHG_SUB: 'true' }),
+    // 非連結の会社の業績予想の修正: F_* が空で FNC_* に入っている
+    { DISC_DATE: '2026-08-01', DISC_TIME: '17:00:00', DISC_NO: '5', DOC_TYPE: 'EarnForecastRevision', CUR_PER_TYPE: 'FY', CUR_PER_EN: '2027-03-31', CUR_FY_EN: '2027-03-31', FNC_SALES: 2500e6, FNC_OP: 260e6 },
+    // 今期の2Q。1:2 の分割(2026-07-01)をまたぐので、EPS は前年を半分にして比べる
+    st({ DISC_DATE: '2026-11-10', DISC_NO: '6', CUR_PER_EN: '2026-09-30', CUR_FY_EN: '2027-03-31', SALES: 1200e6, OP: 90e6, EPS: 30, F_SALES: 2500e6, F_OP: 260e6, F_DIV_ANN: 20 }),
+  ];
+  const t = F.buildFinTables(rows, [{ d: '2026-07-01', af: 0.5 }], '2026-01-01');
+  // 実績は決算短信だけ、新しい順
+  assert.deepStrictEqual(t.actual.map((r) => r.d), ['2026-11-10', '2026-05-10']);
+  const a = t.actual[0];
+  assert.strictEqual(a.per, '27/3期 2Q');
+  assert.strictEqual(a.sales, 1200);
+  assert.deepStrictEqual(a.salesYoy, { p: 20 });
+  assert.deepStrictEqual(a.opYoy, { p: 80 }); // 相手は訂正後の 50
+  assert.strictEqual(a.margin, 7.5);
+  assert.strictEqual(a.marginDiff, 2.5); // 7.5% − 5.0%
+  assert.deepStrictEqual(a.epsYoy, { p: 50 }); // 30 ÷ (40 ÷ 2)
+  assert.strictEqual(t.actual[1].salesYoy, null); // 前年の本決算が無い
+  // 業績予想: 本決算は来期、修正は FNC_* から
+  assert.deepStrictEqual(t.forecast.map((r) => [r.d, r.kind, r.target, r.s, r.op]), [
+    ['2026-11-10', '決算短信 2Q', '27/3期', 2500, 260],
+    ['2026-08-01', '業績予想の修正', '27/3期', 2500, 260],
+    ['2026-05-10', '決算短信 本決算', '27/3期', 2400, 200],
+  ]);
+  // 配当: 本決算の行は 実績 = 今期、予想 = 来期
+  const dv = t.dividend.find((r) => r.d === '2026-05-10');
+  assert.strictEqual(dv.aAnn, 30); assert.strictEqual(dv.fAnn, 40); assert.strictEqual(dv.target, '27/3期');
+  // 財務: 比率は %、変更の有無はことば
+  const b = t.balance.find((r) => r.d === '2026-05-10');
+  assert.strictEqual(b.eqAr, 38.4);
+  assert.deepStrictEqual(b.changes, ['重要な子会社の異動']);
+  // since より前の開示は表に出さない(前年同期比の相手にだけ使う)
+  assert.ok(t.actual.every((r) => r.d >= '2026-01-01'));
+}
+
 console.log('stockChart.test.js: すべて通過');

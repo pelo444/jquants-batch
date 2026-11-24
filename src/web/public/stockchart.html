@@ -6,7 +6,7 @@
 <title>個別チャート | 大福帳</title>
 <link rel="stylesheet" href="/style.css?v=20261115b">
 <!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
-<link rel="stylesheet" href="/stockchart.css?v=20261122c">
+<link rel="stylesheet" href="/stockchart.css?v=20261124b">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 2v12M12 1v13' stroke='%236B705C' stroke-width='1'/%3E%3Crect x='2.5' y='5' width='3' height='6' fill='%23F7F9FA' stroke='%236B705C'/%3E%3Crect x='10.5' y='4' width='3' height='5' fill='%236B705C' stroke='%236B705C'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -113,9 +113,19 @@
     </div>
   </section>
 
+  <!-- 決算の一覧(直近5年)。データは stockFinQuery.js、描画は stockchartFin.js -->
+  <section class="panel stk-chart stk-fin" id="finPanel" hidden>
+    <div class="stk-head">
+      <h2 class="panel-title">決算</h2>
+      <span class="meta" id="finMeta"></span>
+    </div>
+    <div id="finBody"></div>
+  </section>
+
 </div>
 <script src="/codeLookup.js?v=20261021a"></script>
 <script src="/stockchartCalc.js?v=20261122b"></script>
-<script src="/stockchart.js?v=20261122c"></script>
+<script src="/stockchartFin.js?v=20261124a"></script>
+<script src="/stockchart.js?v=20261124a"></script>
 </body>
 </html>

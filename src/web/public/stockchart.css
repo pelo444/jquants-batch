@@ -143,6 +143,19 @@
 .stk-svg .vp-row { fill: var(--sel-wash); }
 .stk-svg .vp-close { stroke: var(--text-primary); stroke-width: 1; stroke-dasharray: 4 3; shape-rendering: crispEdges; }
 
+/* 決算の一覧 */
+.stk-fin { gap: 6px; }
+.stk-fin .fin-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 8px 0 0; }
+.stk-fin .fin-wrap { max-height: none; }
+.stk-fin thead th.fin-group { text-align: center; border-bottom: 1px solid var(--border); }
+.stk-fin thead tr:first-child th[rowspan] { vertical-align: bottom; }
+.stk-fin td { font-variant-numeric: tabular-nums; }
+.stk-fin .fin-time { color: var(--muted); }
+/* 列が多いので、細い縦罫で区切る(2026-11-24 PELO の指定)。先頭の列には引かない */
+.stk-fin .fin-table th, .stk-fin .fin-table td { border-left: 1px solid var(--grid); }
+.stk-fin .fin-table thead tr:first-child th:first-child,
+.stk-fin .fin-table tbody td:first-child { border-left: 0; }
+
 /* カーソルの位置 */
 .stk-svg .cross { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 2 2; shape-rendering: crispEdges; pointer-events: none; }
 .stk-svg .tag-box { fill: var(--text-primary); }

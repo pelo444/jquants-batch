@@ -22,6 +22,7 @@
  */
 
 const oracledb = require('oracledb');
+const { fetchFinTables } = require('./stockFinQuery');
 
 const OBJ = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 
@@ -135,6 +136,10 @@ async function fetchStockChart(conn, code) {
       ORDER BY disc_date, disc_no`, { code }, OBJ);
   const earnings = mergeEarnings(e.rows.map((x) => ({ d: x.D, time: x.DISC_TIME, perType: x.CUR_PER_TYPE })));
 
+  // 最下段の決算の一覧(直近5年)。stockFinQuery.js
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const fin = await fetchFinTables(conn, code, daily.splits, today);
+
   return {
     code,
     shortCode: shortCode(code),
@@ -145,6 +150,7 @@ async function fetchStockChart(conn, code) {
     d: daily.d, o: daily.o, h: daily.h, l: daily.l, c: daily.c, v: daily.v,
     margin,
     earnings,
+    fin,
   };
 }
 

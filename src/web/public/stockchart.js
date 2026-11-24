@@ -188,6 +188,7 @@
         if (j.d.length === 0) {
           $('chartPanel').hidden = true;
           $('profilePanel').hidden = true;
+          renderFin(j);
           flash(j.shortCode + ' ' + j.name + ' の株価データがありません');
           return;
         }
@@ -200,6 +201,7 @@
         applyRange();
         writeUrl();
         render();
+        renderFin(j);
         renderWatch();
       })
       .catch(function (e) {
@@ -208,6 +210,16 @@
         $('dataMeta').textContent = '';
         flash('表示できませんでした: ' + e.message);
       });
+  }
+
+  /** 最下段の決算の一覧(stockchartFin.js)。株価が無い銘柄でも決算があれば出す */
+  function renderFin(j) {
+    var fin = j.fin;
+    var panel = $('finPanel');
+    if (!fin || !window.StockFin) { panel.hidden = true; return; }
+    $('finMeta').textContent = ymdSlash(fin.since) + ' 以降の開示';
+    $('finBody').innerHTML = window.StockFin.render(fin);
+    panel.hidden = false;
   }
 
   /** 足種に合わせて、足・移動平均・信用残・決算発表日を作り直す */
