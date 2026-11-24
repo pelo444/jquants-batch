@@ -40,6 +40,9 @@ const path = require('path');
 const express = require('express');
 
 const db = require('../db');
+// SQLの1回の呼び出しを2分で打ち切る。接続が切れていても画面が止まり続けず、エラーで返る
+// (2026-11-24 市場ページが止まった件)。重い画面に合わせて JQB_WEB_DB_CALL_TIMEOUT_MS で変えられる
+db.setCallTimeout(Number(process.env.JQB_WEB_DB_CALL_TIMEOUT_MS || 120000));
 const chartQuery = require('../chartQuery');
 const webQuery = require('./webQuery');
 const demandQuery = require('./demandQuery');
@@ -950,6 +953,7 @@ function marketDbLoad(today) {
 /** 何にどれだけかかったかをログに出す(市場のページの初回表示が遅いときの切り分け用) */
 async function timed(label, fn) {
   const t0 = Date.now();
+  console.log(`[market] ${label} 開始`);
   try {
     return await fn();
   } finally {

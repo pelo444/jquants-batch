@@ -9,6 +9,16 @@ oracledb.autoCommit = false; // コミットは呼び出し側で明示的に制
 
 let pool = null;
 
+// 1回の呼び出し(SQLの実行など)を何ミリ秒で打ち切るか。0 は打ち切らない(バッチの既定)。
+// Webアプリは setCallTimeout で付ける。接続が途中で切れたとき、応答を待ち続けて
+// 画面が止まるのを防ぐため(2026-11-24 市場ページが止まった件)。
+let callTimeoutMs = 0;
+
+/** withConnection で取る接続に打ち切り時間を付ける。0 で外す */
+function setCallTimeout(ms) {
+  callTimeoutMs = Math.max(0, Number(ms) || 0);
+}
+
 /**
  * コネクションプールを初期化する(未初期化の場合のみ)。
  * Thinモード + ウォレット(mTLS)でOCI ATPに接続する。
@@ -61,6 +71,8 @@ async function closePool() {
 async function withConnection(fn) {
   const p = await getPool();
   const connection = await p.getConnection();
+  // 打ち切られた接続は使えなくなり、close() でプールから外れる。次の要求は新しい接続を使う
+  if (callTimeoutMs) connection.callTimeout = callTimeoutMs;
   try {
     const result = await fn(connection);
     return result;
@@ -229,6 +241,7 @@ module.exports = {
   getPool,
   closePool,
   withConnection,
+  setCallTimeout,
   truncateTable,
   bulkInsert,
   executeSql,
