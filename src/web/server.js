@@ -1276,7 +1276,13 @@ const server = root.listen(PORT, HOST, () => {
   }
 });
 
+// npm run web で Ctrl+C を押すと、ターミナルからと npm の転送とで SIGINT が2回届く。
+// 2回目で終了処理をやり直すと、1回目のプールのクローズ中に NJS-064 になり、
+// その直後の process.exit で1回目のクローズが終わる前に落ちるため、2回目以降は無視する(2026-11-24)
+let shuttingDown = false;
 async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal} を受信しました。終了します...`);
   server.close(async () => {
     await db.closePool().catch((e) => console.error('プールのクローズに失敗:', e.message));
