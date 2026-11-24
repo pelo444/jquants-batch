@@ -43,6 +43,17 @@
   function dateCell(r) {
     return '<td class="fin-date">' + ymd(r.d) + (r.time ? ' <span class="fin-time">' + esc(r.time) + '</span>' : '') + '</td>';
   }
+  // 株予報Pro の開示の詳細(短信のPDF)。rid は開示番号(DISC_NO)そのまま、pid は '1401' + 開示番号
+  //  (2026-11-25 株予報の適時開示の一覧のリンクで確認)。2022年5月より前の開示は株予報に PDF が無いことがある
+  function kabuyohoUrl(discNo) {
+    return 'https://kabuyoho.jp/discloseDetail?rid=' + encodeURIComponent(discNo) + '&pid=1401' + encodeURIComponent(discNo);
+  }
+  function dateLinkCell(r) {
+    if (!r.discNo) return dateCell(r);
+    return '<td class="fin-date"><a class="ifis" href="' + esc(kabuyohoUrl(r.discNo)) +
+      '" target="_blank" rel="noopener noreferrer" title="株予報Proで決算短信を開く">' + ymd(r.d) + '</a>' +
+      (r.time ? ' <span class="fin-time">' + esc(r.time) + '</span>' : '') + '</td>';
+  }
   function txt(s, cls) { return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(s) + '</td>'; }
 
   // 2段の見出し。cols は [見出し, 列数] か 文字列(2段ぶち抜き)。sub は2段目の見出し
@@ -75,7 +86,7 @@
       ['純利益', ['百万円', '前年同期比']],
       ['EPS', ['円', '前年同期比', '潜在株式調整後']],
     ], fin.actual, function (r) {
-      return dateCell(r) + txt(r.per) + txt(r.basis, 'dim') +
+      return dateLinkCell(r) + txt(r.per) + txt(r.basis, 'dim') +
         num(r.sales) + yoyCell(r.salesYoy) +
         num(r.op) + yoyCell(r.opYoy) +
         num(r.margin, 1) + diffCell(r.marginDiff) +

@@ -127,6 +127,7 @@ function buildFinTables(rows, splits, since) {
   const list = rows.filter((r) => r.DISC_DATE >= since).slice().reverse();
   for (const r of list) {
     const head = {
+      discNo: r.DISC_NO || null,
       d: r.DISC_DATE,
       time: r.DISC_TIME ? String(r.DISC_TIME).slice(0, 5) : null,
       kind: kindLabel({ docType: r.DOC_TYPE, perType: r.CUR_PER_TYPE }),

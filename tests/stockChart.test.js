@@ -172,6 +172,7 @@ assert.deepStrictEqual(watch.parseCodes('').codes, []);
   assert.deepStrictEqual(t.actual.map((r) => r.d), ['2026-11-10', '2026-05-10']);
   const a = t.actual[0];
   assert.strictEqual(a.per, '27/3期 2Q');
+  assert.strictEqual(a.discNo, '6'); // 株予報のリンクに使う開示番号
   assert.strictEqual(a.sales, 1200);
   assert.deepStrictEqual(a.salesYoy, { p: 20 });
   assert.deepStrictEqual(a.opYoy, { p: 80 }); // 相手は訂正後の 50
