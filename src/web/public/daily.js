@@ -139,7 +139,8 @@
     for (const m of d.moves) {
       const cell = (label, v, cls = 'num-col', title = '') =>
         `<td class="${cls}" data-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ''}>${v}</td>`;
-      h += '<tr>' +
+      // 区分が保有の行は、行全体にうすい色を付ける(2026-11-24 ユーザー要望)
+      h += `<tr${m.held ? ' class="held-row"' : ''}>` +
         `<td class="stock" data-label="銘柄">${stock(m)}</td>` +
         `<td class="tags-cell" data-label="区分">${tags(m)}</td>` +
         cell('出来事(件)', m.events) +

@@ -48,6 +48,10 @@
   table.cards .empty-row td::before { content: none; }
 }
 
+/* 値動きで区分が保有の行(オリーブ 8%。--open-wash の 14% では濃かった 2026-11-24)。
+   tbody tr:hover(style.css)より強いので、マウスを載せても保有の色のまま */
+#mvTable tbody tr.held-row { background: rgba(107,112,92,0.06); }
+
 /* 信用残の要確認(marginCheck.js) */
 #mvTable td.mwarn { background: var(--warning-wash); }
 #mvTable td.mwarn .sym-warn { margin-right: 3px; }
