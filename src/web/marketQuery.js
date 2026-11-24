@@ -10,7 +10,10 @@
  *   - 国内のデータは、そのデータの日付の列(株価は売買日、信用残は申込日、裁定残は週末時点)。
  *   - 投資部門別は公表日の列(週の途中で見たとき、まだ出ていない週を空けておくため)。
  *   - 米国3指数と日経先物(CME)は「日本で見られる日」の列。現地 D の終値は、
- *     D より後の最初の国内営業日の列に置く(金曜の終値 → 月曜の列)。
+ *     D より後の最初の日本の平日(国内の営業日か、国内の祝日の平日)の列に置く(金曜の終値 → 月曜の列)。
+ *     国内の祝日の平日に海外の値が入るときは、その日の列を足す(国内の行は空白)。
+ *     こうしないと連休明けの列に2〜3取引日分が重なり、隠れる終値が出て、隣の列との比と前日比が
+ *     合わなくなる(2026-11-24 ユーザー判断。11/23 勤労感謝の日で発生)。
  *     その列が今日より先になるとき(土日に見たとき)は、今日の列を足してそこに置く。
  *   - 米国・日経先物は取引中の足を出さない(終わった取引の終値だけ)。
  *   - ただし日経先物は、ページを開いた時点の値段を「現在値」の行に別に出す(最新の列だけ。2026-10-19 ユーザー要望)。
@@ -51,6 +54,10 @@ const US_SYMBOLS = [
   { key: 'niy', symbol: 'NIY=F', label: '日経先物(CME 円建て)' },
 ];
 
+// 「日本で見られる日」の列に置く行(国内の休みの列にも値が入る)。行のキーから _chg などを外して見る
+const FOREIGN_KEYS = new Set(US_SYMBOLS.map((s) => s.key));
+const baseKey = (key) => key.replace(/_(chg|sg|live)$/, '');
+
 // 日経平均: 国内の売買日の列にそのまま置く
 const JP_SYMBOLS = [
   { key: 'n225', symbol: '^N225', label: '日経平均' },
@@ -77,6 +84,12 @@ function ymdIn(date, timeZone) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(date);
+}
+
+/** 月〜金なら true(日本の祝日かどうかは見ない) */
+function isWeekday(ymd) {
+  const w = new Date(ymd + 'T00:00:00Z').getUTCDay();
+  return w >= 1 && w <= 5;
 }
 
 function addDays(ymd, n) {
@@ -314,12 +327,19 @@ function buildMarketTable({ today, db, ext, live }) {
   const from = periodStart(today);
   const days = db.calendar.slice(); // 期間より前を含む国内営業日(昇順)
 
-  // 米国・先物: 現地 D の終値 → D より後の最初の国内営業日。無ければ今日の列。
+  // 米国・先物: 現地 D の終値 → D より後の最初の日本の平日(国内の営業日か、国内の祝日の平日)。
+  // 国内の祝日の列は、海外の値が入るときだけ足す(holidayCols)。今日より先なら今日の列。
+  const daySet = new Set(days);
+  const holidayCols = new Set();
   let todayExtra = false;
   const placeForeign = (d) => {
-    const next = days.find((x) => x > d);
-    if (next && next <= today) return next;
-    if (!days.includes(today)) todayExtra = true;
+    let x = addDays(d, 1);
+    while (!daySet.has(x) && !isWeekday(x)) x = addDays(x, 1);
+    if (x <= today) {
+      if (!daySet.has(x)) holidayCols.add(x);
+      return x;
+    }
+    if (!daySet.has(today)) todayExtra = true;
     return today;
   };
 
@@ -456,9 +476,11 @@ function buildMarketTable({ today, db, ext, live }) {
     rows.push(sigmaRow('short', 'short_' + s.s, s.n, diff, st, NA_NOTE.db, 'pt'));
   }
 
-  // 列
+  // 列(国内の営業日 + 海外の値が入る国内の祝日 + 必要なら今日)
   const colDates = days.filter((d) => d >= from && d <= today);
+  for (const d of holidayCols) if (d >= from && d <= today && !colDates.includes(d)) colDates.push(d);
   if (todayExtra && !colDates.includes(today)) colDates.push(today);
+  colDates.sort();
   const baseDate = days.filter((d) => d < from).pop() || null;
 
   const out = rows.map((r) => {
@@ -472,6 +494,8 @@ function buildMarketTable({ today, db, ext, live }) {
       }
       // 週次の行は、公表の無い日は空白(欠測ではない)
       if (!r.daily) return { v: null, blank: true };
+      // 国内の休みの列(祝日・今日の足した列)は、国内の行は空白
+      if (!daySet.has(d) && !FOREIGN_KEYS.has(baseKey(r.key))) return { v: null, blank: true };
       // 今日の列は、まだ出ていない(朝・取引中・休日)だけなので空白
       if (d === today) return { v: null, blank: true };
       return { v: null, na: r.na };
@@ -506,7 +530,7 @@ function buildMarketTable({ today, db, ext, live }) {
     today,
     from,
     baseDate,
-    columns: colDates.map((d) => ({ date: d, extra: !days.includes(d) })),
+    columns: colDates.map((d) => ({ date: d, extra: !daySet.has(d), holiday: !daySet.has(d) && isWeekday(d) })),
     rows: out,
     errors: ext.errors.concat(live ? live.errors : []),
     // 信用残の要確認(画面の上に出す)。表の列の日付と、期間前比の基準日より後の分

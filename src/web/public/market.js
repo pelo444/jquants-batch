@@ -95,7 +95,12 @@
     const nCols = 2 + cols.length + 3; // 項目名は「名前 | 中身」の2列
 
     let h = '<thead><tr><th class="c-label" colspan="2">項目</th>';
-    for (const c of cols) h += `<th class="num-col c-day">${esc(dayLabel(c.date))}</th>`;
+    // 国内の祝日の列(米国・日経先物の値だけ入る)は「休」を添える
+    for (const c of cols) {
+      h += c.holiday
+        ? `<th class="num-col c-day c-hol" title="国内は休み(米国・日経先物の値だけ)">${esc(dayLabel(c.date))}休</th>`
+        : `<th class="num-col c-day">${esc(dayLabel(c.date))}</th>`;
+    }
     h += '<th class="num-col c-sum">最新</th><th class="num-col c-sum">前回比</th>' +
       `<th class="num-col c-sum" title="${esc(data.baseDate || '')} の値と比べた変化">${esc(baseLabel)}</th>`;
     h += '</tr></thead><tbody>';
@@ -119,11 +124,13 @@
       } else {
         h += `<tr class="${cls}" data-i="${i}"><td class="c-label" colspan="2">${esc(r.label)}</td>`;
       }
-      for (const c of r.cells) {
+      r.cells.forEach((c, ci) => {
+        // 国内の祝日の列は、上げ下げ・強調の背景が無いセルをうすい灰色にする
+        const hol = cols[ci] && cols[ci].holiday ? ' c-holcol' : '';
         if (c.v == null) {
           h += c.na
-            ? `<td class="num-col c-day na" title="${esc(c.na)}">—</td>`
-            : '<td class="num-col c-day"></td>';
+            ? `<td class="num-col c-day na${hol}" title="${esc(c.na)}">—</td>`
+            : `<td class="num-col c-day${hol}"></td>`;
         } else {
           const dc = r.kind === 'change' || r.kind === 'sigma' || r.group === 'sect' ? dirClass(c.v, r) : '';
           const tt = c.warn || c.title;
@@ -131,9 +138,10 @@
           // 指数・33業種の前日比は上げ下げにうすい背景色(Zスコアの絶対値が2以上なら濃く)。空売り比率の前日差は辛子色
           const bg = isChgRow(r) ? wash(c.v, c.hi) : (c.hi ? ' hi' : '');
           // 信用残の要確認の日(marginCheck.js)は ⚠ を添える
-          h += `<td class="num-col c-day${dc}${bg}${c.warn ? ' mwarn' : ''}"${t}>${warnMark(c.warn)}${esc(fmt(c.v, r.fmt))}</td>`;
+          const hb = bg || c.warn ? '' : hol;
+          h += `<td class="num-col c-day${dc}${bg}${c.warn ? ' mwarn' : ''}${hb}"${t}>${warnMark(c.warn)}${esc(fmt(c.v, r.fmt))}</td>`;
         }
-      }
+      });
       if (r.kind === 'level') {
         const latestTitle = r.latestDate ? ` title="${esc(dayLabel(r.latestDate))} の値"` : '';
         // Zスコアの絶対値が2以上の最新日は、前日比にあたるセル(業種は「最新」、指数と空売り比率は「前回比」)を背景色で強調
@@ -167,16 +175,18 @@
     const base = r.prevClose != null
       ? `直前の終値 ${fmt(r.prevClose, 'idx')}(現地 ${shortDate(r.prevCloseDate)})からの変化` : '';
     let h = `<tr class="live-row"><td class="c-name"></td><td class="c-sub">${subHtml(sub)}</td>`;
-    for (const c of r.cells) {
-      if (c.off) h += '<td class="num-col c-day live-off">取引時間外</td>';
+    r.cells.forEach((c, ci) => {
+      const hol = data.columns[ci] && data.columns[ci].holiday ? ' c-holcol' : '';
+      if (c.off) h += `<td class="num-col c-day live-off${hol}">取引時間外</td>`;
       else if (c.v == null) {
-        h += c.na ? `<td class="num-col c-day na" title="${esc(c.na)}">—</td>` : '<td class="num-col c-day"></td>';
+        h += c.na ? `<td class="num-col c-day na${hol}" title="${esc(c.na)}">—</td>` : `<td class="num-col c-day${hol}"></td>`;
       } else {
         const chg = c.chg == null ? ''
           : ` <span class="live-chg${dirClass(c.chg, r)}">${esc(signRounded(c.chg, 2))}%</span>`;
-        h += `<td class="num-col c-day live-cell${wash(c.chg, false)}" title="${esc(base)}">${esc(fmt(c.v, 'idx'))}${chg}</td>`;
+        const w = wash(c.chg, false);
+        h += `<td class="num-col c-day live-cell${w}${w ? '' : hol}" title="${esc(base)}">${esc(fmt(c.v, 'idx'))}${chg}</td>`;
       }
-    }
+    });
     const latest = r.liveOff ? '取引時間外' : r.latest == null ? '—' : fmt(r.latest, 'idx');
     h += `<td class="num-col c-sum${r.liveOff ? ' live-off' : ''}">${esc(latest)}</td>` +
       `<td class="num-col c-sum${dirClass(r.prevDiff, r)}${wash(r.prevDiff, false)}" title="${esc(base)}">${esc(fmtDiff(r.prevDiff, r))}</td>` +

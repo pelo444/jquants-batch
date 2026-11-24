@@ -37,6 +37,8 @@
 
 /* 値が無いセル(取込待ちなど)。理由は title に持たせる */
 #marketTable td.na { color: var(--na-ink); }
+/* 国内の祝日の列(米国・日経先物の値だけ入る)。上げ下げ・強調の背景が無いセルと見出しをうすい灰色に */
+#marketTable th.c-hol, #marketTable td.c-holcol { background: rgba(120,120,120,0.10); }
 /* 信用残の要確認(marginCheck.js) */
 #marketTable td.mwarn { background: var(--warning-wash); }
 #marketTable td.mwarn .sym-warn { margin-right: 3px; }
