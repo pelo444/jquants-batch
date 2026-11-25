@@ -18,16 +18,9 @@ select, #newListName, #codesInput {
 .empty-inline { font-size: 12px; color: var(--muted); margin: 0; }
 
 
-/* 33業種のグリッドと内側のタブ(.tabs.inner)は style.css に移した(騰落率一覧と共通) */
 
 .table-wrap.short { max-height: 360px; }
 td.from { color: var(--muted); font-size: 11px; }
-tr.in-list td { color: var(--muted); }
-tr.in-list td.name { font-weight: 400; }
-.inlist-badge {
-  font-size: 10px; color: var(--series-1); border: 1px solid var(--series-1);
-  border-radius: 3px; padding: 0 4px;
-}
 
 /* b) 参考情報 */
 .pane h2.ref-title, .ref-title { font-size: 13px; margin: 18px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }

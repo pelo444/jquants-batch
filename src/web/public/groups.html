@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>銘柄グループ | 大福帳</title>
+<link rel="stylesheet" href="/style.css?v=20261020a">
+<!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため) -->
+<link rel="stylesheet" href="/groups.css?v=20261125c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='3' width='12' height='10' rx='1.5' fill='none' stroke='%236B705C' stroke-width='1.4'/%3E%3Cpath d='M2 6.5h12M6 6.5V13' stroke='%236B705C' stroke-width='1.2'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="topbar">
+    <h1>銘柄グループ</h1>
+    <span class="meta" id="dataMeta">読み込み中…</span>
+    <span class="spacer"></span>
+    <a class="btn" href="/market">市場</a>
+    <a class="btn" href="/events">材料</a>
+    <a class="btn" href="/daily">日々の確認</a>
+    <a class="btn" href="/performance">騰落率一覧</a>
+    <a class="btn" href="/stockchart">個別チャート</a>
+    <a class="btn" href="/reference">参考情報</a>
+    <a class="btn" href="/groups" aria-current="page">銘柄グループ</a>
+    <a class="btn" href="/demand">シグナル</a>
+    <a class="btn" href="/purchase">銘柄購入</a>
+    <a class="btn" href="/journal">売買記録</a>
+  </header>
+
+  <div class="flash error" id="flash" role="status" hidden></div>
+
+  <!-- ==================== 業種・タグから探す ==================== -->
+  <section class="panel" id="searchPanel">
+    <nav class="tabs inner" id="searchTabs">
+      <button class="tab" data-tab="sector" aria-selected="true" type="button">33業種</button>
+      <button class="tab" data-tab="tag" aria-selected="false" type="button">タグ</button>
+    </nav>
+    <div id="sectorBox" class="sector-grid"></div>
+    <div id="tagBox" class="tag-groups" hidden></div>
+    <div class="grp-search-row">
+      <button class="btn" id="showBtn" type="button">銘柄一覧を表示</button>
+      <button class="link" id="clearSelBtn" type="button">選択を外す</button>
+      <span class="status" id="searchStatus"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="resultPane" hidden>
+    <div class="result-bar">
+      <span class="result-count" id="resultCount"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="toCardBtn" type="button">カードにする</button>
+    </div>
+    <div class="table-wrap grp-result-wrap"><table id="resultTable"></table></div>
+    <p class="note">
+      株価は最新の終値。時価総額は最新の決算短信の株式数(自己株式を除く)× 終値。売買代金は直近20営業日の平均。
+      52週高値からの位置は直近250営業日の分割調整後の終値の最高値との比較。
+      外す候補は追加下落スコアの上位10%(売買代金1億円/日以上・52週高値から −15% 以下の銘柄の中での順位)。印にマウスを載せると中身が出ます。
+    </p>
+  </section>
+
+  <main class="grp-main">
+    <section class="grp-left">
+      <div class="grp-search" id="searchBox">
+        <input type="search" id="q" class="lookup-input" placeholder="銘柄コードか企業名の一部" autocomplete="off" spellcheck="false">
+        <div class="lookup-pop" id="pop" hidden><ul class="lookup-list" id="popList" role="listbox"></ul><div class="lookup-foot" id="popFoot"></div></div>
+      </div>
+      <div class="grp-status" id="status" role="status"></div>
+      <div class="grp-cards" id="cards"></div>
+    </section>
+
+    <section class="grp-right">
+      <div class="grp-tools">
+        <button class="btn" type="button" id="addGroupBtn" title="グループを作る">＋</button>
+        <button class="btn" type="button" id="delGroupBtn" title="選んだグループを削除" disabled>−</button>
+        <button class="btn" type="button" id="editGroupBtn" title="選んだグループの名前を変える" disabled>編集</button>
+      </div>
+      <div class="grp-frame" id="groups"></div>
+    </section>
+  </main>
+
+</div>
+<script src="/groups.js?v=20261125b"></script>
+</body>
+</html>

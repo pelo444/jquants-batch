@@ -144,6 +144,7 @@ module.exports = function purchaseRoutes({ db, getTags }) {
   router.use('/api/purchase', express.json({ limit: '1mb' }));
 
   //---------------------------------------------------------- メタ(業種・タグ・リスト)
+  // 業種・タグは銘柄グループ(/groups)の「業種・タグから探す」で使う(2026-11-25 銘柄購入から移した)
   router.get('/api/purchase/meta', wrap(async (req, res) => {
     const [sectors, lists, meta] = await Promise.all([
       db.withConnection((c) => pq.fetchSectors(c)),
@@ -154,12 +155,14 @@ module.exports = function purchaseRoutes({ db, getTags }) {
   }));
 
   //---------------------------------------------------------- 外す候補(追加下落スコアの上位10%)
+  // 銘柄購入の購入検討銘柄と、銘柄グループの業種・タグの一覧で使う
   router.get('/api/purchase/avoid', wrap(async (req, res) => {
     res.json(await avoidSet(db));
   }));
 
   //---------------------------------------------------------- 銘柄一覧
   // ?sectors=3650,3600 / ?tags=a,b / ?codes=7203,6758 のどれか1つ
+  // 業種・タグは銘柄グループ(/groups)から、codes は銘柄購入の購入検討銘柄から呼ぶ
   router.get('/api/purchase/stocks', wrap(async (req, res) => {
     const sectors = splitList(req.query.sectors);
     const tags = splitList(req.query.tags);

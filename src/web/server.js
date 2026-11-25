@@ -20,6 +20,8 @@
  *      データは dailyQuery.js。設計は claude/daily_page_design.md。
  *   8. 個別チャート(1銘柄のローソク足・移動平均線・出来高・信用残・決算発表日)を /stockchart で見る
  *      データは stockChartQuery.js、描画は public/stockchart.js。設計は claude/stock_chart_design.md。
+ *   9. 銘柄グループ(銘柄をグループにまとめ、グループの銘柄コードをカンマ区切りでコピーする)を /groups で行う
+ *      扱いは stockGroups.js 冒頭、表は ddl/40_stock_group.sql。
  *
  * 起動:
  *   npm run web                  → http://127.0.0.1:3000
@@ -58,6 +60,7 @@ const { fetchMarginChecks } = require('./marginCheck');
 const stockLookup = require('./stockLookup');
 const stockChartQuery = require('./stockChartQuery');
 const chartWatch = require('./chartWatch');
+const stockGroups = require('./stockGroups');
 const { buildHtml } = require('../chartHtml');
 const { buildPayload } = require('../chartPayload');
 const { BASE_PATH, sendPage, pageNameFor } = require('./basePath');
@@ -1203,6 +1206,91 @@ app.delete('/api/stockchart/watch', async (req, res, next) => {
     res.json(await db.withConnection((conn) => chartWatch.clearWatch(conn)));
   } catch (err) {
     watchError(err, next);
+  }
+});
+
+//==================================================================
+// 銘柄グループ (/groups)
+//   銘柄をグループにまとめ、グループの銘柄コードをカンマ区切りでコピーする。
+//   扱いは stockGroups.js 冒頭、表は ddl/40_stock_group.sql。変更の API は毎回グループの一覧を丸ごと返す。
+//==================================================================
+app.get(['/groups', '/groups/'], (req, res) => {
+  sendPage(res, 'groups.html');
+});
+
+function groupError(err, next) {
+  if (err && err.errorNum === 942) {
+    next(new BadRequest('銘柄グループの表がありません。ddl/40_stock_group.sql を GD_JQUANTS で流してください'));
+    return;
+  }
+  next(err);
+}
+
+function groupId(raw) {
+  const s = String(raw || '');
+  if (!/^[0-9]{1,12}$/.test(s)) throw new BadRequest('グループの指定が不正です');
+  return Number(s);
+}
+
+app.get('/api/groups', async (req, res, next) => {
+  try {
+    res.json({ groups: await db.withConnection((conn) => stockGroups.fetchGroups(conn)) });
+  } catch (err) {
+    // 表がまだ無いときも画面は開けるように、空の一覧と案内を返す
+    if (err && err.errorNum === 942) { res.json({ groups: [], tableMissing: true }); return; }
+    next(err);
+  }
+});
+
+app.post('/api/groups', express.json({ limit: '10kb' }), async (req, res, next) => {
+  try {
+    const name = req.body && req.body.name;
+    res.json(await db.withConnection((conn) => stockGroups.createGroup(conn, name)));
+  } catch (err) {
+    groupError(err, next);
+  }
+});
+
+app.patch('/api/groups/:id', express.json({ limit: '10kb' }), async (req, res, next) => {
+  try {
+    const id = groupId(req.params.id);
+    const name = req.body && req.body.name;
+    res.json(await db.withConnection((conn) => stockGroups.renameGroup(conn, id, name)));
+  } catch (err) {
+    groupError(err, next);
+  }
+});
+
+app.delete('/api/groups/:id', async (req, res, next) => {
+  try {
+    const id = groupId(req.params.id);
+    res.json(await db.withConnection((conn) => stockGroups.deleteGroup(conn, id)));
+  } catch (err) {
+    groupError(err, next);
+  }
+});
+
+app.post('/api/groups/:id/items', express.json({ limit: '200kb' }), async (req, res, next) => {
+  try {
+    const id = groupId(req.params.id);
+    const input = req.body && req.body.codes;
+    if (input == null || (typeof input !== 'string' && !Array.isArray(input))) {
+      throw new BadRequest('codes(銘柄コードの文字列か配列)がありません');
+    }
+    res.json(await db.withConnection((conn) => stockGroups.addItems(conn, id, input)));
+  } catch (err) {
+    groupError(err, next);
+  }
+});
+
+app.delete('/api/groups/:id/items/:code', async (req, res, next) => {
+  try {
+    const id = groupId(req.params.id);
+    const raw = String(req.params.code || '').trim();
+    if (!/^[0-9A-Za-z]{4,5}$/.test(raw)) throw new BadRequest('銘柄コードは4桁または5桁で指定してください');
+    res.json(await db.withConnection((conn) => stockGroups.removeItem(conn, id, normalizeCode(raw))));
+  } catch (err) {
+    groupError(err, next);
   }
 });
 

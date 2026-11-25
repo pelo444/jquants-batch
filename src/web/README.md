@@ -26,6 +26,11 @@ CLIの `chart.js` と同じモジュール（`db.js` / `chartQuery.js` / `chartH
    - `?code=6613&tf=d&range=6m&ind=ma` のように、開いている状態を URL に持つ
    - グラフの大きさは固定せず、ウィンドウの幅と高さに合わせて描き直す。左右に引くと期間を前後にずらせる
    - 株価は取込済みの全期間を分割調整して返し、週足・月足へのまとめと移動平均は画面側で計算する（足や期間を変えても取り直さない）
+6. **銘柄グループ**（`/groups`） — 銘柄をグループにまとめ、グループの銘柄コード（4桁）をカンマ区切りでクリップボードにコピーする
+   - 左の入力欄でコードか企業名の一部を入れ、候補から選ぶと横長カードが積み上がる。グループの「追加」でカードの銘柄を足す
+   - 上の欄で33業種かタグを選んで銘柄一覧の表を出し、チェックした銘柄を「カードにする」でカードに足せる
+     （銘柄購入の「銘柄を探す」を移したもの。API は `/api/purchase/meta`・`/api/purchase/stocks`・`/api/purchase/avoid` を共用）
+   - **初回は `ddl/40_stock_group.sql` を適用してから**。扱いは `stockGroups.js` 冒頭
 
 ## 起動
 
@@ -134,6 +139,13 @@ firewalld で開ける必要はありません。開けないでください。
 | GET | `/chart` | チャートHTML（iframe用） |
 | GET | `/stockchart` | 個別チャートの画面 |
 | GET | `/api/stockchart?code=` | 1銘柄の分割調整済みの日足（全期間）・信用残・決算発表日（JSON） |
+| GET | `/groups` | 銘柄グループの画面 |
+| GET | `/api/groups` | グループの一覧（中の銘柄つき）。表が無いときは `tableMissing: true` |
+| POST | `/api/groups` | グループを作る（`{"name":"…"}`） |
+| PATCH | `/api/groups/:id` | グループ名を変える（`{"name":"…"}`） |
+| DELETE | `/api/groups/:id` | グループを消す（中の銘柄も消える） |
+| POST | `/api/groups/:id/items` | 銘柄を足す（`{"codes":[…]}` か文字列） |
+| DELETE | `/api/groups/:id/items/:code` | 銘柄をグループから外す |
 | GET | `/demand` | 需給3階層の画面 |
 | GET | `/api/demand/*` | 需給3階層のデータ（一覧は `docs/DEMAND_WEB.md` 2章） |
 

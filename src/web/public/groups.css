@@ -1,0 +1,99 @@
+/* 銘柄グループ(/groups)。共通部品は style.css */
+
+.grp-main {
+  display: flex; justify-content: center; align-items: flex-start;
+  gap: 40px; margin: 20px;
+}
+
+/* ---------- 左: 入力欄と横長カード ---------- */
+.grp-left { width: min(572px, 100%); }
+.grp-search { position: relative; }
+.grp-search .lookup-input { width: 100%; }
+.grp-status { font-size: 12px; color: var(--text-secondary); min-height: 1.5em; margin: 6px 2px; }
+.grp-status.bad { color: var(--critical); }
+
+.grp-cards { display: flex; flex-direction: column; gap: 6px; }
+.grp-card {
+  position: relative;
+  display: flex; align-items: baseline; gap: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 12px 8px 34px;
+}
+.grp-card .x {
+  position: absolute; top: 4px; left: 6px;
+  width: 20px; height: 20px; line-height: 18px; padding: 0;
+  font: inherit; font-size: 12px; text-align: center; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--page); color: var(--text-secondary);
+}
+.grp-card .x:hover { background: var(--hover-wash); }
+.grp-card .code { font-variant-numeric: tabular-nums; }
+.grp-card .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 右: グループの一覧 ---------- */
+.grp-right { width: min(572px, 100%); }
+.grp-tools { display: flex; gap: 6px; margin-bottom: 6px; }
+.grp-tools .btn { min-width: 34px; }
+
+/* 左の列だけが表の枠。「追加」「リスト」は枠の右横に出す */
+.grp-frame { display: flex; flex-direction: column; min-height: 420px; }
+.grp-r { display: grid; grid-template-columns: minmax(0, 1fr) 120px; }
+.grp-cell {
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--grid);
+  background: var(--surface-1);
+  padding: 6px 10px; min-width: 0;
+}
+.grp-r:first-child .grp-cell { border-top: 1px solid var(--border); border-radius: 6px 6px 0 0; }
+.grp-r.filler { flex: 1 1 auto; }
+.grp-r.filler .grp-cell { border-bottom: 1px solid var(--border); border-radius: 0 0 6px 6px; }
+.grp-r:first-child.filler .grp-cell { border-radius: 6px; }
+.grp-act { display: flex; align-items: center; gap: 6px; padding-left: 8px; }
+
+.grp-head .grp-cell { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.grp-head:hover .grp-cell { background: var(--hover-wash); }
+.grp-head.sel .grp-cell { background: var(--sel-wash); }
+.grp-tri {
+  border: 0; background: none; padding: 0 2px; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--text-secondary); width: 18px;
+}
+.grp-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-cell input[type="text"] {
+  font: inherit; font-size: 13px; padding: 3px 6px; width: 100%;
+  border-radius: 4px; border: 1px solid var(--border);
+  background: var(--page); color: var(--text-primary);
+}
+
+/* 開いたグループの中の銘柄 */
+.grp-item .grp-cell {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-left: 34px; font-size: 13px; background: var(--page);
+}
+.grp-item .code { font-variant-numeric: tabular-nums; }
+.grp-item .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.grp-item .x {
+  border: 1px solid var(--border); border-radius: 4px; background: var(--surface-1);
+  font: inherit; font-size: 11px; line-height: 1; padding: 2px 5px; cursor: pointer; color: var(--text-secondary);
+}
+.grp-item .x:hover { background: var(--hover-wash); }
+.grp-item.empty-item .grp-cell { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 960px) {
+  .grp-main { flex-direction: column; align-items: center; }
+}
+
+/* ---------- 上: 業種・タグから探す(銘柄購入から移した) ---------- */
+#searchPanel .sector-grid, #searchPanel .tag-groups { max-height: 40vh; overflow-y: auto; }
+.grp-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.grp-result-wrap { max-height: 50vh; }
+tr.as-card td { color: var(--muted); }
+tr.as-card td.name { font-weight: 400; }
+.card-badge {
+  font-size: 10px; color: var(--series-1); border: 1px solid var(--series-1);
+  border-radius: 3px; padding: 0 4px;
+}
+.avoid-badge {
+  font-size: 10px; font-weight: 600; color: var(--critical); border: 1px solid var(--critical);
+  border-radius: 3px; padding: 0 4px; cursor: help;
+}

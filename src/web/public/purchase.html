@@ -6,7 +6,7 @@
 <title>銘柄購入 | 大福帳</title>
 <link rel="stylesheet" href="/style.css?v=20261021b">
 <!-- ?v= は更新のたびに上げる(静的ファイルはブラウザに1時間キャッシュされるため。journal.html と同じ) -->
-<link rel="stylesheet" href="/purchase.css?v=20261017g">
+<link rel="stylesheet" href="/purchase.css?v=20261125a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 3h2l1.6 7h7L14 5H5' fill='none' stroke='%232a78d6' stroke-width='1.6' stroke-linejoin='round'/%3E%3Ccircle cx='6.5' cy='13' r='1.2' fill='%232a78d6'/%3E%3Ccircle cx='11.5' cy='13' r='1.2' fill='%232a78d6'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -22,6 +22,7 @@
     <a class="btn" href="/performance">騰落率一覧</a>
     <a class="btn" href="/stockchart">個別チャート</a>
     <a class="btn" href="/reference">参考情報</a>
+    <a class="btn" href="/groups">銘柄グループ</a>
     <a class="btn" href="/demand">シグナル</a>
     <a class="btn" href="/purchase" aria-current="page">銘柄購入</a>
     <a class="btn" href="/journal">売買記録</a>
@@ -49,40 +50,10 @@
     <p class="empty-inline" id="listEmpty">リストを選ぶか、新しいリストを作成してください。</p>
   </section>
 
-  <!-- ==================== 銘柄を探す ==================== -->
-  <section class="panel" id="searchPanel">
-    <h2 class="panel-title">銘柄を探す</h2>
-    <nav class="tabs inner" id="searchTabs">
-      <button class="tab" data-tab="sector" aria-selected="true" type="button">33業種</button>
-      <button class="tab" data-tab="tag" aria-selected="false" type="button">タグ</button>
-    </nav>
-    <div id="sectorBox" class="sector-grid"></div>
-    <div id="tagBox" class="tag-groups" hidden></div>
-    <div class="row">
-      <button class="btn" id="showBtn" type="button">銘柄一覧を表示</button>
-      <button class="link" id="clearSelBtn" type="button">選択を外す</button>
-      <span class="status" id="searchStatus"></span>
-    </div>
-  </section>
-
-  <section class="panel" id="resultPane" hidden>
-    <div class="result-bar">
-      <span class="result-count" id="resultCount"></span>
-      <span class="spacer"></span>
-      <button class="btn" id="addBtn" type="button">購入検討銘柄に追加</button>
-    </div>
-    <div class="table-wrap"><table id="resultTable"></table></div>
-    <p class="note">
-      株価は最新の終値。時価総額は最新の決算短信の株式数(自己株式を除く)× 終値。売買代金は直近20営業日の平均。
-      52週高値からの位置は直近250営業日の分割調整後の終値の最高値との比較。
-      外す候補は追加下落スコアの上位10%(売買代金1億円/日以上・52週高値から −15% 以下の銘柄の中での順位)。印にマウスを載せると中身が出ます。
-    </p>
-  </section>
-
   <!-- ==================== 購入検討銘柄(リストの中身と保存) ==================== -->
   <section class="panel" id="listBody" hidden>
     <h2 class="panel-title">購入検討銘柄</h2>
-    <label class="field-label">銘柄コード(カンマ区切り。手で入力・削除してもよい)
+    <label class="field-label">銘柄コード(カンマ区切り。手で入力・削除してもよい。銘柄グループの「リスト」でコピーしたものも貼れる)
       <textarea id="codesInput" rows="2" spellcheck="false"></textarea>
     </label>
     <div class="lookup" data-target="codesInput"></div>
@@ -115,7 +86,7 @@
   </section>
 
 </div>
-<script src="/purchase.js?v=20261104a"></script>
+<script src="/purchase.js?v=20261125a"></script>
 <script src="/codeLookup.js?v=20261021a"></script>
 </body>
 </html>

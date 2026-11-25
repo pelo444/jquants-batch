@@ -18,11 +18,6 @@
   var items = [];
   var savedCodes = [];
   var info = {};
-  var results = [];         // 銘柄一覧の結果
-  var resultSource = null;  // {from: 'SECTOR'|'TAG', tags?: string[]}
-  var sortKey = 'code';
-  var sortDir = 1;
-  var searchTab = 'sector';
   var avoid = null;         // 外す候補 {asOf, population, d10: {code: {...}}}(読み込み中は null)
 
   //------------------------------------------------------------------ 共通
@@ -99,8 +94,6 @@
       return;
     }
     $('dataMeta').textContent = '株価の最新日 ' + (meta.latestDate || '—');
-    renderSectors(meta.sectors);
-    renderTags(meta.tags);
     renderListSelect(meta.lists);
     loadAvoid();
     // 前回開いていたリストを開き直す
@@ -126,75 +119,6 @@
     });
     $('listSelect').innerHTML = html;
     if (currentList) $('listSelect').value = String(currentList.listId);
-  }
-
-  //------------------------------------------------------------------ 業種・タグ
-  function renderSectors(sectors) {
-    $('sectorBox').innerHTML = sectors.map(function (s) {
-      return '<label class="sector-item"><input type="checkbox" class="seccb" value="' + esc(s.code) +
-        '"><span>' + esc(s.name) + '</span>' +
-        '<span class="sector-count">' + s.count + '</span></label>';
-    }).join('');
-  }
-
-  function renderTags(tags) {
-    var groups = [];
-    var byMajor = {};
-    tags.forEach(function (t) {
-      // 番号なし(THEME)でも大分類名があるもの(売買記録の jnl_* タグ)は別のグループにする(app.js と同じ)
-      var key = t.majorCode || (t.majorLabel ? 'label:' + t.majorLabel : 'theme');
-      if (!byMajor[key]) {
-        byMajor[key] = { label: t.majorLabel || 'テーマ(番号なし)', items: [] };
-        groups.push(byMajor[key]);
-      }
-      byMajor[key].items.push(t);
-    });
-    $('tagBox').innerHTML = groups.map(function (g) {
-      return '<div class="tag-group"><div class="tag-group-head"><span>' + esc(g.label) + '</span></div>' +
-        '<div class="tag-list">' + g.items.map(function (t) {
-          return '<label class="tag-item' + (t.count === 0 ? ' zero' : '') + '">' +
-            '<input type="checkbox" class="tagcb" value="' + esc(t.tagName) + '">' +
-            '<span class="tag-code">' + esc(t.tagCode || '') + '</span>' +
-            '<span class="tag-name" title="' + esc(t.tagName) + '">' + esc(t.label) + '</span>' +
-            '<span class="tag-count">' + t.count + '</span></label>';
-        }).join('') + '</div></div>';
-    }).join('');
-  }
-
-  function checked(cls) {
-    return Array.prototype.slice.call(document.querySelectorAll('.' + cls + ':checked'));
-  }
-
-  async function showStocks() {
-    var url;
-    var src;
-    if (searchTab === 'sector') {
-      var secs = checked('seccb');
-      if (!secs.length) { $('searchStatus').textContent = '業種を1つ以上選んでください'; return; }
-      url = BASE_PATH + '/api/purchase/stocks?sectors=' + encodeURIComponent(secs.map(function (c) { return c.value; }).join(','));
-      src = { from: 'SECTOR' };
-    } else {
-      var tags = checked('tagcb');
-      if (!tags.length) { $('searchStatus').textContent = 'タグを1つ以上選んでください'; return; }
-      url = BASE_PATH + '/api/purchase/stocks?tags=' + encodeURIComponent(tags.map(function (c) { return c.value; }).join(','));
-      src = { from: 'TAG', tags: tags.map(function (c) { return c.value; }) };
-    }
-    $('searchStatus').textContent = '読み込み中…';
-    $('showBtn').disabled = true;
-    try {
-      var data = await api('GET', url);
-      results = data.rows;
-      resultSource = src;
-      results.forEach(function (r) { info[r.code] = r; });
-      $('searchStatus').textContent = '';
-      $('resultPane').hidden = false;
-      renderResults();
-    } catch (e) {
-      $('searchStatus').textContent = '';
-      flash('一覧を取得できませんでした: ' + e.message, true);
-    } finally {
-      $('showBtn').disabled = false;
-    }
   }
 
   var COLS = [
@@ -233,21 +157,6 @@
     }
   }
 
-  function sorted(rows) {
-    var val = function (r) {
-      if (sortKey === 'avoid') return avoid && avoid.d10[r.code] ? 1 : 0;
-      return r[sortKey];
-    };
-    return rows.slice().sort(function (a, b) {
-      var x = val(a);
-      var y = val(b);
-      if (x === null || x === undefined) return 1;
-      if (y === null || y === undefined) return -1;
-      if (typeof x === 'string') return x.localeCompare(y, 'ja') * sortDir;
-      return (x - y) * sortDir;
-    });
-  }
-
   /** 外す候補は全銘柄を計算するので時間がかかる(初回10秒ほど)。表示とは別に読み込み、届いたら描き直す */
   async function loadAvoid() {
     try {
@@ -256,67 +165,7 @@
       avoid = { asOf: null, population: 0, d10: {}, error: e.message };
       flash('外す候補を計算できませんでした: ' + e.message, true);
     }
-    if (results.length) renderResults();
     if (currentList) renderList();
-  }
-
-  function renderResults() {
-    var inList = {};
-    items.forEach(function (i) { inList[i.code] = true; });
-    var head = '<thead><tr><th class="c-sel"><input type="checkbox" id="selAll" title="すべて選ぶ"></th>' +
-      COLS.map(function (c) {
-        return '<th class="sortable' + (c.num ? ' num-col' : '') + '" data-key="' + c.key + '"' +
-          (sortKey === c.key ? ' aria-sort="' + (sortDir > 0 ? 'ascending' : 'descending') + '"' : '') + '>' + c.label + '</th>';
-      }).join('') + '</tr></thead>';
-    var body = '<tbody>' + sorted(results).map(function (r) {
-      var on = inList[r.code];
-      return '<tr class="' + (on ? 'in-list' : '') + '"><td class="c-sel">' +
-        (on ? '<span class="inlist-badge">リスト</span>'
-            : '<input type="checkbox" class="pick" value="' + esc(r.code) + '">') + '</td>' +
-        COLS.map(function (c) { return cellHtml(r, c.key); }).join('') + '</tr>';
-    }).join('') + '</tbody>';
-    $('resultTable').innerHTML = head + body;
-    $('resultCount').textContent = results.length + '銘柄';
-
-    Array.prototype.forEach.call($('resultTable').querySelectorAll('th.sortable'), function (th) {
-      th.addEventListener('click', function () {
-        var k = th.getAttribute('data-key');
-        if (sortKey === k) sortDir = -sortDir;
-        else { sortKey = k; sortDir = COLS.some(function (c) { return c.key === k && c.num; }) ? -1 : 1; }
-        renderResults();
-      });
-    });
-    $('selAll').addEventListener('change', function (e) {
-      Array.prototype.forEach.call($('resultTable').querySelectorAll('.pick'), function (cb) { cb.checked = e.target.checked; });
-    });
-  }
-
-  /** タグ一覧から追加したときの「追加元の詳細」= 選択中のタグ名(複数ならカンマ区切り、100文字まで) */
-  function tagDetail() {
-    if (!resultSource || resultSource.from !== 'TAG') return null;
-    return resultSource.tags.join(',').slice(0, 100);
-  }
-
-  function addPicked() {
-    if (!currentList) { flash('先にリストを選ぶか作成してください', true); return; }
-    var picks = Array.prototype.map.call($('resultTable').querySelectorAll('.pick:checked'), function (cb) { return cb.value; });
-    if (!picks.length) { flash('追加する銘柄にチェックを入れてください', true); return; }
-    var room = meta.maxItems - items.length;
-    if (picks.length > room) {
-      flash('追加すると' + meta.maxItems + '銘柄を超えます。あと' + Math.max(room, 0) + '銘柄まで追加できます', true);
-      return;
-    }
-    picks.forEach(function (code) {
-      var r = info[code];
-      items.push({
-        code: code,
-        from: resultSource.from,
-        detail: resultSource.from === 'SECTOR' ? (r && r.sectorCode) : tagDetail(),
-      });
-    });
-    renderList();
-    renderResults();
-    flash(picks.length + '銘柄を追加しました(まだ保存していません)');
   }
 
   //------------------------------------------------------------------ リスト
@@ -331,7 +180,6 @@
       l.rows.forEach(function (r) { info[r.code] = r; });
       try { localStorage.setItem('jqb-purchase-list', String(listId)); } catch (e) { /* noop */ }
       renderList();
-      if (results.length) renderResults();
     } catch (e) {
       flash('リストを開けませんでした: ' + e.message, true);
     }
@@ -369,7 +217,6 @@
         var code = b.getAttribute('data-code');
         items = items.filter(function (i) { return i.code !== code; });
         renderList();
-        if (results.length) renderResults();
       });
     });
     var rem = currentList.removed || [];
@@ -416,7 +263,6 @@
     }
     items = codes.map(function (c) { return byCode[c] || { code: c, from: 'MANUAL', detail: null }; });
     renderList();
-    if (results.length) renderResults();
   }
 
   /** 保存。b) のボタンからも呼ぶので、成否を返す */
@@ -770,7 +616,6 @@
         currentList = null; items = []; savedCodes = [];
         try { localStorage.removeItem('jqb-purchase-list'); } catch (e) { /* noop */ }
         renderList();
-        if (results.length) renderResults();
         return;
       }
       openList(Number(v));
@@ -780,22 +625,6 @@
     $('closeListBtn').addEventListener('click', toggleClose);
     $('codesInput').addEventListener('change', applyCodesInput);
     $('saveBtn').addEventListener('click', saveList);
-    $('showBtn').addEventListener('click', showStocks);
-    $('addBtn').addEventListener('click', addPicked);
-    $('clearSelBtn').addEventListener('click', function () {
-      checked(searchTab === 'sector' ? 'seccb' : 'tagcb').forEach(function (c) { c.checked = false; });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('#searchTabs .tab'), function (t) {
-      t.addEventListener('click', function () {
-        searchTab = t.getAttribute('data-tab');
-        Array.prototype.forEach.call(document.querySelectorAll('#searchTabs .tab'), function (x) {
-          x.setAttribute('aria-selected', x === t ? 'true' : 'false');
-        });
-        $('sectorBox').hidden = searchTab !== 'sector';
-        $('tagBox').hidden = searchTab !== 'tag';
-        $('searchStatus').textContent = '';
-      });
-    });
     window.addEventListener('beforeunload', function (e) {
       if (currentList && isDirty()) { e.preventDefault(); e.returnValue = ''; }
     });
