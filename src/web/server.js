@@ -982,6 +982,41 @@ function refreshCache(key, fn, ttlOf) {
 
 const extTtl = (ext) => (ext.errors.length ? MARKET_RETRY_MS : MARKET_TTL_MS);
 
+// Yahoo の取得全体の打ち切り。fetch 自体にも10秒の打ち切りがあるが、2026-11-26 06:08 に
+// 日足の取得が終わらないまま残り、refreshCache の相乗りで以後の要求がすべてそれを待ち続けて
+// 市場のページが出なくなった(23時台に再起動で復旧)。ここで必ず終わらせ、取れなかった扱いにする。
+// 取れなかったときは extTtl により1分で取り直す。
+const MARKET_EXT_DEADLINE_MS = 30 * 1000;
+
+/** fn() が ms 以内に終わらなければ onTimeout() の値で終わる。fn() 側の処理は止めない(結果は捨てる) */
+function withDeadline(ms, fn, onTimeout) {
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout()), ms);
+  });
+  return Promise.race([Promise.resolve().then(fn), deadline]).finally(() => clearTimeout(timer));
+}
+
+const deadlineNote = `${MARKET_EXT_DEADLINE_MS / 1000}秒以内に応答が無かった`;
+
+function fetchExtWithDeadline(now) {
+  return withDeadline(MARKET_EXT_DEADLINE_MS, () => marketQuery.fetchExternalPart(now), () => {
+    console.error(`[market] Yahoo日足 ${MARKET_EXT_DEADLINE_MS}ms で打ち切りました`);
+    return {
+      series: {},
+      errors: [`米国3指数・日経先物・日経平均の日足を取得できませんでした(${deadlineNote})`],
+      fetchedAt: new Date(now).toISOString(),
+    };
+  });
+}
+
+function fetchLiveWithDeadline(now) {
+  return withDeadline(MARKET_EXT_DEADLINE_MS, () => marketQuery.fetchLivePart(now), () => {
+    console.error(`[market] 日経先物の現在値 ${MARKET_EXT_DEADLINE_MS}ms で打ち切りました`);
+    return { niy: null, errors: [`日経先物の現在値を取得できませんでした(${deadlineNote})`] };
+  });
+}
+
 function marketDb(today, force) {
   const key = 'market:db:' + today;
   if (!force) {
@@ -997,13 +1032,13 @@ function marketExt(today, now, force) {
     const hit = cacheGet(key);
     if (hit) return Promise.resolve(hit);
   }
-  return refreshCache(key, () => timed('Yahoo日足', () => marketQuery.fetchExternalPart(now)), extTtl);
+  return refreshCache(key, () => timed('Yahoo日足', () => fetchExtWithDeadline(now)), extTtl);
 }
 
 function marketLive(now) {
   const hit = cacheGet('market:live');
   if (hit) return Promise.resolve(hit);
-  return refreshCache('market:live', () => timed('日経先物の現在値', () => marketQuery.fetchLivePart(now)),
+  return refreshCache('market:live', () => timed('日経先物の現在値', () => fetchLiveWithDeadline(now)),
     () => MARKET_LIVE_TTL_MS);
 }
 
